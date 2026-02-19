@@ -18,7 +18,9 @@ type Engine struct {
 	internalRowIDCol string
 }
 
-// New creates a new engine, opens the file and creates a view.
+// New creates a new engine, opens the file, and creates query objects.
+// Note: t_base is intentionally materialized to keep a stable internal row id
+// across queries; this trades startup/memory for stable jump/offset behavior.
 func New(path string) (*Engine, error) {
 	db, err := sql.Open("duckdb", "")
 	if err != nil {
@@ -248,13 +250,13 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 		// Histogram
 		if ns.Min != ns.Max {
 			binExpr := fmt.Sprintf(
-				`LEAST(10, GREATEST(1, CAST(FLOOR(((%s::DOUBLE - %f) / NULLIF(%f, 0)) * 10) AS INTEGER) + 1))`,
-				col, ns.Min, ns.Max-ns.Min,
+				`LEAST(10, GREATEST(1, CAST(FLOOR(((%s::DOUBLE - ?) / NULLIF(?, 0)) * 10) AS INTEGER) + 1))`,
+				col,
 			)
 			hq := fmt.Sprintf(`SELECT %s AS b, count(*) AS cnt
 				FROM t WHERE %s IS NOT NULL
 				GROUP BY b ORDER BY b`, binExpr, col)
-			hrows, err := e.db.QueryContext(ctx, hq)
+			hrows, err := e.db.QueryContext(ctx, hq, ns.Min, ns.Max-ns.Min)
 			if err != nil {
 				return err
 			}
@@ -268,13 +270,13 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 			}
 
 			for hrows.Next() {
-				var bucket int
+				var bucket sql.NullInt64
 				var cnt int64
 				if err := hrows.Scan(&bucket, &cnt); err != nil {
 					return err
 				}
-				if bucket >= 1 && bucket <= 10 {
-					bins[bucket-1].Count = cnt
+				if bucket.Valid && bucket.Int64 >= 1 && bucket.Int64 <= 10 {
+					bins[bucket.Int64-1].Count = cnt
 				}
 			}
 			summary.Hist = &types.Histogram{Bins: bins}

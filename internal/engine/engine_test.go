@@ -260,55 +260,80 @@ func TestIsNumericType(t *testing.T) {
 }
 
 func TestInternalRowIDNameCollision(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "collision.csv")
-	csv := "rowid,value\nuser-1,1\nuser-2,\nuser-3,3\n"
-	if err := os.WriteFile(path, []byte(csv), 0o644); err != nil {
-		t.Fatalf("write csv: %v", err)
+	tests := []struct {
+		name               string
+		header             string
+		expectedInternalID string
+	}{
+		{
+			name:               "base_name_collision",
+			header:             "__pv_rowid",
+			expectedInternalID: "__pv_rowid_1",
+		},
+		{
+			name:               "mixed_case_base_name_collision",
+			header:             "__PV_RowID",
+			expectedInternalID: "__pv_rowid_1",
+		},
 	}
 
-	eng, err := New(path)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer eng.Close()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "collision.csv")
+			csv := tc.header + ",value\nuser-1,1\nuser-2,\nuser-3,3\n"
+			if err := os.WriteFile(path, []byte(csv), 0o644); err != nil {
+				t.Fatalf("write csv: %v", err)
+			}
 
-	colNames := make([]string, 0, len(eng.Columns()))
-	for _, c := range eng.Columns() {
-		colNames = append(colNames, c.Name)
-	}
-	if !slices.Contains(colNames, "rowid") {
-		t.Fatalf("expected user column rowid to be present, columns=%v", colNames)
-	}
+			eng, err := New(path)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			defer eng.Close()
 
-	ctx := context.Background()
-	rowID, err := eng.FirstNullRow(ctx, "value", "")
-	if err != nil {
-		t.Fatalf("FirstNullRow: %v", err)
-	}
-	if rowID != 2 {
-		t.Fatalf("unexpected null row id: got %d want 2", rowID)
-	}
+			if eng.internalRowIDCol != tc.expectedInternalID {
+				t.Fatalf("unexpected internal row id column: got %q want %q", eng.internalRowIDCol, tc.expectedInternalID)
+			}
 
-	offset, err := eng.OffsetForRowID(ctx, rowID, "")
-	if err != nil {
-		t.Fatalf("OffsetForRowID: %v", err)
-	}
-	if offset != 1 {
-		t.Fatalf("unexpected offset: got %d want 1", offset)
-	}
+			colNames := make([]string, 0, len(eng.Columns()))
+			for _, c := range eng.Columns() {
+				colNames = append(colNames, c.Name)
+			}
+			if !slices.Contains(colNames, tc.header) {
+				t.Fatalf("expected user column %q to be present, columns=%v", tc.header, colNames)
+			}
 
-	rows, err := eng.Preview(ctx, []string{"rowid", "value"}, "", 1, int(offset))
-	if err != nil {
-		t.Fatalf("Preview: %v", err)
-	}
-	if len(rows) != 1 || len(rows[0]) != 2 {
-		t.Fatalf("unexpected preview shape: %v", rows)
-	}
-	if got := fmt.Sprintf("%v", rows[0][0]); got != "user-2" {
-		t.Fatalf("unexpected user rowid value: got %q want %q", got, "user-2")
-	}
-	if rows[0][1] != "NULL" {
-		t.Fatalf("expected NULL in value column, got %q", rows[0][1])
+			ctx := context.Background()
+			rowID, err := eng.FirstNullRow(ctx, "value", "")
+			if err != nil {
+				t.Fatalf("FirstNullRow: %v", err)
+			}
+			if rowID != 2 {
+				t.Fatalf("unexpected null row id: got %d want 2", rowID)
+			}
+
+			offset, err := eng.OffsetForRowID(ctx, rowID, "")
+			if err != nil {
+				t.Fatalf("OffsetForRowID: %v", err)
+			}
+			if offset != 1 {
+				t.Fatalf("unexpected offset: got %d want 1", offset)
+			}
+
+			rows, err := eng.Preview(ctx, []string{tc.header, "value"}, "", 1, int(offset))
+			if err != nil {
+				t.Fatalf("Preview: %v", err)
+			}
+			if len(rows) != 1 || len(rows[0]) != 2 {
+				t.Fatalf("unexpected preview shape: %v", rows)
+			}
+			if got := fmt.Sprintf("%v", rows[0][0]); got != "user-2" {
+				t.Fatalf("unexpected user row id value: got %q want %q", got, "user-2")
+			}
+			if rows[0][1] != "NULL" {
+				t.Fatalf("expected NULL in value column, got %q", rows[0][1])
+			}
+		})
 	}
 }
