@@ -2,8 +2,10 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	_ "github.com/marcboeker/go-duckdb"
@@ -136,7 +138,7 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	}
 
 	var expectedRowID int64
-	q := `SELECT min("__pv_rowid") FROM t_base WHERE "score" IS NULL AND (` + filter + `)`
+	q := `SELECT min(rowid + 1) FROM t_base WHERE "score" IS NULL AND (` + filter + `)`
 	if err := eng.db.QueryRowContext(ctx, q).Scan(&expectedRowID); err != nil {
 		t.Fatalf("query expected row id: %v", err)
 	}
@@ -150,7 +152,7 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	}
 
 	var expectedOffset int64
-	oq := `SELECT count(*) FROM t_base WHERE "__pv_rowid" < ? AND (` + filter + `)`
+	oq := `SELECT count(*) FROM t_base WHERE (rowid + 1) < ? AND (` + filter + `)`
 	if err := eng.db.QueryRowContext(ctx, oq, rowID).Scan(&expectedOffset); err != nil {
 		t.Fatalf("query expected offset: %v", err)
 	}
@@ -167,6 +169,38 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	}
 	if rows[0][0] != "NULL" {
 		t.Fatalf("expected null score at jump target, got %q", rows[0][0])
+	}
+}
+
+func TestFirstNullRowStableAcrossQueries(t *testing.T) {
+	eng := openSampleParquet(t)
+	defer eng.Close()
+
+	ctx := context.Background()
+	filter := BuildNullFilter([]string{"score", "category"})
+
+	rowID1, err := eng.FirstNullRow(ctx, "score", filter)
+	if err != nil {
+		t.Fatalf("FirstNullRow first call: %v", err)
+	}
+	if rowID1 == 0 {
+		t.Fatal("expected first null row id")
+	}
+
+	// Exercise multiple queries in between repeated null-jump calls.
+	if _, err := eng.Preview(ctx, []string{"id", "score"}, filter, 5, 0); err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if _, err := eng.Preview(ctx, []string{"id", "score"}, filter, 5, 3); err != nil {
+		t.Fatalf("Preview with offset: %v", err)
+	}
+
+	rowID2, err := eng.FirstNullRow(ctx, "score", filter)
+	if err != nil {
+		t.Fatalf("FirstNullRow second call: %v", err)
+	}
+	if rowID1 != rowID2 {
+		t.Fatalf("unstable row id across queries: first=%d second=%d", rowID1, rowID2)
 	}
 }
 
@@ -222,5 +256,59 @@ func TestIsNumericType(t *testing.T) {
 	}
 	if !isNumericType("DECIMAL(10,2)") {
 		t.Fatal("DECIMAL(10,2) should be treated as numeric")
+	}
+}
+
+func TestInternalRowIDNameCollision(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "collision.csv")
+	csv := "__pv_rowid,value\nuser-1,1\nuser-2,\nuser-3,3\n"
+	if err := os.WriteFile(path, []byte(csv), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer eng.Close()
+
+	colNames := make([]string, 0, len(eng.Columns()))
+	for _, c := range eng.Columns() {
+		colNames = append(colNames, c.Name)
+	}
+	if !slices.Contains(colNames, "__pv_rowid") {
+		t.Fatalf("expected user column __pv_rowid to be present, columns=%v", colNames)
+	}
+
+	ctx := context.Background()
+	rowID, err := eng.FirstNullRow(ctx, "value", "")
+	if err != nil {
+		t.Fatalf("FirstNullRow: %v", err)
+	}
+	if rowID != 2 {
+		t.Fatalf("unexpected null row id: got %d want 2", rowID)
+	}
+
+	offset, err := eng.OffsetForRowID(ctx, rowID, "")
+	if err != nil {
+		t.Fatalf("OffsetForRowID: %v", err)
+	}
+	if offset != 1 {
+		t.Fatalf("unexpected offset: got %d want 1", offset)
+	}
+
+	rows, err := eng.Preview(ctx, []string{"__pv_rowid", "value"}, "", 1, int(offset))
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if len(rows) != 1 || len(rows[0]) != 2 {
+		t.Fatalf("unexpected preview shape: %v", rows)
+	}
+	if got := fmt.Sprintf("%v", rows[0][0]); got != "user-2" {
+		t.Fatalf("unexpected user __pv_rowid value: got %q want %q", got, "user-2")
+	}
+	if rows[0][1] != "NULL" {
+		t.Fatalf("expected NULL in value column, got %q", rows[0][1])
 	}
 }

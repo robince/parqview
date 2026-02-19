@@ -17,8 +17,6 @@ type Engine struct {
 	columns   []types.ColumnInfo
 }
 
-const internalRowIDCol = "__pv_rowid"
-
 // New creates a new engine, opens the file and creates a view.
 func New(path string) (*Engine, error) {
 	db, err := sql.Open("duckdb", "")
@@ -39,11 +37,11 @@ func New(path string) (*Engine, error) {
 	}
 
 	query := fmt.Sprintf(`
-		CREATE VIEW t_base AS
-		SELECT row_number() OVER ()::BIGINT AS %s, * FROM %s;
+		CREATE TABLE t_base AS
+		SELECT * FROM %s;
 		CREATE VIEW t AS
-		SELECT * EXCLUDE (%s) FROM t_base;
-	`, quoteIdent(internalRowIDCol), sourceExpr, quoteIdent(internalRowIDCol))
+		SELECT * FROM t_base;
+	`, sourceExpr)
 
 	if _, err := db.Exec(query); err != nil {
 		db.Close()
@@ -119,7 +117,7 @@ func (e *Engine) Preview(ctx context.Context, colNames []string, rowFilter strin
 	if rowFilter != "" {
 		q += " WHERE " + rowFilter
 	}
-	q += fmt.Sprintf(" ORDER BY %s LIMIT %d OFFSET %d", quoteIdent(internalRowIDCol), limit, offset)
+	q += fmt.Sprintf(" ORDER BY rowid LIMIT %d OFFSET %d", limit, offset)
 
 	rows, err := e.db.QueryContext(ctx, q)
 	if err != nil {
@@ -289,7 +287,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 // FirstNullRow returns the internal row id of the first null in a column, or 0 if none.
 func (e *Engine) FirstNullRow(ctx context.Context, colName, rowFilter string) (int64, error) {
 	col := quoteIdent(colName)
-	q := fmt.Sprintf("SELECT min(%s) FROM t_base WHERE %s IS NULL", quoteIdent(internalRowIDCol), col)
+	q := fmt.Sprintf("SELECT min(rowid + 1) FROM t_base WHERE %s IS NULL", col)
 	if rowFilter != "" {
 		q += " AND (" + rowFilter + ")"
 	}
@@ -309,13 +307,13 @@ func (e *Engine) OffsetForRowID(ctx context.Context, rowID int64, rowFilter stri
 		return 0, nil
 	}
 
-	q := fmt.Sprintf("SELECT count(*) FROM t_base WHERE %s < %d", quoteIdent(internalRowIDCol), rowID)
+	q := "SELECT count(*) FROM t_base WHERE (rowid + 1) < ?"
 	if rowFilter != "" {
 		q += " AND (" + rowFilter + ")"
 	}
 
 	var offset int64
-	if err := e.db.QueryRowContext(ctx, q).Scan(&offset); err != nil {
+	if err := e.db.QueryRowContext(ctx, q, rowID).Scan(&offset); err != nil {
 		return 0, err
 	}
 	return offset, nil
