@@ -218,26 +218,39 @@ func TestFirstNullRowStableAcrossQueries(t *testing.T) {
 
 	rowID1, err := eng.FirstNullRow(ctx, "score", filter)
 	if err != nil {
-		t.Fatalf("FirstNullRow first call: %v", err)
+		t.Fatalf("FirstNullRow baseline: %v", err)
 	}
 	if rowID1 == 0 {
 		t.Fatal("expected first null row id")
 	}
 
-	// Exercise multiple queries in between repeated null-jump calls.
-	if _, err := eng.Preview(ctx, []string{"id", "score"}, filter, 5, 0); err != nil {
-		t.Fatalf("Preview: %v", err)
-	}
-	if _, err := eng.Preview(ctx, []string{"id", "score"}, filter, 5, 3); err != nil {
-		t.Fatalf("Preview with offset: %v", err)
-	}
+	for i := 0; i < 50; i++ {
+		if _, err := eng.Preview(ctx, []string{"id", "score"}, filter, 5, i%4); err != nil {
+			t.Fatalf("Preview iteration %d: %v", i, err)
+		}
 
-	rowID2, err := eng.FirstNullRow(ctx, "score", filter)
-	if err != nil {
-		t.Fatalf("FirstNullRow second call: %v", err)
-	}
-	if rowID1 != rowID2 {
-		t.Fatalf("unstable row id across queries: first=%d second=%d", rowID1, rowID2)
+		rowID2, err := eng.FirstNullRow(ctx, "score", filter)
+		if err != nil {
+			t.Fatalf("FirstNullRow iteration %d: %v", i, err)
+		}
+		if rowID1 != rowID2 {
+			t.Fatalf("unstable row id across queries at iter %d: first=%d now=%d", i, rowID1, rowID2)
+		}
+
+		offset, err := eng.OffsetForRowID(ctx, rowID2, filter)
+		if err != nil {
+			t.Fatalf("OffsetForRowID iteration %d: %v", i, err)
+		}
+		rows, err := eng.Preview(ctx, []string{"score"}, filter, 1, int(offset))
+		if err != nil {
+			t.Fatalf("Preview jump iteration %d: %v", i, err)
+		}
+		if len(rows) != 1 || len(rows[0]) != 1 {
+			t.Fatalf("unexpected jump preview shape at iter %d: %#v", i, rows)
+		}
+		if rows[0][0] != "NULL" {
+			t.Fatalf("expected null score at iter %d, got %q", i, rows[0][0])
+		}
 	}
 }
 

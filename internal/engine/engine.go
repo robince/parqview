@@ -44,7 +44,7 @@ func New(path string) (*Engine, error) {
 	}
 
 	query := fmt.Sprintf(`
-		CREATE VIEW t_base AS
+		CREATE TABLE t_base AS
 		SELECT row_number() OVER ()::BIGINT AS %s, * FROM %s;
 		CREATE VIEW t AS
 		SELECT * EXCLUDE (%s) FROM t_base;
@@ -52,7 +52,7 @@ func New(path string) (*Engine, error) {
 
 	if _, err := db.Exec(query); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("create view: %w", err)
+		return nil, fmt.Errorf("create base objects: %w", err)
 	}
 
 	e := &Engine{db: db, internalRowIDCol: internalRowIDCol}
