@@ -185,7 +185,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case profileBasicDoneMsg:
 		if msg.err == nil && msg.summary != nil {
-			m.summaries[msg.colName] = msg.summary
+			existing, exists := m.summaries[msg.colName]
+			if !(exists && existing != nil && existing.DetailLoaded) {
+				m.summaries[msg.colName] = msg.summary
+			}
 		}
 		// Chain: profile the next column
 		return m, m.profileNext()
