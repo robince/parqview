@@ -266,6 +266,11 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 		expectedInternalID string
 	}{
 		{
+			name:               "legacy_rowid_column",
+			header:             "rowid",
+			expectedInternalID: "__pv_rowid",
+		},
+		{
 			name:               "base_name_collision",
 			header:             "__pv_rowid",
 			expectedInternalID: "__pv_rowid_1",
