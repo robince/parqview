@@ -12,9 +12,10 @@ import (
 
 // Engine wraps a DuckDB connection for querying a data file.
 type Engine struct {
-	db        *sql.DB
-	totalRows int64
-	columns   []types.ColumnInfo
+	db               *sql.DB
+	totalRows        int64
+	columns          []types.ColumnInfo
+	internalRowIDCol string
 }
 
 // New creates a new engine, opens the file and creates a view.
@@ -36,19 +37,25 @@ func New(path string) (*Engine, error) {
 		return nil, fmt.Errorf("unsupported file extension: %s", ext)
 	}
 
+	internalRowIDCol, err := uniqueInternalRowIDCol(db, sourceExpr)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("resolve internal row id column: %w", err)
+	}
+
 	query := fmt.Sprintf(`
 		CREATE TABLE t_base AS
-		SELECT * FROM %s;
+		SELECT row_number() OVER ()::BIGINT AS %s, * FROM %s;
 		CREATE VIEW t AS
-		SELECT * FROM t_base;
-	`, sourceExpr)
+		SELECT * EXCLUDE (%s) FROM t_base;
+	`, quoteIdent(internalRowIDCol), sourceExpr, quoteIdent(internalRowIDCol))
 
 	if _, err := db.Exec(query); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create view: %w", err)
 	}
 
-	e := &Engine{db: db}
+	e := &Engine{db: db, internalRowIDCol: internalRowIDCol}
 
 	if err := e.loadSchema(); err != nil {
 		db.Close()
@@ -117,7 +124,7 @@ func (e *Engine) Preview(ctx context.Context, colNames []string, rowFilter strin
 	if rowFilter != "" {
 		q += " WHERE " + rowFilter
 	}
-	q += fmt.Sprintf(" ORDER BY rowid LIMIT %d OFFSET %d", limit, offset)
+	q += fmt.Sprintf(" ORDER BY %s LIMIT %d OFFSET %d", quoteIdent(e.internalRowIDCol), limit, offset)
 
 	rows, err := e.db.QueryContext(ctx, q)
 	if err != nil {
@@ -287,7 +294,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 // FirstNullRow returns the internal row id of the first null in a column, or 0 if none.
 func (e *Engine) FirstNullRow(ctx context.Context, colName, rowFilter string) (int64, error) {
 	col := quoteIdent(colName)
-	q := fmt.Sprintf("SELECT min(rowid + 1) FROM t_base WHERE %s IS NULL", col)
+	q := fmt.Sprintf("SELECT min(%s) FROM t_base WHERE %s IS NULL", quoteIdent(e.internalRowIDCol), col)
 	if rowFilter != "" {
 		q += " AND (" + rowFilter + ")"
 	}
@@ -307,7 +314,7 @@ func (e *Engine) OffsetForRowID(ctx context.Context, rowID int64, rowFilter stri
 		return 0, nil
 	}
 
-	q := "SELECT count(*) FROM t_base WHERE (rowid + 1) < ?"
+	q := fmt.Sprintf("SELECT count(*) FROM t_base WHERE %s < ?", quoteIdent(e.internalRowIDCol))
 	if rowFilter != "" {
 		q += " AND (" + rowFilter + ")"
 	}
@@ -361,4 +368,34 @@ func quoteIdent(name string) string {
 
 func escapeSQLString(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
+}
+
+func uniqueInternalRowIDCol(db *sql.DB, sourceExpr string) (string, error) {
+	rows, err := db.Query(fmt.Sprintf("DESCRIBE SELECT * FROM %s", sourceExpr))
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	used := make(map[string]struct{})
+	for rows.Next() {
+		var name, dtype string
+		var null, key, def, extra sql.NullString
+		if err := rows.Scan(&name, &dtype, &null, &key, &def, &extra); err != nil {
+			return "", err
+		}
+		used[strings.ToLower(name)] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+
+	base := "__pv_rowid"
+	candidate := base
+	for i := 1; ; i++ {
+		if _, exists := used[strings.ToLower(candidate)]; !exists {
+			return candidate, nil
+		}
+		candidate = fmt.Sprintf("%s_%d", base, i)
+	}
 }

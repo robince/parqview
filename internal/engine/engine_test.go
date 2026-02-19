@@ -138,7 +138,7 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	}
 
 	var expectedRowID int64
-	q := `SELECT min(rowid + 1) FROM t_base WHERE "score" IS NULL AND (` + filter + `)`
+	q := `SELECT min(` + quoteIdent(eng.internalRowIDCol) + `) FROM t_base WHERE "score" IS NULL AND (` + filter + `)`
 	if err := eng.db.QueryRowContext(ctx, q).Scan(&expectedRowID); err != nil {
 		t.Fatalf("query expected row id: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	}
 
 	var expectedOffset int64
-	oq := `SELECT count(*) FROM t_base WHERE (rowid + 1) < ? AND (` + filter + `)`
+	oq := `SELECT count(*) FROM t_base WHERE ` + quoteIdent(eng.internalRowIDCol) + ` < ? AND (` + filter + `)`
 	if err := eng.db.QueryRowContext(ctx, oq, rowID).Scan(&expectedOffset); err != nil {
 		t.Fatalf("query expected offset: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestIsNumericType(t *testing.T) {
 func TestInternalRowIDNameCollision(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "collision.csv")
-	csv := "__pv_rowid,value\nuser-1,1\nuser-2,\nuser-3,3\n"
+	csv := "rowid,value\nuser-1,1\nuser-2,\nuser-3,3\n"
 	if err := os.WriteFile(path, []byte(csv), 0o644); err != nil {
 		t.Fatalf("write csv: %v", err)
 	}
@@ -277,8 +277,8 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 	for _, c := range eng.Columns() {
 		colNames = append(colNames, c.Name)
 	}
-	if !slices.Contains(colNames, "__pv_rowid") {
-		t.Fatalf("expected user column __pv_rowid to be present, columns=%v", colNames)
+	if !slices.Contains(colNames, "rowid") {
+		t.Fatalf("expected user column rowid to be present, columns=%v", colNames)
 	}
 
 	ctx := context.Background()
@@ -298,7 +298,7 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 		t.Fatalf("unexpected offset: got %d want 1", offset)
 	}
 
-	rows, err := eng.Preview(ctx, []string{"__pv_rowid", "value"}, "", 1, int(offset))
+	rows, err := eng.Preview(ctx, []string{"rowid", "value"}, "", 1, int(offset))
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 		t.Fatalf("unexpected preview shape: %v", rows)
 	}
 	if got := fmt.Sprintf("%v", rows[0][0]); got != "user-2" {
-		t.Fatalf("unexpected user __pv_rowid value: got %q want %q", got, "user-2")
+		t.Fatalf("unexpected user rowid value: got %q want %q", got, "user-2")
 	}
 	if rows[0][1] != "NULL" {
 		t.Fatalf("expected NULL in value column, got %q", rows[0][1])
