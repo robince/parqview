@@ -55,8 +55,9 @@ type previewDoneMsg struct {
 }
 
 type firstNullMsg struct {
-	row int64
-	err error
+	rowID  int64
+	offset int64
+	err    error
 }
 
 type statusMsg string
@@ -93,14 +94,14 @@ type Model struct {
 	summaries map[string]*types.ColumnSummary
 
 	// UI state
-	focus       Focus
-	overlay     Overlay
-	detailCol   string // column shown in detail panel
-	detailTab   int    // 0=TopValues, 1=Stats, 2=Histogram
-	width       int
-	height      int
-	statusMsg   string
-	ready       bool
+	focus     Focus
+	overlay   Overlay
+	detailCol string // column shown in detail panel
+	detailTab int    // 0=TopValues, 1=Stats, 2=Histogram
+	width     int
+	height    int
+	statusMsg string
+	ready     bool
 
 	pageSize int // rows per page
 }
@@ -118,16 +119,16 @@ func NewModel(eng *engine.Engine, fileName string) Model {
 	ti.CharLimit = 256
 
 	m := Model{
-		engine:     eng,
-		fileName:   fileName,
-		columns:    cols,
-		sel:        selection.New(names),
+		engine:      eng,
+		fileName:    fileName,
+		columns:     cols,
+		sel:         selection.New(names),
 		searchInput: ti,
-		summaries:  make(map[string]*types.ColumnSummary),
-		filterRows: -1,
-		totalRows:  eng.TotalRows(),
-		pageSize:   50,
-		focus:      FocusTable,
+		summaries:   make(map[string]*types.ColumnSummary),
+		filterRows:  -1,
+		totalRows:   eng.TotalRows(),
+		pageSize:    50,
+		focus:       FocusTable,
 	}
 	m.updateFilteredCols()
 	return m
@@ -174,6 +175,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.filterRows >= 0 {
 				m.filterRows = msg.filterRows
 			}
+			prevOffset := m.tableOffset
+			m.clampTableOffset()
+			if m.tableOffset != prevOffset {
+				return m, m.loadPreview()
+			}
 		}
 		return m, nil
 
@@ -193,13 +199,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case firstNullMsg:
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
-		} else if msg.row == 0 {
+		} else if msg.rowID == 0 {
 			m.statusMsg = "No nulls found"
 		} else {
 			// Jump to the row
-			m.tableOffset = max(0, int(msg.row-1))
+			m.tableOffset = max(0, int(msg.offset))
+			m.clampTableOffset()
 			m.overlay = OverlayNone
-			m.statusMsg = fmt.Sprintf("Jumped to row %d", msg.row)
+			m.statusMsg = fmt.Sprintf("Jumped to row %d", msg.rowID)
 			return m, m.loadPreview()
 		}
 		return m, nil
@@ -254,7 +261,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "t":
 			m.detailTab = (m.detailTab + 1) % 3
 		case "n":
-			return m, m.jumpToFirstNull(m.detailCol)
+			return m, m.jumpToFirstNull(m.detailCol, m.rowFilter)
 		}
 		return m, nil
 	}
@@ -334,7 +341,12 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			m.overlay = OverlayDetail
 			// Trigger detail profiling if needed
 			if s, ok := m.summaries[m.detailCol]; !ok || !s.DetailLoaded {
-				return m, m.loadDetail(m.detailCol)
+				var existing *types.ColumnSummary
+				if ok && s != nil {
+					copySummary := *s
+					existing = &copySummary
+				}
+				return m, m.loadDetail(m.detailCol, existing, m.columnType(m.detailCol))
 			}
 		}
 	}
@@ -349,13 +361,16 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			return m, m.loadPreview()
 		}
 	case "down", "j":
-		m.tableOffset++
-		return m, m.loadPreview()
+		maxOffset := m.maxTableOffset()
+		if m.tableOffset < maxOffset {
+			m.tableOffset++
+			return m, m.loadPreview()
+		}
 	case "g":
 		m.tableOffset = 0
 		return m, m.loadPreview()
 	case "G":
-		m.tableOffset = max(0, int(m.totalRows)-m.pageSize)
+		m.tableOffset = m.maxTableOffset()
 		return m, m.loadPreview()
 	case "left", "h":
 		if m.tableColOff > 0 {
@@ -403,6 +418,13 @@ func (m Model) loadPreview() tea.Cmd {
 	rowFilter := m.rowFilter
 	limit := m.pageSize
 	offset := m.tableOffset
+	maxOffset := m.maxTableOffset()
+	if offset > maxOffset {
+		offset = maxOffset
+	}
+	if offset < 0 {
+		offset = 0
+	}
 
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -466,27 +488,17 @@ func (m Model) profileNext() tea.Cmd {
 	}
 }
 
-func (m Model) loadDetail(colName string) tea.Cmd {
+func (m Model) loadDetail(colName string, existing *types.ColumnSummary, colType string) tea.Cmd {
 	eng := m.engine
-	summaries := m.summaries
 
 	return func() tea.Msg {
 		ctx := context.Background()
-		summary, ok := summaries[colName]
-		if !ok {
+		summary := existing
+		if summary == nil {
 			var err error
 			summary, err = eng.ProfileBasic(ctx, colName)
 			if err != nil {
 				return profileDetailDoneMsg{colName: colName, err: err}
-			}
-		}
-
-		// Find column type
-		var colType string
-		for _, c := range eng.Columns() {
-			if c.Name == colName {
-				colType = c.DuckType
-				break
 			}
 		}
 
@@ -497,11 +509,16 @@ func (m Model) loadDetail(colName string) tea.Cmd {
 	}
 }
 
-func (m Model) jumpToFirstNull(colName string) tea.Cmd {
+func (m Model) jumpToFirstNull(colName, rowFilter string) tea.Cmd {
 	eng := m.engine
 	return func() tea.Msg {
-		row, err := eng.FirstNullRow(context.Background(), colName)
-		return firstNullMsg{row: row, err: err}
+		ctx := context.Background()
+		rowID, err := eng.FirstNullRow(ctx, colName, rowFilter)
+		if err != nil || rowID == 0 {
+			return firstNullMsg{rowID: rowID, err: err}
+		}
+		offset, err := eng.OffsetForRowID(ctx, rowID, rowFilter)
+		return firstNullMsg{rowID: rowID, offset: offset, err: err}
 	}
 }
 
@@ -838,8 +855,8 @@ func (m Model) viewHelp() string {
 
 	// Center in screen
 	style := lipgloss.NewStyle().
-		Width(m.width - 4).
-		Height(m.height - 2).
+		Width(m.width-4).
+		Height(m.height-2).
 		Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("62"))
@@ -860,3 +877,41 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen-1] + "…"
 }
 
+func (m Model) columnType(colName string) string {
+	for _, c := range m.columns {
+		if c.Name == colName {
+			return c.DuckType
+		}
+	}
+	return ""
+}
+
+func (m Model) activeRowCount() int64 {
+	if m.rowFilter != "" && m.filterRows >= 0 {
+		return m.filterRows
+	}
+	return m.totalRows
+}
+
+func (m Model) maxTableOffset() int {
+	active := m.activeRowCount()
+	if active <= 0 {
+		return 0
+	}
+	maxOffset := int(active) - m.pageSize
+	if maxOffset < 0 {
+		return 0
+	}
+	return maxOffset
+}
+
+func (m *Model) clampTableOffset() {
+	if m.tableOffset < 0 {
+		m.tableOffset = 0
+		return
+	}
+	maxOffset := m.maxTableOffset()
+	if m.tableOffset > maxOffset {
+		m.tableOffset = maxOffset
+	}
+}

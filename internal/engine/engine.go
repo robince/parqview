@@ -17,6 +17,8 @@ type Engine struct {
 	columns   []types.ColumnInfo
 }
 
+const internalRowIDCol = "__pv_rowid"
+
 // New creates a new engine, opens the file and creates a view.
 func New(path string) (*Engine, error) {
 	db, err := sql.Open("duckdb", "")
@@ -25,16 +27,23 @@ func New(path string) (*Engine, error) {
 	}
 
 	ext := strings.ToLower(filepath.Ext(path))
-	var query string
+	var sourceExpr string
 	switch ext {
 	case ".parquet":
-		query = fmt.Sprintf("CREATE VIEW t AS SELECT * FROM read_parquet('%s');", escapeSQLString(path))
+		sourceExpr = fmt.Sprintf("read_parquet('%s')", escapeSQLString(path))
 	case ".csv":
-		query = fmt.Sprintf("CREATE VIEW t AS SELECT * FROM read_csv_auto('%s');", escapeSQLString(path))
+		sourceExpr = fmt.Sprintf("read_csv_auto('%s')", escapeSQLString(path))
 	default:
 		db.Close()
 		return nil, fmt.Errorf("unsupported file extension: %s", ext)
 	}
+
+	query := fmt.Sprintf(`
+		CREATE VIEW t_base AS
+		SELECT row_number() OVER ()::BIGINT AS %s, * FROM %s;
+		CREATE VIEW t AS
+		SELECT * EXCLUDE (%s) FROM t_base;
+	`, quoteIdent(internalRowIDCol), sourceExpr, quoteIdent(internalRowIDCol))
 
 	if _, err := db.Exec(query); err != nil {
 		db.Close()
@@ -106,11 +115,11 @@ func (e *Engine) Preview(ctx context.Context, colNames []string, rowFilter strin
 		proj.WriteString(quoteIdent(c))
 	}
 
-	q := fmt.Sprintf("SELECT %s FROM t", proj.String())
+	q := fmt.Sprintf("SELECT %s FROM t_base", proj.String())
 	if rowFilter != "" {
 		q += " WHERE " + rowFilter
 	}
-	q += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
+	q += fmt.Sprintf(" ORDER BY %s LIMIT %d OFFSET %d", quoteIdent(internalRowIDCol), limit, offset)
 
 	rows, err := e.db.QueryContext(ctx, q)
 	if err != nil {
@@ -233,9 +242,13 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 
 		// Histogram
 		if ns.Min != ns.Max {
-			hq := fmt.Sprintf(`SELECT width_bucket(%s::DOUBLE, %f, %f, 10) AS b, count(*) AS cnt
+			binExpr := fmt.Sprintf(
+				`LEAST(10, GREATEST(1, CAST(FLOOR(((%s::DOUBLE - %f) / NULLIF(%f, 0)) * 10) AS INTEGER) + 1))`,
+				col, ns.Min, ns.Max-ns.Min,
+			)
+			hq := fmt.Sprintf(`SELECT %s AS b, count(*) AS cnt
 				FROM t WHERE %s IS NOT NULL
-				GROUP BY b ORDER BY b`, col, ns.Min, ns.Max, col)
+				GROUP BY b ORDER BY b`, binExpr, col)
 			hrows, err := e.db.QueryContext(ctx, hq)
 			if err != nil {
 				return err
@@ -255,13 +268,8 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 				if err := hrows.Scan(&bucket, &cnt); err != nil {
 					return err
 				}
-				// width_bucket returns 1..10, 0 for below, 11 for above
 				if bucket >= 1 && bucket <= 10 {
 					bins[bucket-1].Count = cnt
-				} else if bucket == 0 && len(bins) > 0 {
-					bins[0].Count += cnt
-				} else if bucket == 11 && len(bins) > 0 {
-					bins[9].Count += cnt
 				}
 			}
 			summary.Hist = &types.Histogram{Bins: bins}
@@ -278,12 +286,13 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 	return nil
 }
 
-// FirstNullRow returns the 1-based row number of the first null in a column, or 0 if none.
-func (e *Engine) FirstNullRow(ctx context.Context, colName string) (int64, error) {
+// FirstNullRow returns the internal row id of the first null in a column, or 0 if none.
+func (e *Engine) FirstNullRow(ctx context.Context, colName, rowFilter string) (int64, error) {
 	col := quoteIdent(colName)
-	q := fmt.Sprintf(`SELECT min(rn) FROM (
-		SELECT row_number() OVER () AS rn, %s FROM t
-	) sub WHERE %s IS NULL`, col, col)
+	q := fmt.Sprintf("SELECT min(%s) FROM t_base WHERE %s IS NULL", quoteIdent(internalRowIDCol), col)
+	if rowFilter != "" {
+		q += " AND (" + rowFilter + ")"
+	}
 	var rn sql.NullInt64
 	if err := e.db.QueryRowContext(ctx, q).Scan(&rn); err != nil {
 		return 0, err
@@ -292,6 +301,24 @@ func (e *Engine) FirstNullRow(ctx context.Context, colName string) (int64, error
 		return 0, nil
 	}
 	return rn.Int64, nil
+}
+
+// OffsetForRowID returns the row offset of rowID in the active (optionally filtered) view.
+func (e *Engine) OffsetForRowID(ctx context.Context, rowID int64, rowFilter string) (int64, error) {
+	if rowID <= 1 {
+		return 0, nil
+	}
+
+	q := fmt.Sprintf("SELECT count(*) FROM t_base WHERE %s < %d", quoteIdent(internalRowIDCol), rowID)
+	if rowFilter != "" {
+		q += " AND (" + rowFilter + ")"
+	}
+
+	var offset int64
+	if err := e.db.QueryRowContext(ctx, q).Scan(&offset); err != nil {
+		return 0, err
+	}
+	return offset, nil
 }
 
 // BuildNullFilter builds a SQL WHERE clause for rows with nulls in the given columns.
@@ -312,15 +339,22 @@ func (e *Engine) Close() error {
 }
 
 func isNumericType(t string) bool {
-	t = strings.ToUpper(t)
-	for _, prefix := range []string{"INT", "TINYINT", "SMALLINT", "BIGINT", "HUGEINT",
-		"FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL",
-		"UBIGINT", "UINTEGER", "USMALLINT", "UTINYINT"} {
-		if strings.HasPrefix(t, prefix) {
-			return true
-		}
+	t = strings.TrimSpace(strings.ToUpper(t))
+	if t == "" {
+		return false
 	}
-	return false
+	base := strings.Fields(t)[0]
+	if idx := strings.Index(base, "("); idx >= 0 {
+		base = base[:idx]
+	}
+	switch base {
+	case "TINYINT", "SMALLINT", "INT", "INTEGER", "BIGINT", "HUGEINT",
+		"UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT", "UHUGEINT",
+		"FLOAT", "REAL", "DOUBLE", "DECIMAL", "NUMERIC":
+		return true
+	default:
+		return false
+	}
 }
 
 func quoteIdent(name string) string {
