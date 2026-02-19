@@ -19,8 +19,6 @@ type Engine struct {
 }
 
 // New creates a new engine, opens the file, and creates query objects.
-// Note: t_base is intentionally materialized to keep a stable internal row id
-// across queries; this trades startup/memory for stable jump/offset behavior.
 func New(path string) (*Engine, error) {
 	db, err := sql.Open("duckdb", "")
 	if err != nil {
@@ -46,7 +44,7 @@ func New(path string) (*Engine, error) {
 	}
 
 	query := fmt.Sprintf(`
-		CREATE TABLE t_base AS
+		CREATE VIEW t_base AS
 		SELECT row_number() OVER ()::BIGINT AS %s, * FROM %s;
 		CREATE VIEW t AS
 		SELECT * EXCLUDE (%s) FROM t_base;
@@ -110,19 +108,24 @@ func (e *Engine) TotalRows() int64 {
 
 // Preview fetches rows for the table view.
 func (e *Engine) Preview(ctx context.Context, colNames []string, rowFilter string, limit, offset int) ([][]string, error) {
+	var (
+		q     string
+		nCols int
+	)
 	if len(colNames) == 0 {
-		return nil, nil
-	}
-
-	var proj strings.Builder
-	for i, c := range colNames {
-		if i > 0 {
-			proj.WriteString(", ")
+		q = fmt.Sprintf("SELECT * EXCLUDE (%s) FROM t_base", quoteIdent(e.internalRowIDCol))
+		nCols = len(e.columns)
+	} else {
+		var proj strings.Builder
+		for i, c := range colNames {
+			if i > 0 {
+				proj.WriteString(", ")
+			}
+			proj.WriteString(quoteIdent(c))
 		}
-		proj.WriteString(quoteIdent(c))
+		q = fmt.Sprintf("SELECT %s FROM t_base", proj.String())
+		nCols = len(colNames)
 	}
-
-	q := fmt.Sprintf("SELECT %s FROM t_base", proj.String())
 	if rowFilter != "" {
 		q += " WHERE " + rowFilter
 	}
@@ -134,7 +137,6 @@ func (e *Engine) Preview(ctx context.Context, colNames []string, rowFilter strin
 	}
 	defer rows.Close()
 
-	nCols := len(colNames)
 	var result [][]string
 	for rows.Next() {
 		vals := make([]interface{}, nCols)

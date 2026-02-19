@@ -74,6 +74,43 @@ func TestPreview(t *testing.T) {
 	}
 }
 
+func TestPreviewWithEmptyColumnsReturnsUserColumns(t *testing.T) {
+	eng := openSampleParquet(t)
+	defer eng.Close()
+
+	ctx := context.Background()
+	rows, err := eng.Preview(ctx, []string{}, "", 1, 0)
+	if err != nil {
+		t.Fatalf("Preview empty columns: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if len(rows[0]) != len(eng.Columns()) {
+		t.Fatalf("unexpected column count: got %d want %d", len(rows[0]), len(eng.Columns()))
+	}
+
+	names := make([]string, len(eng.Columns()))
+	for i, c := range eng.Columns() {
+		names[i] = c.Name
+	}
+	expRows, err := eng.Preview(ctx, names, "", 1, 0)
+	if err != nil {
+		t.Fatalf("Preview explicit columns: %v", err)
+	}
+	if len(expRows) != 1 {
+		t.Fatalf("expected 1 explicit row, got %d", len(expRows))
+	}
+	if len(expRows[0]) != len(rows[0]) {
+		t.Fatalf("shape mismatch: empty=%d explicit=%d", len(rows[0]), len(expRows[0]))
+	}
+	for i := range rows[0] {
+		if rows[0][i] != expRows[0][i] {
+			t.Fatalf("value mismatch at col %d: empty=%q explicit=%q", i, rows[0][i], expRows[0][i])
+		}
+	}
+}
+
 func TestProfileBasic(t *testing.T) {
 	eng := openSampleParquet(t)
 	defer eng.Close()
