@@ -223,6 +223,17 @@ func TestFirstNullRowRejectsUnsupportedFilter(t *testing.T) {
 	}
 }
 
+func TestOffsetForRowIDRejectsUnsupportedFilter(t *testing.T) {
+	eng := openSampleParquet(t)
+	defer eng.Close()
+
+	ctx := context.Background()
+	_, err := eng.OffsetForRowID(ctx, 5, `1=1`)
+	if err == nil {
+		t.Fatal("expected unsupported filter error")
+	}
+}
+
 func TestFirstNullRowStableAcrossQueries(t *testing.T) {
 	eng := openSampleParquet(t)
 	defer eng.Close()
@@ -452,17 +463,52 @@ func TestOpenLargeCSVOptIn(t *testing.T) {
 	if err := eng.db.QueryRow(`SELECT count(*) FROM duckdb_tables() WHERE table_name = 't_base'`).Scan(&tableCount); err != nil {
 		t.Fatalf("check duckdb_tables: %v", err)
 	}
-	if tableCount != 0 {
-		t.Fatalf("expected t_base to be a view, found table entry")
-	}
-
-	var viewCount int
-	if err := eng.db.QueryRow(`SELECT count(*) FROM duckdb_views() WHERE view_name = 't_base'`).Scan(&viewCount); err != nil {
-		t.Fatalf("check duckdb_views: %v", err)
-	}
-	if viewCount != 1 {
-		t.Fatalf("expected t_base view entry, got %d", viewCount)
+	if tableCount != 1 {
+		t.Fatalf("expected t_base table entry, got %d", tableCount)
 	}
 
 	t.Logf("opened %d-row csv in %s", nRows, elapsed)
+}
+
+func TestParseNullFilterColumnsQuotedIdentifiers(t *testing.T) {
+	tests := []struct {
+		name      string
+		filter    string
+		wantCols  []string
+		wantError bool
+	}{
+		{
+			name:     "quoted identifier containing OR",
+			filter:   `("A OR B" IS NULL OR "score" IS NULL)`,
+			wantCols: []string{"A OR B", "score"},
+		},
+		{
+			name:     "quoted identifier containing quote",
+			filter:   `("a""b" IS NULL OR "score" IS NULL)`,
+			wantCols: []string{`a"b`, "score"},
+		},
+		{
+			name:      "unbalanced quote",
+			filter:    `("a""b IS NULL OR "score" IS NULL)`,
+			wantError: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotCols, err := parseNullFilterColumns(tc.filter)
+			if tc.wantError {
+				if err == nil {
+					t.Fatal("expected parse error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseNullFilterColumns: %v", err)
+			}
+			if !slices.Equal(gotCols, tc.wantCols) {
+				t.Fatalf("columns mismatch: got %v want %v", gotCols, tc.wantCols)
+			}
+		})
+	}
 }

@@ -44,7 +44,7 @@ func New(path string) (*Engine, error) {
 	}
 
 	query := fmt.Sprintf(`
-		CREATE VIEW t_base AS
+		CREATE TABLE t_base AS
 		SELECT row_number() OVER ()::BIGINT AS %s, * FROM %s;
 		CREATE VIEW t AS
 		SELECT * EXCLUDE (%s) FROM t_base;
@@ -296,6 +296,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 }
 
 // FirstNullRow returns the internal row id of the first null in a column, or 0 if none.
+// rowFilter must be empty or produced by BuildNullFilter.
 func (e *Engine) FirstNullRow(ctx context.Context, colName, rowFilter string) (int64, error) {
 	col := quoteIdent(colName)
 	q := fmt.Sprintf("SELECT min(%s) FROM t_base WHERE %s IS NULL", quoteIdent(e.internalRowIDCol), col)
@@ -317,6 +318,7 @@ func (e *Engine) FirstNullRow(ctx context.Context, colName, rowFilter string) (i
 }
 
 // OffsetForRowID returns the row offset of rowID in the active (optionally filtered) view.
+// rowFilter must be empty or produced by BuildNullFilter.
 func (e *Engine) OffsetForRowID(ctx context.Context, rowID int64, rowFilter string) (int64, error) {
 	if rowID <= 1 {
 		return 0, nil
@@ -422,29 +424,62 @@ func parseNullFilterColumns(rowFilter string) ([]string, error) {
 		return nil, nil
 	}
 	if len(filter) < 2 || filter[0] != '(' || filter[len(filter)-1] != ')' {
-		return nil, fmt.Errorf("unsupported row filter format")
+		return nil, fmt.Errorf("unsupported null row filter format")
 	}
 	inner := strings.TrimSpace(filter[1 : len(filter)-1])
 	if inner == "" {
 		return nil, nil
 	}
 
-	rawParts := strings.Split(inner, " OR ")
+	rawParts, err := splitByOrOutsideQuotedIdent(inner)
+	if err != nil {
+		return nil, fmt.Errorf("unsupported null row filter format")
+	}
 	colNames := make([]string, 0, len(rawParts))
 	for _, part := range rawParts {
 		part = strings.TrimSpace(part)
 		if len(part) <= len(" IS NULL") || !strings.HasSuffix(part, " IS NULL") {
-			return nil, fmt.Errorf("unsupported row filter term")
+			return nil, fmt.Errorf("unsupported null row filter term")
 		}
 
 		ident := strings.TrimSpace(part[:len(part)-len(" IS NULL")])
 		col, ok := unquoteIdent(ident)
 		if !ok {
-			return nil, fmt.Errorf("unsupported row filter identifier")
+			return nil, fmt.Errorf("unsupported null row filter identifier")
 		}
 		colNames = append(colNames, col)
 	}
 	return colNames, nil
+}
+
+func splitByOrOutsideQuotedIdent(s string) ([]string, error) {
+	const sep = " OR "
+
+	var (
+		parts    []string
+		start    int
+		inQuotes bool
+	)
+	for i := 0; i < len(s); i++ {
+		if s[i] == '"' {
+			if inQuotes && i+1 < len(s) && s[i+1] == '"' {
+				i++
+				continue
+			}
+			inQuotes = !inQuotes
+			continue
+		}
+		if !inQuotes && i+len(sep) <= len(s) && s[i:i+len(sep)] == sep {
+			parts = append(parts, s[start:i])
+			i += len(sep) - 1
+			start = i + 1
+		}
+	}
+	if inQuotes {
+		return nil, fmt.Errorf("unbalanced quoted identifier")
+	}
+	parts = append(parts, s[start:])
+	return parts, nil
 }
 
 func unquoteIdent(ident string) (string, bool) {
