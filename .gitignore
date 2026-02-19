@@ -1,0 +1,16 @@
+# Binary
+/parqview
+
+# Test data (generated)
+testdata/sample.parquet
+testdata/sample.csv
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+.claude/settings.local.json
