@@ -6,7 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/marcboeker/go-duckdb"
 )
@@ -209,6 +212,17 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	}
 }
 
+func TestFirstNullRowRejectsUnsupportedFilter(t *testing.T) {
+	eng := openSampleParquet(t)
+	defer eng.Close()
+
+	ctx := context.Background()
+	_, err := eng.FirstNullRow(ctx, "score", `1=1`)
+	if err == nil {
+		t.Fatal("expected unsupported filter error")
+	}
+}
+
 func TestFirstNullRowStableAcrossQueries(t *testing.T) {
 	eng := openSampleParquet(t)
 	defer eng.Close()
@@ -391,4 +405,64 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOpenLargeCSVOptIn(t *testing.T) {
+	if os.Getenv("PARQVIEW_LARGE_TEST") != "1" {
+		t.Skip("set PARQVIEW_LARGE_TEST=1 to run large-file regression test")
+	}
+
+	const nRows = 300000
+	dir := t.TempDir()
+	path := filepath.Join(dir, "large.csv")
+
+	var b strings.Builder
+	b.Grow(32 + nRows*10)
+	b.WriteString("id,score,category\n")
+	for i := 0; i < nRows; i++ {
+		b.WriteString(strconv.Itoa(i + 1))
+		b.WriteString(",")
+		if i%17 == 0 {
+			b.WriteString(",")
+		} else {
+			b.WriteString(strconv.Itoa(i % 100))
+			b.WriteString(",")
+		}
+		b.WriteString("group")
+		b.WriteString(strconv.Itoa(i % 7))
+		b.WriteString("\n")
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("write large csv: %v", err)
+	}
+
+	start := time.Now()
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New(large csv): %v", err)
+	}
+	defer eng.Close()
+	elapsed := time.Since(start)
+
+	if eng.TotalRows() != nRows {
+		t.Fatalf("unexpected row count: got %d want %d", eng.TotalRows(), nRows)
+	}
+
+	var tableCount int
+	if err := eng.db.QueryRow(`SELECT count(*) FROM duckdb_tables() WHERE table_name = 't_base'`).Scan(&tableCount); err != nil {
+		t.Fatalf("check duckdb_tables: %v", err)
+	}
+	if tableCount != 0 {
+		t.Fatalf("expected t_base to be a view, found table entry")
+	}
+
+	var viewCount int
+	if err := eng.db.QueryRow(`SELECT count(*) FROM duckdb_views() WHERE view_name = 't_base'`).Scan(&viewCount); err != nil {
+		t.Fatalf("check duckdb_views: %v", err)
+	}
+	if viewCount != 1 {
+		t.Fatalf("expected t_base view entry, got %d", viewCount)
+	}
+
+	t.Logf("opened %d-row csv in %s", nRows, elapsed)
 }

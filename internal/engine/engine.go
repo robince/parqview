@@ -44,7 +44,7 @@ func New(path string) (*Engine, error) {
 	}
 
 	query := fmt.Sprintf(`
-		CREATE TABLE t_base AS
+		CREATE VIEW t_base AS
 		SELECT row_number() OVER ()::BIGINT AS %s, * FROM %s;
 		CREATE VIEW t AS
 		SELECT * EXCLUDE (%s) FROM t_base;
@@ -299,8 +299,12 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 func (e *Engine) FirstNullRow(ctx context.Context, colName, rowFilter string) (int64, error) {
 	col := quoteIdent(colName)
 	q := fmt.Sprintf("SELECT min(%s) FROM t_base WHERE %s IS NULL", quoteIdent(e.internalRowIDCol), col)
-	if rowFilter != "" {
-		q += " AND (" + rowFilter + ")"
+	filterCols, err := parseNullFilterColumns(rowFilter)
+	if err != nil {
+		return 0, err
+	}
+	if len(filterCols) > 0 {
+		q += " AND (" + buildNullFilter(filterCols) + ")"
 	}
 	var rn sql.NullInt64
 	if err := e.db.QueryRowContext(ctx, q).Scan(&rn); err != nil {
@@ -319,8 +323,12 @@ func (e *Engine) OffsetForRowID(ctx context.Context, rowID int64, rowFilter stri
 	}
 
 	q := fmt.Sprintf("SELECT count(*) FROM t_base WHERE %s < ?", quoteIdent(e.internalRowIDCol))
-	if rowFilter != "" {
-		q += " AND (" + rowFilter + ")"
+	filterCols, err := parseNullFilterColumns(rowFilter)
+	if err != nil {
+		return 0, err
+	}
+	if len(filterCols) > 0 {
+		q += " AND (" + buildNullFilter(filterCols) + ")"
 	}
 
 	var offset int64
@@ -335,11 +343,7 @@ func BuildNullFilter(colNames []string) string {
 	if len(colNames) == 0 {
 		return ""
 	}
-	parts := make([]string, len(colNames))
-	for i, c := range colNames {
-		parts[i] = quoteIdent(c) + " IS NULL"
-	}
-	return "(" + strings.Join(parts, " OR ") + ")"
+	return "(" + buildNullFilter(colNames) + ")"
 }
 
 // Close closes the DuckDB connection.
@@ -402,4 +406,60 @@ func uniqueInternalRowIDCol(db *sql.DB, sourceExpr string) (string, error) {
 		}
 		candidate = fmt.Sprintf("%s_%d", base, i)
 	}
+}
+
+func buildNullFilter(colNames []string) string {
+	parts := make([]string, len(colNames))
+	for i, c := range colNames {
+		parts[i] = quoteIdent(c) + " IS NULL"
+	}
+	return strings.Join(parts, " OR ")
+}
+
+func parseNullFilterColumns(rowFilter string) ([]string, error) {
+	filter := strings.TrimSpace(rowFilter)
+	if filter == "" {
+		return nil, nil
+	}
+	if len(filter) < 2 || filter[0] != '(' || filter[len(filter)-1] != ')' {
+		return nil, fmt.Errorf("unsupported row filter format")
+	}
+	inner := strings.TrimSpace(filter[1 : len(filter)-1])
+	if inner == "" {
+		return nil, nil
+	}
+
+	rawParts := strings.Split(inner, " OR ")
+	colNames := make([]string, 0, len(rawParts))
+	for _, part := range rawParts {
+		part = strings.TrimSpace(part)
+		if len(part) <= len(" IS NULL") || !strings.HasSuffix(part, " IS NULL") {
+			return nil, fmt.Errorf("unsupported row filter term")
+		}
+
+		ident := strings.TrimSpace(part[:len(part)-len(" IS NULL")])
+		col, ok := unquoteIdent(ident)
+		if !ok {
+			return nil, fmt.Errorf("unsupported row filter identifier")
+		}
+		colNames = append(colNames, col)
+	}
+	return colNames, nil
+}
+
+func unquoteIdent(ident string) (string, bool) {
+	if len(ident) < 2 || ident[0] != '"' || ident[len(ident)-1] != '"' {
+		return "", false
+	}
+	inner := ident[1 : len(ident)-1]
+	for i := 0; i < len(inner); i++ {
+		if inner[i] == '"' {
+			if i+1 < len(inner) && inner[i+1] == '"' {
+				i++
+				continue
+			}
+			return "", false
+		}
+	}
+	return strings.ReplaceAll(inner, `""`, `"`), true
 }
