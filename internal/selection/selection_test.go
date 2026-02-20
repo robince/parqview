@@ -1,6 +1,7 @@
 package selection
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -22,13 +23,8 @@ func TestSelectedOrder(t *testing.T) {
 	s.Add("c")
 	got := s.Selected()
 	want := []string{"c", "b"} // file order
-	if len(got) != len(want) {
+	if !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %v, want %v", got, want)
-		}
 	}
 }
 
