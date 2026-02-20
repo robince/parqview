@@ -33,13 +33,13 @@ func New(path string) (*Engine, error) {
 	case ".csv":
 		sourceExpr = fmt.Sprintf("read_csv_auto('%s')", escapeSQLString(path))
 	default:
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("unsupported file extension: %s", ext)
 	}
 
 	internalRowIDCol, err := uniqueInternalRowIDCol(db, sourceExpr)
 	if err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("resolve internal row id column: %w", err)
 	}
 
@@ -51,19 +51,19 @@ func New(path string) (*Engine, error) {
 	`, quoteIdent(internalRowIDCol), sourceExpr, quoteIdent(internalRowIDCol))
 
 	if _, err := db.Exec(query); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("create base objects: %w", err)
 	}
 
 	e := &Engine{db: db, internalRowIDCol: internalRowIDCol}
 
 	if err := e.loadSchema(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("load schema: %w", err)
 	}
 
 	if err := e.loadRowCount(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("count rows: %w", err)
 	}
 
@@ -75,7 +75,7 @@ func (e *Engine) loadSchema() error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var cols []types.ColumnInfo
 	idx := 0
@@ -135,7 +135,7 @@ func (e *Engine) Preview(ctx context.Context, colNames []string, rowFilter strin
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var result [][]string
 	for rows.Next() {
@@ -219,7 +219,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		nonNull := e.totalRows - summary.MissingCount
 		var top3 []types.TopValue
@@ -262,7 +262,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 			if err != nil {
 				return err
 			}
-			defer hrows.Close()
+			defer func() { _ = hrows.Close() }()
 
 			binWidth := (ns.Max - ns.Min) / 10.0
 			bins := make([]types.HistBin, 10)
@@ -385,7 +385,7 @@ func uniqueInternalRowIDCol(db *sql.DB, sourceExpr string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	used := make(map[string]struct{})
 	for rows.Next() {

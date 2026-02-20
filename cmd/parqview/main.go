@@ -38,13 +38,17 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error opening file: %v\n", err)
 		os.Exit(1)
 	}
-	defer eng.Close()
 
-	model := ui.NewModel(eng, filepath.Base(path))
-	p := tea.NewProgram(model, tea.WithAltScreen())
-
-	if _, err := p.Run(); err != nil {
+	if err := runApp(eng, path); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func runApp(eng *engine.Engine, path string) error {
+	defer func() { _ = eng.Close() }()
+	model := ui.NewModel(eng, filepath.Base(path))
+	p := tea.NewProgram(model, tea.WithAltScreen())
+	_, err := p.Run()
+	return err
 }

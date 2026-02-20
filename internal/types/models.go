@@ -36,8 +36,8 @@ type Histogram struct {
 
 // ColumnSummary holds profiling results for a column.
 type ColumnSummary struct {
-	MissingCount int64
-	MissingPct   float64
+	MissingCount   int64
+	MissingPct     float64
 	DistinctApprox int64
 	DistinctPct    float64
 	Top3           []TopValue

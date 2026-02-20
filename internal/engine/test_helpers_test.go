@@ -25,7 +25,7 @@ func openSampleEngine(t *testing.T, file string) *Engine {
 	if err != nil {
 		t.Fatalf("New(%s): %v", file, err)
 	}
-	t.Cleanup(func() { eng.Close() })
+	t.Cleanup(func() { _ = eng.Close() })
 	return eng
 }
 

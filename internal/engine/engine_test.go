@@ -39,7 +39,7 @@ func openSampleParquet(t *testing.T) *Engine {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	t.Cleanup(func() { eng.Close() })
+	t.Cleanup(func() { _ = eng.Close() })
 	return eng
 }
 
@@ -276,7 +276,7 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
-			t.Cleanup(func() { eng.Close() })
+			t.Cleanup(func() { _ = eng.Close() })
 
 			if eng.internalRowIDCol != tc.expectedInternalID {
 				t.Fatalf("unexpected internal row id column: got %q want %q", eng.internalRowIDCol, tc.expectedInternalID)
@@ -345,7 +345,7 @@ func TestOpenLargeCSVOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New(large csv): %v", err)
 	}
-	t.Cleanup(func() { eng.Close() })
+	t.Cleanup(func() { _ = eng.Close() })
 	elapsed := time.Since(start)
 
 	if eng.TotalRows() != nRows {

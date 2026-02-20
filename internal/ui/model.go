@@ -186,7 +186,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case profileBasicDoneMsg:
 		if msg.err == nil && msg.summary != nil {
 			existing, exists := m.summaries[msg.colName]
-			if !(exists && existing != nil && existing.DetailLoaded) {
+			if !exists || existing == nil || !existing.DetailLoaded {
 				m.summaries[msg.colName] = msg.summary
 			}
 		}
@@ -200,11 +200,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case firstNullMsg:
-		if msg.err != nil {
+		switch {
+		case msg.err != nil:
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
-		} else if msg.rowID == 0 {
+		case msg.rowID == 0:
 			m.statusMsg = "No nulls found"
-		} else {
+		default:
 			// Jump to the row
 			m.tableOffset = max(0, int(msg.offset))
 			m.clampTableOffset()
@@ -464,9 +465,6 @@ func (m Model) projectionCols() []string {
 	return names
 }
 
-// profileNextMsg triggers profiling the next column in the queue.
-type profileNextMsg struct{}
-
 func (m Model) profileNext() tea.Cmd {
 	eng := m.engine
 	cols := m.columns
@@ -561,7 +559,7 @@ func (m Model) View() string {
 
 	// Detail overlay rendered on top of columns pane
 	if m.overlay == OverlayDetail {
-		colPane = activeBorderStyle.Width(colWidth - 2).Height(mainHeight - 2).Render(m.viewDetail(colWidth-4, mainHeight-4))
+		colPane = activeBorderStyle.Width(colWidth - 2).Height(mainHeight - 2).Render(m.viewDetail(colWidth - 4))
 	}
 
 	main := lipgloss.JoinHorizontal(lipgloss.Top, tablePane, colPane)
@@ -588,7 +586,7 @@ func (m Model) viewTopBar() string {
 
 func (m Model) viewBottomBar() string {
 	selCount := m.sel.Count()
-	hints := "Tab:switch  ?:help  q:quit"
+	var hints string
 	if m.focus == FocusColumns {
 		hints = "/:search  Space:toggle  s:add  d:rm  y:copy  Enter:detail"
 	} else {
@@ -658,11 +656,12 @@ func (m Model) viewColumns(w, h int) string {
 	var lines []string
 
 	// Search bar
-	if m.searchFocused {
+	switch {
+	case m.searchFocused:
 		lines = append(lines, searchPromptStyle.Render("/")+m.searchInput.View())
-	} else if m.searchQuery != "" {
+	case m.searchQuery != "":
 		lines = append(lines, searchPromptStyle.Render("/ ")+m.searchQuery)
-	} else {
+	default:
 		lines = append(lines, searchPromptStyle.Render("/ (type / to search)"))
 	}
 	lines = append(lines, "")
@@ -702,7 +701,7 @@ func (m Model) viewColumns(w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) viewDetail(w, h int) string {
+func (m Model) viewDetail(w int) string {
 	col := m.detailCol
 	var lines []string
 
@@ -841,11 +840,12 @@ func (m Model) viewHelp() string {
 	lines = append(lines, detailTitleStyle.Render("  Keybindings"))
 	lines = append(lines, "")
 	for _, h := range help {
-		if h.key == "" {
+		switch {
+		case h.key == "":
 			lines = append(lines, "")
-		} else if h.desc == "" {
+		case h.desc == "":
 			lines = append(lines, helpKeyStyle.Render("  "+h.key))
-		} else {
+		default:
 			lines = append(lines, fmt.Sprintf("  %s  %s",
 				helpKeyStyle.Width(20).Render(h.key),
 				helpDescStyle.Render(h.desc)))

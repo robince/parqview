@@ -2,7 +2,7 @@ package selection
 
 // Set maintains an ordered selection of column names, preserving file order.
 type Set struct {
-	order    []string          // all column names in file order
+	order    []string // all column names in file order
 	selected map[string]bool
 }
 
