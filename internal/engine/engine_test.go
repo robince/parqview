@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,73 +39,34 @@ func openSampleParquet(t *testing.T) *Engine {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	t.Cleanup(func() { eng.Close() })
 	return eng
 }
 
 func TestOpenParquet(t *testing.T) {
 	eng := openSampleParquet(t)
-	defer eng.Close()
-
-	cols := eng.Columns()
-	if len(cols) == 0 {
-		t.Fatal("no columns")
-	}
-	t.Logf("Columns: %d, Rows: %d", len(cols), eng.TotalRows())
-
-	if eng.TotalRows() == 0 {
-		t.Fatal("no rows")
-	}
+	requireOpenHasData(t, eng)
+	t.Logf("Columns: %d, Rows: %d", len(eng.Columns()), eng.TotalRows())
 }
 
 func TestPreview(t *testing.T) {
 	eng := openSampleParquet(t)
-	defer eng.Close()
+	names := allColumnNames(eng)
 
-	cols := eng.Columns()
-	names := make([]string, len(cols))
-	for i, c := range cols {
-		names[i] = c.Name
-	}
-
-	rows, err := eng.Preview(context.Background(), names, "", 10, 0)
-	if err != nil {
-		t.Fatalf("Preview: %v", err)
-	}
-	if len(rows) != 10 {
-		t.Fatalf("expected 10 rows, got %d", len(rows))
-	}
+	rows := mustPreview(t, eng, names, "", 10, 0)
+	requirePreviewShape(t, rows, 10, 0)
 }
 
 func TestPreviewWithEmptyColumnsReturnsUserColumns(t *testing.T) {
 	eng := openSampleParquet(t)
-	defer eng.Close()
 
-	ctx := context.Background()
-	rows, err := eng.Preview(ctx, []string{}, "", 1, 0)
-	if err != nil {
-		t.Fatalf("Preview empty columns: %v", err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 row, got %d", len(rows))
-	}
-	if len(rows[0]) != len(eng.Columns()) {
-		t.Fatalf("unexpected column count: got %d want %d", len(rows[0]), len(eng.Columns()))
-	}
+	rows := mustPreview(t, eng, []string{}, "", 1, 0)
+	requirePreviewShape(t, rows, 1, len(eng.Columns()))
 
-	names := make([]string, len(eng.Columns()))
-	for i, c := range eng.Columns() {
-		names[i] = c.Name
-	}
-	expRows, err := eng.Preview(ctx, names, "", 1, 0)
-	if err != nil {
-		t.Fatalf("Preview explicit columns: %v", err)
-	}
-	if len(expRows) != 1 {
-		t.Fatalf("expected 1 explicit row, got %d", len(expRows))
-	}
-	if len(expRows[0]) != len(rows[0]) {
-		t.Fatalf("shape mismatch: empty=%d explicit=%d", len(rows[0]), len(expRows[0]))
-	}
+	names := allColumnNames(eng)
+	expRows := mustPreview(t, eng, names, "", 1, 0)
+	requirePreviewShape(t, expRows, 1, len(rows[0]))
+
 	for i := range rows[0] {
 		if rows[0][i] != expRows[0][i] {
 			t.Fatalf("value mismatch at col %d: empty=%q explicit=%q", i, rows[0][i], expRows[0][i])
@@ -116,10 +76,9 @@ func TestPreviewWithEmptyColumnsReturnsUserColumns(t *testing.T) {
 
 func TestProfileBasic(t *testing.T) {
 	eng := openSampleParquet(t)
-	defer eng.Close()
 
 	col := eng.Columns()[0]
-	summary, err := eng.ProfileBasic(context.Background(), col.Name)
+	summary, err := eng.ProfileBasic(bg(), col.Name)
 	if err != nil {
 		t.Fatalf("ProfileBasic: %v", err)
 	}
@@ -132,9 +91,7 @@ func TestProfileBasic(t *testing.T) {
 
 func TestProfileDetail(t *testing.T) {
 	eng := openSampleParquet(t)
-	defer eng.Close()
-
-	ctx := context.Background()
+	ctx := bg()
 
 	summary, err := eng.ProfileBasic(ctx, "score")
 	if err != nil {
@@ -164,9 +121,7 @@ func TestProfileDetail(t *testing.T) {
 
 func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	eng := openSampleParquet(t)
-	defer eng.Close()
-
-	ctx := context.Background()
+	ctx := bg()
 	filter := BuildNullFilter([]string{"score", "category"})
 
 	rowID, err := eng.FirstNullRow(ctx, "score", filter)
@@ -200,45 +155,33 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 		t.Fatalf("offset mismatch: got %d want %d", offset, expectedOffset)
 	}
 
-	rows, err := eng.Preview(ctx, []string{"score"}, filter, 1, int(offset))
-	if err != nil {
-		t.Fatalf("Preview at offset: %v", err)
-	}
-	if len(rows) != 1 || len(rows[0]) != 1 {
-		t.Fatalf("unexpected preview shape at offset: %#v", rows)
-	}
-	if rows[0][0] != "NULL" {
-		t.Fatalf("expected null score at jump target, got %q", rows[0][0])
-	}
+	rows := mustPreview(t, eng, []string{"score"}, filter, 1, int(offset))
+	requirePreviewShape(t, rows, 1, 1)
+	requireNullCell(t, rows, 0, 0)
 }
 
-func TestFirstNullRowRejectsUnsupportedFilter(t *testing.T) {
+func TestRejectsUnsupportedFilter(t *testing.T) {
 	eng := openSampleParquet(t)
-	defer eng.Close()
+	ctx := bg()
 
-	ctx := context.Background()
-	_, err := eng.FirstNullRow(ctx, "score", `1=1`)
-	if err == nil {
-		t.Fatal("expected unsupported filter error")
-	}
-}
+	t.Run("FirstNullRow", func(t *testing.T) {
+		_, err := eng.FirstNullRow(ctx, "score", `1=1`)
+		if err == nil {
+			t.Fatal("expected unsupported filter error")
+		}
+	})
 
-func TestOffsetForRowIDRejectsUnsupportedFilter(t *testing.T) {
-	eng := openSampleParquet(t)
-	defer eng.Close()
-
-	ctx := context.Background()
-	_, err := eng.OffsetForRowID(ctx, 5, `1=1`)
-	if err == nil {
-		t.Fatal("expected unsupported filter error")
-	}
+	t.Run("OffsetForRowID", func(t *testing.T) {
+		_, err := eng.OffsetForRowID(ctx, 5, `1=1`)
+		if err == nil {
+			t.Fatal("expected unsupported filter error")
+		}
+	})
 }
 
 func TestFirstNullRowStableAcrossQueries(t *testing.T) {
 	eng := openSampleParquet(t)
-	defer eng.Close()
-
-	ctx := context.Background()
+	ctx := bg()
 	filter := BuildNullFilter([]string{"score", "category"})
 
 	rowID1, err := eng.FirstNullRow(ctx, "score", filter)
@@ -266,39 +209,20 @@ func TestFirstNullRowStableAcrossQueries(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OffsetForRowID iteration %d: %v", i, err)
 		}
-		rows, err := eng.Preview(ctx, []string{"score"}, filter, 1, int(offset))
-		if err != nil {
-			t.Fatalf("Preview jump iteration %d: %v", i, err)
-		}
-		if len(rows) != 1 || len(rows[0]) != 1 {
-			t.Fatalf("unexpected jump preview shape at iter %d: %#v", i, rows)
-		}
-		if rows[0][0] != "NULL" {
-			t.Fatalf("expected null score at iter %d, got %q", i, rows[0][0])
-		}
+		rows := mustPreview(t, eng, []string{"score"}, filter, 1, int(offset))
+		requirePreviewShape(t, rows, 1, 1)
+		requireNullCell(t, rows, 0, 0)
 	}
 }
 
 func TestPreviewOrderStableByOffset(t *testing.T) {
 	eng := openSampleParquet(t)
-	defer eng.Close()
 
-	ctx := context.Background()
-	rows, err := eng.Preview(ctx, []string{"id"}, "", 3, 0)
-	if err != nil {
-		t.Fatalf("Preview first page: %v", err)
-	}
-	if len(rows) != 3 {
-		t.Fatalf("expected 3 rows, got %d", len(rows))
-	}
+	rows := mustPreview(t, eng, []string{"id"}, "", 3, 0)
+	requirePreviewShape(t, rows, 3, 1)
 
-	offsetRow, err := eng.Preview(ctx, []string{"id"}, "", 1, 1)
-	if err != nil {
-		t.Fatalf("Preview offset row: %v", err)
-	}
-	if len(offsetRow) != 1 || len(offsetRow[0]) != 1 {
-		t.Fatalf("unexpected preview shape: %#v", offsetRow)
-	}
+	offsetRow := mustPreview(t, eng, []string{"id"}, "", 1, 1)
+	requirePreviewShape(t, offsetRow, 1, 1)
 
 	if rows[1][0] != offsetRow[0][0] {
 		t.Fatalf("offset row mismatch: got %s want %s", offsetRow[0][0], rows[1][0])
@@ -306,23 +230,8 @@ func TestPreviewOrderStableByOffset(t *testing.T) {
 }
 
 func TestOpenCSV(t *testing.T) {
-	td := testdataDir()
-	if td == "" {
-		t.Skip("testdata not found")
-	}
-
-	eng, err := New(filepath.Join(td, "sample.csv"))
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer eng.Close()
-
-	if len(eng.Columns()) == 0 {
-		t.Fatal("no columns")
-	}
-	if eng.TotalRows() == 0 {
-		t.Fatal("no rows")
-	}
+	eng := openSampleCSV(t)
+	requireOpenHasData(t, eng)
 }
 
 func TestIsNumericType(t *testing.T) {
@@ -360,31 +269,25 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			path := filepath.Join(dir, "collision.csv")
 			csv := tc.header + ",value\nuser-1,1\nuser-2,\nuser-3,3\n"
-			if err := os.WriteFile(path, []byte(csv), 0o644); err != nil {
-				t.Fatalf("write csv: %v", err)
-			}
+			path := mustWriteCSV(t, dir, "collision.csv", csv)
 
 			eng, err := New(path)
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
-			defer eng.Close()
+			t.Cleanup(func() { eng.Close() })
 
 			if eng.internalRowIDCol != tc.expectedInternalID {
 				t.Fatalf("unexpected internal row id column: got %q want %q", eng.internalRowIDCol, tc.expectedInternalID)
 			}
 
-			colNames := make([]string, 0, len(eng.Columns()))
-			for _, c := range eng.Columns() {
-				colNames = append(colNames, c.Name)
-			}
+			colNames := allColumnNames(eng)
 			if !slices.Contains(colNames, tc.header) {
 				t.Fatalf("expected user column %q to be present, columns=%v", tc.header, colNames)
 			}
 
-			ctx := context.Background()
+			ctx := bg()
 			rowID, err := eng.FirstNullRow(ctx, "value", "")
 			if err != nil {
 				t.Fatalf("FirstNullRow: %v", err)
@@ -401,19 +304,12 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 				t.Fatalf("unexpected offset: got %d want 1", offset)
 			}
 
-			rows, err := eng.Preview(ctx, []string{tc.header, "value"}, "", 1, int(offset))
-			if err != nil {
-				t.Fatalf("Preview: %v", err)
-			}
-			if len(rows) != 1 || len(rows[0]) != 2 {
-				t.Fatalf("unexpected preview shape: %v", rows)
-			}
+			rows := mustPreview(t, eng, []string{tc.header, "value"}, "", 1, int(offset))
+			requirePreviewShape(t, rows, 1, 2)
 			if got := fmt.Sprintf("%v", rows[0][0]); got != "user-2" {
 				t.Fatalf("unexpected user row id value: got %q want %q", got, "user-2")
 			}
-			if rows[0][1] != "NULL" {
-				t.Fatalf("expected NULL in value column, got %q", rows[0][1])
-			}
+			requireNullCell(t, rows, 0, 1)
 		})
 	}
 }
@@ -425,7 +321,6 @@ func TestOpenLargeCSVOptIn(t *testing.T) {
 
 	const nRows = 300000
 	dir := t.TempDir()
-	path := filepath.Join(dir, "large.csv")
 
 	var b strings.Builder
 	b.Grow(32 + nRows*10)
@@ -443,16 +338,14 @@ func TestOpenLargeCSVOptIn(t *testing.T) {
 		b.WriteString(strconv.Itoa(i % 7))
 		b.WriteString("\n")
 	}
-	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
-		t.Fatalf("write large csv: %v", err)
-	}
+	path := mustWriteCSV(t, dir, "large.csv", b.String())
 
 	start := time.Now()
 	eng, err := New(path)
 	if err != nil {
 		t.Fatalf("New(large csv): %v", err)
 	}
-	defer eng.Close()
+	t.Cleanup(func() { eng.Close() })
 	elapsed := time.Since(start)
 
 	if eng.TotalRows() != nRows {

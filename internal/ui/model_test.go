@@ -10,9 +10,7 @@ func TestProfileSummaryOrderingPreservesDetail(t *testing.T) {
 	colName := "score"
 
 	t.Run("detail_then_basic_keeps_detail", func(t *testing.T) {
-		m := Model{
-			summaries: make(map[string]*types.ColumnSummary),
-		}
+		m := newTestModel()
 
 		detail := &types.ColumnSummary{
 			Loaded:       true,
@@ -26,11 +24,8 @@ func TestProfileSummaryOrderingPreservesDetail(t *testing.T) {
 			DetailLoaded: false,
 		}
 
-		updated, _ := m.Update(profileDetailDoneMsg{colName: colName, summary: detail})
-		m = updated.(Model)
-
-		updated, _ = m.Update(profileBasicDoneMsg{colName: colName, summary: basic})
-		m = updated.(Model)
+		m = updateModel(t, m, profileDetailDoneMsg{colName: colName, summary: detail})
+		m = updateModel(t, m, profileBasicDoneMsg{colName: colName, summary: basic})
 
 		got := m.summaries[colName]
 		if got == nil {
@@ -45,9 +40,7 @@ func TestProfileSummaryOrderingPreservesDetail(t *testing.T) {
 	})
 
 	t.Run("basic_then_detail_applies_detail", func(t *testing.T) {
-		m := Model{
-			summaries: make(map[string]*types.ColumnSummary),
-		}
+		m := newTestModel()
 
 		basic := &types.ColumnSummary{
 			Loaded:       true,
@@ -61,11 +54,8 @@ func TestProfileSummaryOrderingPreservesDetail(t *testing.T) {
 			},
 		}
 
-		updated, _ := m.Update(profileBasicDoneMsg{colName: colName, summary: basic})
-		m = updated.(Model)
-
-		updated, _ = m.Update(profileDetailDoneMsg{colName: colName, summary: detail})
-		m = updated.(Model)
+		m = updateModel(t, m, profileBasicDoneMsg{colName: colName, summary: basic})
+		m = updateModel(t, m, profileDetailDoneMsg{colName: colName, summary: detail})
 
 		got := m.summaries[colName]
 		if got == nil {
