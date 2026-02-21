@@ -587,8 +587,13 @@ func TestHandleColumnsPagingAdvancesByRenderedListHeight(t *testing.T) {
 	m.colCursor = 0
 	m.syncSelectedColFromCursor()
 
-	_, paneH := m.columnsPaneDimensions()
-	renderedListHeight := m.columnsListHeight(paneH)
+	paneW, paneH := m.columnsPaneDimensions()
+	out := m.viewColumns(paneW, paneH)
+	lines := strings.Split(out, "\n")
+	renderedListHeight := len(lines) - 2
+	if renderedListHeight < 0 {
+		renderedListHeight = 0
+	}
 
 	updated, _ := m.handleColumnsPaging()
 	m = updated.(Model)

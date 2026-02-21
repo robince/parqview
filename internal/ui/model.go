@@ -438,13 +438,17 @@ func (m Model) tablePaneDimensions() (int, int) {
 	return tableWidth - 2, mainHeight - 2
 }
 
-func (m Model) visibleTableRows() int {
-	_, h := m.tablePaneDimensions()
+func (m Model) tableDataRowsHeight(h int) int {
 	maxRows := h - 2
-	if maxRows < 1 {
-		maxRows = 1
+	if maxRows < 0 {
+		maxRows = 0
 	}
 	return maxRows
+}
+
+func (m Model) visibleTableRows() int {
+	_, h := m.tablePaneDimensions()
+	return m.tableDataRowsHeight(h)
 }
 
 func (m *Model) clampTableRowCursor() {
@@ -675,7 +679,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		return m, m.loadPreview()
 	case "G":
 		m.tableOffset = m.maxTableOffset()
-		m.tableRowCursor = m.visibleTableRows() - 1
+		m.tableRowCursor = max(0, m.visibleTableRows()-1)
 		return m, m.loadPreview()
 	case "ctrl+f":
 		prevOffset := m.tableOffset
@@ -1004,15 +1008,8 @@ func (m Model) viewTable(w, h int) string {
 	lines = append(lines, header)
 
 	// Data rows — footer is only rendered when there's room for it.
-	maxRows := h - 1 // minus header
-	renderFooter := false
-	if maxRows > 0 {
-		renderFooter = true
-		maxRows--
-	}
-	if maxRows < 0 {
-		maxRows = 0
-	}
+	maxRows := m.tableDataRowsHeight(h)
+	renderFooter := h > 1
 	for r := 0; r < maxRows && r < len(m.tableData); r++ {
 		isSelectedRow := r == m.tableRowCursor
 		rowNum := m.tableOffset + r + 1
@@ -1386,9 +1383,6 @@ func (m Model) maxTableOffset() int {
 	navigableRows := m.visibleTableRows()
 	if m.pageSize > 0 && m.pageSize < navigableRows {
 		navigableRows = m.pageSize
-	}
-	if navigableRows < 1 {
-		navigableRows = 1
 	}
 
 	maxOffset := int(active) - navigableRows
