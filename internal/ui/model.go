@@ -943,7 +943,7 @@ func (m Model) viewTable(w, h int) string {
 		return ""
 	}
 
-	// How many columns fit (uses same formula as visibleColCount)
+	// How many columns fit
 	visibleCols := m.visibleColCount()
 
 	startCol := m.computeTableColOff(visibleCols)
