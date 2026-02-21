@@ -939,12 +939,8 @@ func (m Model) viewTable(w, h int) string {
 		return ""
 	}
 
-	colWidth := tableColWidth
-	rowNumW := tableRowNumW
-	rowPrefixW := tableRowPrefixW
-
 	// How many columns fit
-	visibleCols := (w - rowNumW - rowPrefixW) / colWidth
+	visibleCols := (w - tableRowNumW - tableRowPrefixW) / tableColWidth
 	if visibleCols < 1 {
 		visibleCols = 1
 	}
@@ -963,10 +959,10 @@ func (m Model) viewTable(w, h int) string {
 	var lines []string
 
 	// Header (space prefix for alignment with row null dots)
-	header := " " + rowNumStyle.Render(fmt.Sprintf("%*s", rowNumW, "#"))
+	header := " " + rowNumStyle.Render(fmt.Sprintf("%*s", tableRowNumW, "#"))
 	for i := startCol; i < endCol; i++ {
-		name := truncate(m.tableCols[i], colWidth-2)
-		nameStr := fmt.Sprintf(" %-*s", colWidth-2, name)
+		name := truncate(m.tableCols[i], tableColWidth-2)
+		nameStr := fmt.Sprintf(" %-*s", tableColWidth-2, name)
 		// Check if column has nulls from profiling
 		hasNulls := false
 		if s, ok := m.summaries[m.tableCols[i]]; ok && s.Loaded && s.MissingCount > 0 {
@@ -1011,17 +1007,17 @@ func (m Model) viewTable(w, h int) string {
 		// Row number
 		var line string
 		if isSelectedRow {
-			line = rowDot + activeRowNumStyle.Render(fmt.Sprintf("%*d", rowNumW, rowNum))
+			line = rowDot + activeRowNumStyle.Render(fmt.Sprintf("%*d", tableRowNumW, rowNum))
 		} else {
-			line = rowDot + rowNumStyle.Render(fmt.Sprintf("%*d", rowNumW, rowNum))
+			line = rowDot + rowNumStyle.Render(fmt.Sprintf("%*d", tableRowNumW, rowNum))
 		}
-		line += m.renderRowCells(m.tableData[r], startCol, endCol, colWidth, cursorColIdx, isSelectedRow)
+		line += m.renderRowCells(m.tableData[r], startCol, endCol, tableColWidth, cursorColIdx, isSelectedRow)
 		lines = append(lines, line)
 	}
 
 	// Footer row with null counts
 	if renderFooter {
-		footer := truncate(m.viewTableFooter(), max(0, w-rowPrefixW))
+		footer := truncate(m.viewTableFooter(), max(0, w-tableRowPrefixW))
 		lines = append(lines, " "+rowNumStyle.Render(footer))
 	}
 
