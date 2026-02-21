@@ -14,4 +14,4 @@ testdata/sample.csv
 
 # OS
 .DS_Store
-.claude/settings.local.json
+.claude
