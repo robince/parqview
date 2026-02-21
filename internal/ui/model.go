@@ -1080,16 +1080,20 @@ func (m Model) viewTableFooter() string {
 
 	var parts []string
 
-	// Row null count
-	if m.tableRowCursor >= 0 && m.tableRowCursor < len(m.tableData) {
-		row := m.tableData[m.tableRowCursor]
+	// Row null count (clamp cursor defensively for transient states)
+	rowCursor := m.tableRowCursor
+	if rowCursor >= len(m.tableData) {
+		rowCursor = len(m.tableData) - 1
+	}
+	if rowCursor >= 0 {
+		row := m.tableData[rowCursor]
 		nullCount := 0
 		for _, v := range row {
 			if v == "NULL" {
 				nullCount++
 			}
 		}
-		absRow := m.tableOffset + m.tableRowCursor + 1
+		absRow := m.tableOffset + rowCursor + 1
 		parts = append(parts, fmt.Sprintf("Row %d: %d/%d missing (projected)", absRow, nullCount, len(row)))
 	}
 
@@ -1283,7 +1287,7 @@ func (m Model) viewHelp() string {
 		{"Esc", "Unfocus search"},
 		{"Ctrl+U", "Clear search"},
 		{"↑/↓ or j/k", "Move cursor"},
-		{"x", "Toggle column selection"},
+		{"x", "Toggle selection (crosshair col)"},
 		{"a", "Add all filtered to selection"},
 		{"d", "Remove all filtered from selection"},
 		{"A", "Select ALL columns"},
