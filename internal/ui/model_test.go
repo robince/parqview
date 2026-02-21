@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/robince/parqview/internal/selection"
 	"github.com/robince/parqview/internal/types"
 )
 
@@ -90,8 +91,8 @@ func TestWindowSizeMsgClampsOffsetAndKeepsPageDownMonotonic(t *testing.T) {
 
 	before := m.tableOffset
 	updated, cmd = m.handleTablePageDown()
-	if cmd == nil {
-		t.Fatal("expected load command on page down")
+	if cmd != nil {
+		t.Fatal("expected no load command when page down cannot advance offset")
 	}
 	m = updated.(Model)
 	if m.tableOffset < before {
@@ -124,6 +125,45 @@ func TestPreviewDoneMsgReconcilesSelectedColumnWhenProjectionChanges(t *testing.
 	}
 	if m.colCursor != 0 {
 		t.Fatalf("expected column pane cursor to sync to alpha, got %d", m.colCursor)
+	}
+}
+
+func TestPreviewDoneMsgKeepsColumnActionsConsistentWhenCursorCannotSync(t *testing.T) {
+	m := newTestModel()
+	m.columns = []types.ColumnInfo{
+		{Name: "alpha"},
+		{Name: "beta"},
+		{Name: "gamma"},
+	}
+	m.sel = selection.New([]string{"alpha", "beta", "gamma"})
+	m.selectedColName = "beta"
+	m.colCursor = 1
+	m.searchQuery = "beta"
+	m.updateFilteredCols()
+
+	m = updateModel(t, m, previewDoneMsg{
+		rows:      [][]string{{"1", "2"}},
+		colNames:  []string{"alpha", "gamma"},
+		totalRows: 2,
+	})
+
+	if m.selectedColName != "alpha" {
+		t.Fatalf("expected selectedColName to reconcile to alpha, got %q", m.selectedColName)
+	}
+
+	updated, _ := m.handleColumnsKey("x")
+	m = updated.(Model)
+	if !m.sel.IsSelected("alpha") {
+		t.Fatal("expected x to toggle reconciled selected column alpha")
+	}
+	if m.sel.IsSelected("beta") {
+		t.Fatal("expected x not to toggle stale filtered cursor column beta")
+	}
+
+	updated, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.detailCol != "alpha" {
+		t.Fatalf("expected enter to open detail for alpha, got %q", m.detailCol)
 	}
 }
 

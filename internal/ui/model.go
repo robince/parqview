@@ -479,8 +479,8 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			m.syncSelectedColFromCursor()
 		}
 	case "x":
-		if m.colCursor < len(m.filteredCols) {
-			m.sel.Toggle(m.filteredCols[m.colCursor].Name)
+		if m.selectedColName != "" {
+			m.sel.Toggle(m.selectedColName)
 			if m.showSelected {
 				return m, m.loadPreview()
 			}
@@ -530,10 +530,14 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleTablePageDown() (tea.Model, tea.Cmd) {
+	prevOffset := m.tableOffset
 	maxOff := m.maxTableOffset()
 	m.tableOffset += m.pageSize
 	if m.tableOffset > maxOff {
 		m.tableOffset = maxOff
+	}
+	if m.tableOffset == prevOffset {
+		return m, nil
 	}
 	return m, m.loadPreview()
 }
@@ -635,29 +639,45 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		m.tableRowCursor = 0
 		return m, m.loadPreview()
 	case "ctrl+f":
+		prevOffset := m.tableOffset
 		maxOff := m.maxTableOffset()
 		m.tableOffset += m.pageSize
 		if m.tableOffset > maxOff {
 			m.tableOffset = maxOff
 		}
+		if m.tableOffset == prevOffset {
+			return m, nil
+		}
 		return m, m.loadPreview()
 	case "ctrl+b":
+		prevOffset := m.tableOffset
 		m.tableOffset -= m.pageSize
 		if m.tableOffset < 0 {
 			m.tableOffset = 0
 		}
+		if m.tableOffset == prevOffset {
+			return m, nil
+		}
 		return m, m.loadPreview()
 	case "ctrl+d":
+		prevOffset := m.tableOffset
 		maxOff := m.maxTableOffset()
 		m.tableOffset += m.pageSize / 2
 		if m.tableOffset > maxOff {
 			m.tableOffset = maxOff
 		}
+		if m.tableOffset == prevOffset {
+			return m, nil
+		}
 		return m, m.loadPreview()
 	case "ctrl+u":
+		prevOffset := m.tableOffset
 		m.tableOffset -= m.pageSize / 2
 		if m.tableOffset < 0 {
 			m.tableOffset = 0
+		}
+		if m.tableOffset == prevOffset {
+			return m, nil
 		}
 		return m, m.loadPreview()
 	case "f":
