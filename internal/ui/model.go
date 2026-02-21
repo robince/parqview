@@ -590,9 +590,9 @@ func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
-	m.clampTableRowCursor()
 	switch key {
 	case "up", "k":
+		m.clampTableRowCursor()
 		if m.tableRowCursor > 0 {
 			m.tableRowCursor--
 		} else if m.tableOffset > 0 {
@@ -601,6 +601,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			return m, m.loadPreview()
 		}
 	case "down", "j":
+		m.clampTableRowCursor()
 		maxVisibleRows := m.visibleTableRows()
 		if len(m.tableData) < maxVisibleRows {
 			maxVisibleRows = len(m.tableData)
@@ -987,7 +988,7 @@ func (m Model) viewTable(w, h int) string {
 
 	// Data rows — footer is only rendered when there's room for it.
 	maxRows := m.tableDataRowsHeight(h)
-	renderFooter := h > 1
+	renderFooter := maxRows > 0
 	// Clamp cursor for rendering in case data hasn't loaded yet after navigation
 	renderCursor := m.tableRowCursor
 	if renderCursor >= maxRows {
