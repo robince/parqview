@@ -765,8 +765,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 
 // visibleColCount returns how many columns fit in the table pane.
 func (m Model) visibleColCount() int {
-	tableWidth := m.width * 65 / 100
-	w := tableWidth - 2
+	w, _ := m.tablePaneDimensions()
 	visibleCols := (w - tableRowNumW - tableRowPrefixW) / tableColWidth
 	if visibleCols < 1 {
 		visibleCols = 1
@@ -1015,6 +1014,9 @@ func (m Model) viewTable(w, h int) string {
 	// Data rows — footer is only rendered when there's room for it.
 	maxRows := m.tableDataRowsHeight(h)
 	renderFooter := maxRows > 0
+	if renderFooter {
+		maxRows-- // reserve one line for the footer
+	}
 	// Clamp cursor for rendering in case data hasn't loaded yet after navigation
 	renderCursor := m.tableRowCursor
 	if renderCursor >= maxRows {

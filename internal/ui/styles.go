@@ -7,10 +7,10 @@ const (
 	unselectedMarkGlyph = "○"
 
 	// Table layout constants
-	tableColWidth   = 14 // fixed column width for v1
-	tableRowNumW    = 6  // row number column width
-	tableRowPrefixW    = 1 // prefix space for null dot alignment
-	tableFooterPrefixW = 2 // leading spaces in footer row (for alignment with row-number gutter)
+	tableColWidth      = 14 // fixed column width for v1
+	tableRowNumW       = 6  // row number column width
+	tableRowPrefixW    = 1  // prefix space for null dot alignment
+	tableFooterPrefixW = 2  // leading spaces in footer row (for alignment with row-number gutter)
 )
 
 var (
