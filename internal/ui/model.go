@@ -526,10 +526,11 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				// point at a hidden column while the preview reloads.
 				if !m.sel.IsSelected(targetCol) && targetCol == m.selectedColName {
 					m.updateFilteredCols()
-					if m.colCursor < len(m.filteredCols)-1 {
-						m.colCursor++
-					} else if m.colCursor > 0 {
-						m.colCursor--
+					if m.colCursor >= len(m.filteredCols) {
+						m.colCursor = len(m.filteredCols) - 1
+					}
+					if m.colCursor < 0 {
+						m.colCursor = 0
 					}
 					m.syncSelectedColFromCursor()
 				}
