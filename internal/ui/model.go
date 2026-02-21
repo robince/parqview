@@ -473,7 +473,11 @@ func (m Model) tableDataRowsHeight(h int) int {
 
 func (m Model) visibleTableRows() int {
 	_, h := m.tablePaneDimensions()
-	return m.tableDataRowsHeight(h)
+	rows := m.tableDataRowsHeight(h)
+	if rows > 0 {
+		rows-- // reserve one line for the footer
+	}
+	return rows
 }
 
 func (m *Model) clampTableRowCursor() {

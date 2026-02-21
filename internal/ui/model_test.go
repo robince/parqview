@@ -23,7 +23,7 @@ func TestHandleTableKeyDownKeepsCursorWithinVisibleRowsAndScrolls(t *testing.T) 
 		m.tableData[i] = []string{"v"}
 	}
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 2; i++ {
 		updated, cmd := m.handleTableKey("down")
 		if cmd != nil {
 			t.Fatalf("expected no load command before visible-row boundary, got %v", cmd)
@@ -31,8 +31,8 @@ func TestHandleTableKeyDownKeepsCursorWithinVisibleRowsAndScrolls(t *testing.T) 
 		m = updated.(Model)
 	}
 
-	if m.tableRowCursor != 3 {
-		t.Fatalf("expected row cursor at last visible row (3), got %d", m.tableRowCursor)
+	if m.tableRowCursor != 2 {
+		t.Fatalf("expected row cursor at last visible row (2), got %d", m.tableRowCursor)
 	}
 
 	updated, cmd := m.handleTableKey("down")
@@ -40,7 +40,7 @@ func TestHandleTableKeyDownKeepsCursorWithinVisibleRowsAndScrolls(t *testing.T) 
 	if cmd == nil {
 		t.Fatal("expected load command when moving past visible rows")
 	}
-	if m.tableRowCursor != 3 {
+	if m.tableRowCursor != 2 {
 		t.Fatalf("expected row cursor to stay on visible bottom row, got %d", m.tableRowCursor)
 	}
 	if m.tableOffset != 1 {
@@ -88,8 +88,8 @@ func TestWindowSizeMsgClampsOffsetAndKeepsPageDownMonotonic(t *testing.T) {
 	}
 	m = updated.(Model)
 
-	if m.tableOffset != 166 {
-		t.Fatalf("expected tableOffset to clamp to 166 after resize, got %d", m.tableOffset)
+	if m.tableOffset != 167 {
+		t.Fatalf("expected tableOffset to clamp to 167 after resize, got %d", m.tableOffset)
 	}
 
 	before := m.tableOffset
@@ -532,8 +532,8 @@ func TestPreviewDoneMsgClampsRowCursorToVisibleRows(t *testing.T) {
 		totalRows: 50,
 	})
 
-	if m.tableRowCursor != 3 {
-		t.Fatalf("expected row cursor to clamp to last visible row (3), got %d", m.tableRowCursor)
+	if m.tableRowCursor != 2 {
+		t.Fatalf("expected row cursor to clamp to last visible row (2), got %d", m.tableRowCursor)
 	}
 }
 
