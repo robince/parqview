@@ -1126,32 +1126,36 @@ func (m Model) viewColumns(w, h int) string {
 
 	for i := startIdx; i < len(m.filteredCols) && i < startIdx+listHeight; i++ {
 		col := m.filteredCols[i]
-		mark := unselectedMark
-		if m.sel.IsSelected(col.Name) {
-			mark = selectedMark
-		}
+		isHighlighted := col.Name == m.selectedColName
 
 		name := truncate(col.Name, w-12)
-		typeBadge := typeBadgeStyle.Render(truncate(col.DuckType, 8))
-
-		// Inline stats
-		stats := ""
+		typeStr := truncate(col.DuckType, 8)
+		statsStr := ""
 		if s, ok := m.summaries[col.Name]; ok && s.Loaded {
-			stats = statStyle.Render(fmt.Sprintf(" M:%.0f%% D:%.0f%%", s.MissingPct, s.DistinctPct))
+			statsStr = fmt.Sprintf(" M:%.0f%% D:%.0f%%", s.MissingPct, s.DistinctPct)
 		}
 
-		line := fmt.Sprintf("%s %s %s%s", mark, name, typeBadge, stats)
-
-		// Always show cursor highlight — bright when focused, dim when not
-		if col.Name == m.selectedColName {
-			if m.focus == FocusColumns {
-				line = highlightStyle.Render(line)
-			} else {
-				line = dimHighlightStyle.Render(line)
+		if isHighlighted {
+			// Build line from plain text so highlight style controls the whole row
+			markChar := "○"
+			if m.sel.IsSelected(col.Name) {
+				markChar = "●"
 			}
+			plain := fmt.Sprintf("%s %s %s%s", markChar, name, typeStr, statsStr)
+			if m.focus == FocusColumns {
+				lines = append(lines, highlightStyle.Width(w).Render(plain))
+			} else {
+				lines = append(lines, dimHighlightStyle.Width(w).Render(plain))
+			}
+		} else {
+			mark := unselectedMark
+			if m.sel.IsSelected(col.Name) {
+				mark = selectedMark
+			}
+			typeBadge := typeBadgeStyle.Render(typeStr)
+			stats := statStyle.Render(statsStr)
+			lines = append(lines, fmt.Sprintf("%s %s %s%s", mark, name, typeBadge, stats))
 		}
-
-		lines = append(lines, line)
 	}
 
 	return strings.Join(lines, "\n")
