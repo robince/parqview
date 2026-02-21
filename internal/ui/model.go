@@ -187,6 +187,22 @@ func (m Model) columnsCursorColName() string {
 	return ""
 }
 
+func (m Model) columnsHasFilteredCol(name string) bool {
+	for _, col := range m.filteredCols {
+		if col.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) columnsActiveColName() string {
+	if m.selectedColName != "" && m.columnsHasFilteredCol(m.selectedColName) {
+		return m.selectedColName
+	}
+	return m.columnsCursorColName()
+}
+
 func (m *Model) updateFilteredCols() {
 	var filtered []types.ColumnInfo
 	for _, c := range m.columns {
@@ -370,9 +386,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		targetCol := m.selectedColName
 		if m.focus == FocusColumns {
-			if cursorCol := m.columnsCursorColName(); cursorCol != "" {
-				targetCol = cursorCol
-			}
+			targetCol = m.columnsActiveColName()
 		}
 		if targetCol != "" {
 			m.detailCol = targetCol
@@ -500,10 +514,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			m.syncSelectedColFromCursor()
 		}
 	case "x":
-		targetCol := m.columnsCursorColName()
-		if targetCol == "" {
-			targetCol = m.selectedColName
-		}
+		targetCol := m.columnsActiveColName()
 		if targetCol != "" {
 			m.sel.Toggle(targetCol)
 			if m.showSelected {
@@ -1138,7 +1149,7 @@ func (m Model) viewColumns(w, h int) string {
 
 	for i := startIdx; i < len(m.filteredCols) && i < startIdx+listHeight; i++ {
 		col := m.filteredCols[i]
-		isHighlighted := col.Name == m.selectedColName
+		isHighlighted := col.Name == m.columnsActiveColName()
 
 		name := truncate(col.Name, w-12)
 		typeStr := truncate(col.DuckType, 8)

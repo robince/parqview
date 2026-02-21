@@ -361,6 +361,17 @@ func TestPreviewDoneMsgKeepsColumnActionsConsistentWhenCursorCannotSync(t *testi
 	if m.selectedColName != "alpha" {
 		t.Fatalf("expected selectedColName to reconcile to alpha, got %q", m.selectedColName)
 	}
+	m.focus = FocusColumns
+
+	out := m.viewColumns(30, 8)
+	lines := strings.Split(out, "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected at least 3 lines from columns view, got %d", len(lines))
+	}
+	wantHighlighted := highlightStyle.Width(30).Render(fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, truncate("beta", 18), truncate("", 8), ""))
+	if lines[2] != wantHighlighted {
+		t.Fatalf("expected effective active row to remain visibly highlighted, got %q", lines[2])
+	}
 
 	updated, _ := m.handleColumnsKey("x")
 	m = updated.(Model)
@@ -371,7 +382,6 @@ func TestPreviewDoneMsgKeepsColumnActionsConsistentWhenCursorCannotSync(t *testi
 		t.Fatal("expected x not to toggle hidden selected column alpha")
 	}
 
-	m.focus = FocusColumns
 	updated, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
 	if m.detailCol != "beta" {
