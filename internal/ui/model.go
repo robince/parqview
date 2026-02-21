@@ -541,6 +541,9 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 					if m.colCursor < 0 {
 						m.colCursor = 0
 					}
+					// Only re-derive selectedColName when the deselected column
+					// was the active one. Otherwise selectedColName is still valid
+					// by name even though colCursor may have shifted indices.
 					if targetCol == m.selectedColName {
 						m.syncSelectedColFromCursor()
 					}
@@ -1047,8 +1050,8 @@ func (m Model) viewTable(w, h int) string {
 
 	// Footer row with null counts
 	if renderFooter {
-		footerPrefix := "  "
-		footer := truncate(m.viewTableFooter(), max(0, w-tableRowPrefixW-len(footerPrefix)))
+		footerPrefix := strings.Repeat(" ", tableFooterPrefixW)
+		footer := truncate(m.viewTableFooter(), max(0, w-tableRowPrefixW-tableFooterPrefixW))
 		lines = append(lines, " "+rowNumStyle.Render(footerPrefix+footer))
 	}
 
