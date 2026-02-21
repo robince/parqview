@@ -10,11 +10,18 @@ import (
 
 	"github.com/robince/parqview/internal/engine"
 	"github.com/robince/parqview/internal/ui"
+	"github.com/robince/parqview/internal/version"
 )
 
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Println(version.String())
+		return
+	}
+
 	if len(os.Args) < 2 {
 		fmt.Fprintf(os.Stderr, "Usage: parqview <file.parquet|file.csv>\n")
+		fmt.Fprintf(os.Stderr, "       parqview --version\n")
 		os.Exit(1)
 	}
 
