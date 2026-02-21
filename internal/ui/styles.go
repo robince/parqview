@@ -79,6 +79,11 @@ var (
 				Background(lipgloss.Color("240")).
 				Italic(true)
 
+	// Null indicator dots
+	nullDot             = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("•")
+	nullDotHeader       = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("62")).Render("•")
+	nullDotActiveHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("69")).Render("•")
+
 	// Column list
 	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("●")
 	unselectedMark = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("○")
