@@ -438,7 +438,15 @@ func (m Model) columnsPaneDimensions() (int, int) {
 	mainHeight := m.height - 2
 	tableWidth := m.width * 65 / 100
 	colWidth := m.width - tableWidth
-	return colWidth - 2, mainHeight - 2
+	w := colWidth - 2
+	h := mainHeight - 2
+	if w < 0 {
+		w = 0
+	}
+	if h < 0 {
+		h = 0
+	}
+	return w, h
 }
 
 func (m Model) columnsListHeight(h int) int {
@@ -521,10 +529,11 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		if targetCol != "" {
 			m.sel.Toggle(targetCol)
 			if m.showSelected {
-				// If we just deselected the active column, it will vanish from
-				// the projection. Advance the cursor so selectedColName doesn't
-				// point at a hidden column while the preview reloads.
-				if !m.sel.IsSelected(targetCol) && targetCol == m.selectedColName {
+				// If we just deselected a column, it will vanish from
+				// the projection. Refresh filtered cols and reconcile
+				// the cursor so selectedColName stays valid while the
+				// preview reloads.
+				if !m.sel.IsSelected(targetCol) {
 					m.updateFilteredCols()
 					if m.colCursor >= len(m.filteredCols) {
 						m.colCursor = len(m.filteredCols) - 1
@@ -532,7 +541,9 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 					if m.colCursor < 0 {
 						m.colCursor = 0
 					}
-					m.syncSelectedColFromCursor()
+					if targetCol == m.selectedColName {
+						m.syncSelectedColFromCursor()
+					}
 				}
 				return m, m.loadPreview()
 			}
@@ -1036,8 +1047,9 @@ func (m Model) viewTable(w, h int) string {
 
 	// Footer row with null counts
 	if renderFooter {
-		footer := truncate(m.viewTableFooter(), max(0, w-tableRowPrefixW))
-		lines = append(lines, " "+rowNumStyle.Render(footer))
+		footerPrefix := "  "
+		footer := truncate(m.viewTableFooter(), max(0, w-tableRowPrefixW-len(footerPrefix)))
+		lines = append(lines, " "+rowNumStyle.Render(footerPrefix+footer))
 	}
 
 	return strings.Join(lines, "\n")
@@ -1115,7 +1127,7 @@ func (m Model) viewTableFooter() string {
 		}
 	}
 
-	return "  " + strings.Join(parts, "    ")
+	return strings.Join(parts, "    ")
 }
 
 func (m Model) viewColumns(w, h int) string {
