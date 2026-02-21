@@ -1146,10 +1146,11 @@ func (m Model) viewColumns(w, h int) string {
 	if m.colCursor >= listHeight {
 		startIdx = m.colCursor - listHeight + 1
 	}
+	activeCol := m.columnsActiveColName()
 
 	for i := startIdx; i < len(m.filteredCols) && i < startIdx+listHeight; i++ {
 		col := m.filteredCols[i]
-		isHighlighted := col.Name == m.columnsActiveColName()
+		isHighlighted := col.Name == activeCol
 
 		name := truncate(col.Name, w-12)
 		typeStr := truncate(col.DuckType, 8)

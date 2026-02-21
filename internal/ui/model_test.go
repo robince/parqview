@@ -389,6 +389,45 @@ func TestPreviewDoneMsgKeepsColumnActionsConsistentWhenCursorCannotSync(t *testi
 	}
 }
 
+func TestColumnsActionsPreferSelectedWhenCursorDiffersAndBothVisible(t *testing.T) {
+	m := newTestModel()
+	m.columns = []types.ColumnInfo{
+		{Name: "alpha"},
+		{Name: "beta"},
+		{Name: "gamma"},
+	}
+	m.sel = selection.New([]string{"alpha", "beta", "gamma"})
+	m.selectedColName = "alpha"
+	m.colCursor = 1
+	m.updateFilteredCols()
+	m.focus = FocusColumns
+
+	out := m.viewColumns(30, 8)
+	lines := strings.Split(out, "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected at least 3 lines from columns view, got %d", len(lines))
+	}
+	wantHighlighted := highlightStyle.Width(30).Render(fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, truncate("alpha", 18), truncate("", 8), ""))
+	if lines[2] != wantHighlighted {
+		t.Fatalf("expected selected column alpha to remain highlighted, got %q", lines[2])
+	}
+
+	updated, _ := m.handleColumnsKey("x")
+	m = updated.(Model)
+	if !m.sel.IsSelected("alpha") {
+		t.Fatal("expected x to toggle selected active column alpha")
+	}
+	if m.sel.IsSelected("beta") {
+		t.Fatal("expected x not to toggle cursor column beta")
+	}
+
+	updated, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.detailCol != "alpha" {
+		t.Fatalf("expected enter to open detail for selected active column alpha, got %q", m.detailCol)
+	}
+}
+
 func TestPreviewDoneMsgClampsRowCursorToVisibleRows(t *testing.T) {
 	m := newTestModel()
 	m.width = 120
