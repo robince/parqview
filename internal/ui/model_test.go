@@ -113,18 +113,20 @@ func TestHandleTableKeyCtrlPagingLoadsOnlyWhenOffsetChanges(t *testing.T) {
 	}
 
 	cases := []struct {
-		name      string
-		key       string
-		startAtMax bool
+		name           string
+		key            string
+		startAtMax     bool
+		expectedOffset int
+		expectedCmd    bool
 	}{
-		{name: "ctrl+f at bottom", key: "ctrl+f", startAtMax: true},
-		{name: "ctrl+b at top", key: "ctrl+b", startAtMax: false},
-		{name: "ctrl+d at bottom", key: "ctrl+d", startAtMax: true},
-		{name: "ctrl+u at top", key: "ctrl+u", startAtMax: false},
-		{name: "ctrl+f from top", key: "ctrl+f", startAtMax: false},
-		{name: "ctrl+b from bottom", key: "ctrl+b", startAtMax: true},
-		{name: "ctrl+d from top", key: "ctrl+d", startAtMax: false},
-		{name: "ctrl+u from bottom", key: "ctrl+u", startAtMax: true},
+		{name: "ctrl+f at bottom", key: "ctrl+f", startAtMax: true, expectedOffset: maxOff, expectedCmd: false},
+		{name: "ctrl+b at top", key: "ctrl+b", startAtMax: false, expectedOffset: 0, expectedCmd: false},
+		{name: "ctrl+d at bottom", key: "ctrl+d", startAtMax: true, expectedOffset: maxOff, expectedCmd: false},
+		{name: "ctrl+u at top", key: "ctrl+u", startAtMax: false, expectedOffset: 0, expectedCmd: false},
+		{name: "ctrl+f from top", key: "ctrl+f", startAtMax: false, expectedOffset: base.pageSize, expectedCmd: true},
+		{name: "ctrl+b from bottom", key: "ctrl+b", startAtMax: true, expectedOffset: maxOff - base.pageSize, expectedCmd: true},
+		{name: "ctrl+d from top", key: "ctrl+d", startAtMax: false, expectedOffset: base.pageSize / 2, expectedCmd: true},
+		{name: "ctrl+u from bottom", key: "ctrl+u", startAtMax: true, expectedOffset: maxOff - (base.pageSize / 2), expectedCmd: true},
 	}
 
 	for _, tc := range cases {
@@ -134,16 +136,17 @@ func TestHandleTableKeyCtrlPagingLoadsOnlyWhenOffsetChanges(t *testing.T) {
 				m.tableOffset = maxOff
 			}
 
-			before := m.tableOffset
 			updated, cmd := m.handleTableKey(tc.key)
 			m = updated.(Model)
 
-			offsetChanged := m.tableOffset != before
-			if offsetChanged && cmd == nil {
-				t.Fatalf("expected load command when %s changes offset from %d to %d", tc.key, before, m.tableOffset)
+			if m.tableOffset != tc.expectedOffset {
+				t.Fatalf("expected %s to set offset to %d, got %d", tc.key, tc.expectedOffset, m.tableOffset)
 			}
-			if !offsetChanged && cmd != nil {
-				t.Fatalf("expected no load command when %s leaves offset unchanged at %d", tc.key, before)
+			if tc.expectedCmd && cmd == nil {
+				t.Fatalf("expected load command for %s at offset %d", tc.key, m.tableOffset)
+			}
+			if !tc.expectedCmd && cmd != nil {
+				t.Fatalf("expected no load command for %s at offset %d", tc.key, m.tableOffset)
 			}
 		})
 	}
