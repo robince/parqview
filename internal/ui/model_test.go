@@ -42,6 +42,28 @@ func TestHandleTableKeyDownKeepsCursorWithinVisibleRowsAndScrolls(t *testing.T) 
 	}
 }
 
+func TestHandleTableKeyDownCanReachFinalRowWithSmallViewport(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 10
+	m.pageSize = 50
+	m.totalRows = 200
+	m.tableData = make([][]string, 50)
+	for i := range m.tableData {
+		m.tableData[i] = []string{"v"}
+	}
+
+	for i := 0; i < 1000; i++ {
+		updated, _ := m.handleTableKey("down")
+		m = updated.(Model)
+	}
+
+	absRow := m.tableOffset + m.tableRowCursor + 1
+	if absRow != int(m.totalRows) {
+		t.Fatalf("expected to reach final row %d, got %d (offset=%d cursor=%d)", m.totalRows, absRow, m.tableOffset, m.tableRowCursor)
+	}
+}
+
 func TestPreviewDoneMsgReconcilesSelectedColumnWhenProjectionChanges(t *testing.T) {
 	m := newTestModel()
 	m.columns = []types.ColumnInfo{

@@ -1275,7 +1275,16 @@ func (m Model) maxTableOffset() int {
 	if active <= 0 {
 		return 0
 	}
-	maxOffset := int(active) - m.pageSize
+
+	navigableRows := m.visibleTableRows()
+	if m.pageSize > 0 && m.pageSize < navigableRows {
+		navigableRows = m.pageSize
+	}
+	if navigableRows < 1 {
+		navigableRows = 1
+	}
+
+	maxOffset := int(active) - navigableRows
 	if maxOffset < 0 {
 		return 0
 	}
