@@ -93,7 +93,7 @@ var (
 			Foreground(lipgloss.Color("230"))
 
 	dimHighlightStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("236")).
+				Background(lipgloss.Color("238")).
 				Foreground(lipgloss.Color("252"))
 
 	typeBadgeStyle = lipgloss.NewStyle().

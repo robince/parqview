@@ -334,17 +334,18 @@ func TestPreviewDoneMsgKeepsColumnActionsConsistentWhenCursorCannotSync(t *testi
 
 	updated, _ := m.handleColumnsKey("x")
 	m = updated.(Model)
-	if !m.sel.IsSelected("alpha") {
-		t.Fatal("expected x to toggle reconciled selected column alpha")
+	if !m.sel.IsSelected("beta") {
+		t.Fatal("expected x to toggle cursor column beta from filtered results")
 	}
-	if m.sel.IsSelected("beta") {
-		t.Fatal("expected x not to toggle stale filtered cursor column beta")
+	if m.sel.IsSelected("alpha") {
+		t.Fatal("expected x not to toggle hidden selected column alpha")
 	}
 
+	m.focus = FocusColumns
 	updated, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
-	if m.detailCol != "alpha" {
-		t.Fatalf("expected enter to open detail for alpha, got %q", m.detailCol)
+	if m.detailCol != "beta" {
+		t.Fatalf("expected enter to open detail for cursor column beta, got %q", m.detailCol)
 	}
 }
 
@@ -543,5 +544,16 @@ func TestViewTableFooterStaysSingleLineWithLongColumnType(t *testing.T) {
 	}
 	if got := lipgloss.Width(footer); got > w {
 		t.Fatalf("expected footer width <= %d, got %d: %q", w, got, footer)
+	}
+}
+
+func TestViewTableFooterClarifiesVisibleMissingCounts(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.tableData = [][]string{{"x"}}
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, "missing (visible)") {
+		t.Fatalf("expected footer to clarify visible-column missing count, got %q", footer)
 	}
 }

@@ -180,6 +180,13 @@ func (m *Model) syncCursorFromSelectedColName() {
 	// Not found — keep colCursor as-is
 }
 
+func (m Model) columnsCursorColName() string {
+	if m.colCursor >= 0 && m.colCursor < len(m.filteredCols) {
+		return m.filteredCols[m.colCursor].Name
+	}
+	return ""
+}
+
 func (m *Model) updateFilteredCols() {
 	var filtered []types.ColumnInfo
 	for _, c := range m.columns {
@@ -361,9 +368,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.tableRowCursor = 0
 		return m, m.loadPreview()
 	case "enter":
-		// Open column detail for selectedColName
-		if m.selectedColName != "" {
-			m.detailCol = m.selectedColName
+		targetCol := m.selectedColName
+		if m.focus == FocusColumns {
+			if cursorCol := m.columnsCursorColName(); cursorCol != "" {
+				targetCol = cursorCol
+			}
+		}
+		if targetCol != "" {
+			m.detailCol = targetCol
 			m.detailTab = 0
 			m.overlay = OverlayDetail
 			if s, ok := m.summaries[m.detailCol]; !ok || !s.DetailLoaded {
@@ -479,8 +491,12 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			m.syncSelectedColFromCursor()
 		}
 	case "x":
-		if m.selectedColName != "" {
-			m.sel.Toggle(m.selectedColName)
+		targetCol := m.columnsCursorColName()
+		if targetCol == "" {
+			targetCol = m.selectedColName
+		}
+		if targetCol != "" {
+			m.sel.Toggle(targetCol)
 			if m.showSelected {
 				return m, m.loadPreview()
 			}
@@ -1071,7 +1087,7 @@ func (m Model) viewTableFooter() string {
 			}
 		}
 		absRow := m.tableOffset + m.tableRowCursor + 1
-		parts = append(parts, fmt.Sprintf("Row %d: %d/%d missing", absRow, nullCount, len(row)))
+		parts = append(parts, fmt.Sprintf("Row %d: %d/%d missing (visible)", absRow, nullCount, len(row)))
 	}
 
 	// Column info from profiling
