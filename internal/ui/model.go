@@ -729,7 +729,8 @@ func (m Model) visibleColCount() int {
 	w := tableWidth - 2
 	colWidth := 14
 	rowNumW := 6
-	visibleCols := (w - rowNumW) / colWidth
+	rowPrefixW := 1
+	visibleCols := (w - rowNumW - rowPrefixW) / colWidth
 	if visibleCols < 1 {
 		visibleCols = 1
 	}
@@ -931,9 +932,10 @@ func (m Model) viewTable(w, h int) string {
 
 	colWidth := 14 // fixed column width for v1
 	rowNumW := 6
+	rowPrefixW := 1
 
 	// How many columns fit
-	visibleCols := (w - rowNumW) / colWidth
+	visibleCols := (w - rowNumW - rowPrefixW) / colWidth
 	if visibleCols < 1 {
 		visibleCols = 1
 	}
@@ -1046,7 +1048,7 @@ func (m Model) viewTable(w, h int) string {
 	}
 
 	// Footer row with null counts
-	footer := m.viewTableFooter()
+	footer := truncate(m.viewTableFooter(), max(0, w-rowPrefixW))
 	lines = append(lines, " "+rowNumStyle.Render(footer))
 
 	return strings.Join(lines, "\n")
@@ -1074,7 +1076,7 @@ func (m Model) viewTableFooter() string {
 
 	// Column info from profiling
 	if m.selectedColName != "" {
-		colType := m.columnType(m.selectedColName)
+		colType := truncate(m.columnType(m.selectedColName), 20)
 		if s, ok := m.summaries[m.selectedColName]; ok && s.Loaded {
 			parts = append(parts, fmt.Sprintf("Col %q (%s): %d missing (%.1f%%)", truncate(m.selectedColName, 20), colType, s.MissingCount, s.MissingPct))
 		} else {

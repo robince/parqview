@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/robince/parqview/internal/selection"
 	"github.com/robince/parqview/internal/types"
@@ -473,4 +475,73 @@ func TestProfileSummaryOrderingPreservesDetail(t *testing.T) {
 			t.Fatalf("expected detail data to be present, got %#v", got.Top3)
 		}
 	})
+}
+
+func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 10
+	m.tableCols = []string{"a", "b"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{
+		{"NULL", "x"},
+		{"y", "z"},
+	}
+	m.summaries["a"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+	m.summaries["b"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
+
+	out := m.viewTable(60, 6)
+	lines := strings.Split(out, "\n")
+	if len(lines) < 4 {
+		t.Fatalf("expected at least 4 lines in table view, got %d", len(lines))
+	}
+
+	if strings.Count(lines[0], "•") != 1 {
+		t.Fatalf("expected exactly one header null dot, got %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "•") {
+		t.Fatalf("expected null-dot row marker for row containing NULL, got %q", lines[1])
+	}
+	if strings.Contains(lines[2], "•") {
+		t.Fatalf("expected no row marker for row without NULL, got %q", lines[2])
+	}
+}
+
+func TestViewTableDoesNotOverflowWidthWithRowPrefix(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"c0", "c1", "c2", "c3"}
+	m.selectedColName = "c0"
+	m.tableData = [][]string{
+		{"v0", "v1", "v2", "v3"},
+	}
+
+	w := 34
+	out := m.viewTable(w, 4)
+	for _, line := range strings.Split(out, "\n") {
+		if got := lipgloss.Width(line); got > w {
+			t.Fatalf("expected line width <= %d, got %d: %q", w, got, line)
+		}
+	}
+}
+
+func TestViewTableFooterStaysSingleLineWithLongColumnType(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"nested"}
+	m.selectedColName = "nested"
+	m.columns = []types.ColumnInfo{
+		{Name: "nested", DuckType: "STRUCT(a STRUCT(b STRUCT(c STRUCT(d VARCHAR))), e LIST<STRUCT(f BIGINT, g DOUBLE)>)"},
+	}
+	m.tableData = [][]string{{"x"}}
+	m.summaries["nested"] = &types.ColumnSummary{Loaded: true, MissingCount: 0, MissingPct: 0}
+
+	w := 50
+	out := m.viewTable(w, 4)
+	lines := strings.Split(out, "\n")
+	footer := lines[len(lines)-1]
+	if strings.Contains(footer, "\n") {
+		t.Fatalf("expected single-line footer, got %q", footer)
+	}
+	if got := lipgloss.Width(footer); got > w {
+		t.Fatalf("expected footer width <= %d, got %d: %q", w, got, footer)
+	}
 }
