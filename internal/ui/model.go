@@ -609,6 +609,9 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			if newStart < 0 {
 				newStart = 0
 			}
+			if newStart == startCol {
+				return m, nil
+			}
 			newIdx := newStart + visibleCols - 1
 			if newIdx >= len(m.tableCols) {
 				newIdx = len(m.tableCols) - 1
@@ -631,6 +634,9 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			newStart := startCol + visibleCols
 			if newStart > maxStart {
 				newStart = maxStart
+			}
+			if newStart == startCol {
+				return m, nil
 			}
 			newIdx := newStart + visibleCols - 1
 			if newIdx >= len(m.tableCols) {

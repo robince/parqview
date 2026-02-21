@@ -197,6 +197,51 @@ func TestHandleTableKeyHorizontalNavigationTracksViewportPaging(t *testing.T) {
 	}
 }
 
+func TestHandleTableKeyHorizontalNavigationPagingBoundaries(t *testing.T) {
+	t.Run("page left at first page is no-op", func(t *testing.T) {
+		m := newTestModel()
+		m.width = 100
+		m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5"}
+		m.selectedColName = "c0"
+
+		updated, cmd := m.handleTableKey("[")
+		if cmd != nil {
+			t.Fatalf("expected no load command for horizontal key %q", "[")
+		}
+		m = updated.(Model)
+
+		if m.selectedColName != "c0" {
+			t.Fatalf("expected selected column to remain %q, got %q", "c0", m.selectedColName)
+		}
+		if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 0 {
+			t.Fatalf("expected start col to remain 0, got %d", startCol)
+		}
+	})
+
+	t.Run("page right is no-op when all columns fit", func(t *testing.T) {
+		m := newTestModel()
+		m.width = 200
+		m.tableCols = []string{"c0", "c1", "c2"}
+		m.selectedColName = "c1"
+		if got, want := m.visibleColCount(), len(m.tableCols); got < want {
+			t.Fatalf("expected all columns to fit in viewport, visibleColCount=%d cols=%d", got, want)
+		}
+
+		updated, cmd := m.handleTableKey("]")
+		if cmd != nil {
+			t.Fatalf("expected no load command for horizontal key %q", "]")
+		}
+		m = updated.(Model)
+
+		if m.selectedColName != "c1" {
+			t.Fatalf("expected selected column to remain %q, got %q", "c1", m.selectedColName)
+		}
+		if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 0 {
+			t.Fatalf("expected start col to remain 0, got %d", startCol)
+		}
+	})
+}
+
 func TestHandleTableKeyGPositionsCursorAtFinalRow(t *testing.T) {
 	m := newTestModel()
 	m.width = 120
