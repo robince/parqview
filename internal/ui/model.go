@@ -590,9 +590,9 @@ func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
+	m.clampTableRowCursor()
 	switch key {
 	case "up", "k":
-		m.clampTableRowCursor()
 		if m.tableRowCursor > 0 {
 			m.tableRowCursor--
 		} else if m.tableOffset > 0 {
@@ -601,7 +601,6 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			return m, m.loadPreview()
 		}
 	case "down", "j":
-		m.clampTableRowCursor()
 		maxVisibleRows := m.visibleTableRows()
 		if len(m.tableData) < maxVisibleRows {
 			maxVisibleRows = len(m.tableData)
