@@ -548,14 +548,53 @@ func TestViewTableFooterStaysSingleLineWithLongColumnType(t *testing.T) {
 	}
 }
 
-func TestViewTableFooterClarifiesVisibleMissingCounts(t *testing.T) {
+func TestViewTableFooterClarifiesProjectedMissingCounts(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "missing (visible)") {
-		t.Fatalf("expected footer to clarify visible-column missing count, got %q", footer)
+	if !strings.Contains(footer, "missing (projected)") {
+		t.Fatalf("expected footer to clarify projected-column missing count, got %q", footer)
+	}
+}
+
+func TestViewTableTinyViewportDoesNotOverflowHeight(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a", "b"}
+	m.tableData = [][]string{{"1", "2"}, {"3", "4"}}
+	m.selectedColName = "a"
+
+	for _, h := range []int{1, 2} {
+		out := m.viewTable(40, h)
+		lines := strings.Split(out, "\n")
+		if len(lines) > h {
+			t.Fatalf("expected at most %d lines for tiny viewport, got %d: %q", h, len(lines), out)
+		}
+	}
+}
+
+func TestHandleColumnsPagingAdvancesByRenderedListHeight(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 18
+	m.columns = make([]types.ColumnInfo, 20)
+	for i := range m.columns {
+		m.columns[i] = types.ColumnInfo{Name: fmt.Sprintf("c%02d", i), DuckType: "VARCHAR"}
+	}
+	m.sel = selection.New(nil)
+	m.updateFilteredCols()
+	m.colCursor = 0
+	m.syncSelectedColFromCursor()
+
+	_, paneH := m.columnsPaneDimensions()
+	renderedListHeight := m.columnsListHeight(paneH)
+
+	updated, _ := m.handleColumnsPaging()
+	m = updated.(Model)
+
+	if m.colCursor != renderedListHeight {
+		t.Fatalf("expected cursor to advance by rendered list height %d, got %d", renderedListHeight, m.colCursor)
 	}
 }
 

@@ -404,10 +404,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleColumnsPaging() (tea.Model, tea.Cmd) {
 	// Page down in column list
 	_, h := m.columnsPaneDimensions()
-	listHeight := h - 2
-	if listHeight < 1 {
-		listHeight = 1
-	}
+	listHeight := m.columnsListHeight(h)
 	newCursor := m.colCursor + listHeight
 	if newCursor >= len(m.filteredCols) {
 		newCursor = len(m.filteredCols) - 1
@@ -425,6 +422,14 @@ func (m Model) columnsPaneDimensions() (int, int) {
 	tableWidth := m.width * 65 / 100
 	colWidth := m.width - tableWidth
 	return colWidth - 2, mainHeight - 2
+}
+
+func (m Model) columnsListHeight(h int) int {
+	listHeight := h - 3
+	if listHeight < 1 {
+		listHeight = 1
+	}
+	return listHeight
 }
 
 func (m Model) tablePaneDimensions() (int, int) {
@@ -945,6 +950,9 @@ func (m Model) viewTable(w, h int) string {
 	if len(m.tableCols) == 0 {
 		return "No data loaded"
 	}
+	if h <= 0 {
+		return ""
+	}
 
 	colWidth := 14 // fixed column width for v1
 	rowNumW := 6
@@ -995,10 +1003,15 @@ func (m Model) viewTable(w, h int) string {
 	}
 	lines = append(lines, header)
 
-	// Data rows — reserve 1 line for footer
-	maxRows := h - 2 // minus header and footer
-	if maxRows < 1 {
-		maxRows = 1
+	// Data rows — footer is only rendered when there's room for it.
+	maxRows := h - 1 // minus header
+	renderFooter := false
+	if maxRows > 0 {
+		renderFooter = true
+		maxRows--
+	}
+	if maxRows < 0 {
+		maxRows = 0
 	}
 	for r := 0; r < maxRows && r < len(m.tableData); r++ {
 		isSelectedRow := r == m.tableRowCursor
@@ -1064,8 +1077,10 @@ func (m Model) viewTable(w, h int) string {
 	}
 
 	// Footer row with null counts
-	footer := truncate(m.viewTableFooter(), max(0, w-rowPrefixW))
-	lines = append(lines, " "+rowNumStyle.Render(footer))
+	if renderFooter {
+		footer := truncate(m.viewTableFooter(), max(0, w-rowPrefixW))
+		lines = append(lines, " "+rowNumStyle.Render(footer))
+	}
 
 	return strings.Join(lines, "\n")
 }
@@ -1087,7 +1102,7 @@ func (m Model) viewTableFooter() string {
 			}
 		}
 		absRow := m.tableOffset + m.tableRowCursor + 1
-		parts = append(parts, fmt.Sprintf("Row %d: %d/%d missing (visible)", absRow, nullCount, len(row)))
+		parts = append(parts, fmt.Sprintf("Row %d: %d/%d missing (projected)", absRow, nullCount, len(row)))
 	}
 
 	// Column info from profiling
@@ -1118,7 +1133,7 @@ func (m Model) viewColumns(w, h int) string {
 	lines = append(lines, "")
 
 	// Column list
-	listHeight := h - 2
+	listHeight := m.columnsListHeight(h)
 	startIdx := 0
 	if m.colCursor >= listHeight {
 		startIdx = m.colCursor - listHeight + 1
