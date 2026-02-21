@@ -582,7 +582,7 @@ func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
 	if m.tableOffset == prevOffset {
 		return m, nil
 	}
-	m.clampTableRowCursor() // cursor may exceed new page's row count
+	m.clampTableRowCursor() // pointer-receiver on value copy; cursor may exceed new page's row count
 	return m, m.loadPreview()
 }
 
