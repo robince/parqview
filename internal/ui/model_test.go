@@ -100,6 +100,55 @@ func TestWindowSizeMsgClampsOffsetAndKeepsPageDownMonotonic(t *testing.T) {
 	}
 }
 
+func TestHandleTableKeyCtrlPagingLoadsOnlyWhenOffsetChanges(t *testing.T) {
+	base := newTestModel()
+	base.width = 120
+	base.height = 20
+	base.pageSize = 20
+	base.totalRows = 200
+
+	maxOff := base.maxTableOffset()
+	if maxOff == 0 {
+		t.Fatal("expected a positive max table offset for paging tests")
+	}
+
+	cases := []struct {
+		name      string
+		key       string
+		startAtMax bool
+	}{
+		{name: "ctrl+f at bottom", key: "ctrl+f", startAtMax: true},
+		{name: "ctrl+b at top", key: "ctrl+b", startAtMax: false},
+		{name: "ctrl+d at bottom", key: "ctrl+d", startAtMax: true},
+		{name: "ctrl+u at top", key: "ctrl+u", startAtMax: false},
+		{name: "ctrl+f from top", key: "ctrl+f", startAtMax: false},
+		{name: "ctrl+b from bottom", key: "ctrl+b", startAtMax: true},
+		{name: "ctrl+d from top", key: "ctrl+d", startAtMax: false},
+		{name: "ctrl+u from bottom", key: "ctrl+u", startAtMax: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := base
+			if tc.startAtMax {
+				m.tableOffset = maxOff
+			}
+
+			before := m.tableOffset
+			updated, cmd := m.handleTableKey(tc.key)
+			m = updated.(Model)
+
+			offsetChanged := m.tableOffset != before
+			if offsetChanged && cmd == nil {
+				t.Fatalf("expected load command when %s changes offset from %d to %d", tc.key, before, m.tableOffset)
+			}
+			if !offsetChanged && cmd != nil {
+				t.Fatalf("expected no load command when %s leaves offset unchanged at %d", tc.key, before)
+			}
+		})
+	}
+}
+
 func TestPreviewDoneMsgReconcilesSelectedColumnWhenProjectionChanges(t *testing.T) {
 	m := newTestModel()
 	m.columns = []types.ColumnInfo{
