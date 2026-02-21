@@ -223,7 +223,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
+		prevOffset := m.tableOffset
+		m.clampTableOffset()
 		m.clampTableRowCursor()
+		if m.tableOffset != prevOffset {
+			return m, m.loadPreview()
+		}
 		return m, nil
 
 	case tea.KeyMsg:

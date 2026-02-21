@@ -3,6 +3,8 @@ package ui
 import (
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/robince/parqview/internal/types"
 )
 
@@ -61,6 +63,39 @@ func TestHandleTableKeyDownCanReachFinalRowWithSmallViewport(t *testing.T) {
 	absRow := m.tableOffset + m.tableRowCursor + 1
 	if absRow != int(m.totalRows) {
 		t.Fatalf("expected to reach final row %d, got %d (offset=%d cursor=%d)", m.totalRows, absRow, m.tableOffset, m.tableRowCursor)
+	}
+}
+
+func TestWindowSizeMsgClampsOffsetAndKeepsPageDownMonotonic(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 10
+	m.pageSize = 50
+	m.totalRows = 200
+	m.tableOffset = 190
+	m.tableData = make([][]string, 50)
+	for i := range m.tableData {
+		m.tableData[i] = []string{"v"}
+	}
+
+	updated, cmd := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if cmd == nil {
+		t.Fatal("expected load command when resize clamps offset")
+	}
+	m = updated.(Model)
+
+	if m.tableOffset != 166 {
+		t.Fatalf("expected tableOffset to clamp to 166 after resize, got %d", m.tableOffset)
+	}
+
+	before := m.tableOffset
+	updated, cmd = m.handleTablePageDown()
+	if cmd == nil {
+		t.Fatal("expected load command on page down")
+	}
+	m = updated.(Model)
+	if m.tableOffset < before {
+		t.Fatalf("expected page down to be non-decreasing after resize clamp, before=%d after=%d", before, m.tableOffset)
 	}
 }
 
