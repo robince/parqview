@@ -521,6 +521,17 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		if targetCol != "" {
 			m.sel.Toggle(targetCol)
 			if m.showSelected {
+				// If we just deselected the active column, it will vanish from
+				// the projection. Advance the cursor so selectedColName doesn't
+				// point at a hidden column while the preview reloads.
+				if !m.sel.IsSelected(targetCol) && targetCol == m.selectedColName {
+					if m.colCursor < len(m.filteredCols)-1 {
+						m.colCursor++
+					} else if m.colCursor > 0 {
+						m.colCursor--
+					}
+					m.syncSelectedColFromCursor()
+				}
 				return m, m.loadPreview()
 			}
 		}
@@ -1082,11 +1093,12 @@ func (m Model) viewTableFooter() string {
 
 	// Column info from profiling
 	if m.selectedColName != "" {
+		colName := truncate(m.selectedColName, 20)
 		colType := truncate(m.columnType(m.selectedColName), 20)
 		if s, ok := m.summaries[m.selectedColName]; ok && s.Loaded {
-			parts = append(parts, fmt.Sprintf("Col %q (%s): %d missing (%.1f%%)", truncate(m.selectedColName, 20), colType, s.MissingCount, s.MissingPct))
+			parts = append(parts, fmt.Sprintf("Col %q (%s): %d missing (%.1f%%)", colName, colType, s.MissingCount, s.MissingPct))
 		} else {
-			parts = append(parts, fmt.Sprintf("Col %q (%s): ...", truncate(m.selectedColName, 20), colType))
+			parts = append(parts, fmt.Sprintf("Col %q (%s): ...", colName, colType))
 		}
 	}
 
