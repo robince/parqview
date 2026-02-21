@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -555,5 +556,82 @@ func TestViewTableFooterClarifiesVisibleMissingCounts(t *testing.T) {
 	footer := m.viewTableFooter()
 	if !strings.Contains(footer, "missing (visible)") {
 		t.Fatalf("expected footer to clarify visible-column missing count, got %q", footer)
+	}
+}
+
+func TestViewColumnsHighlightedRowUsesFullWidthHighlightFocusedAndUnfocused(t *testing.T) {
+	base := newTestModel()
+	base.columns = []types.ColumnInfo{
+		{Name: "alpha", DuckType: "BIGINT"},
+		{Name: "beta", DuckType: "VARCHAR"},
+	}
+	base.sel = selection.New([]string{"alpha", "beta"})
+	base.selectedColName = "alpha"
+	base.updateFilteredCols()
+
+	w, h := 30, 8
+	plain := fmt.Sprintf("%s %s %s%s",
+		unselectedMarkGlyph,
+		truncate("alpha", w-12),
+		truncate("BIGINT", 8),
+		"",
+	)
+
+	cases := []struct {
+		name  string
+		focus Focus
+		style lipgloss.Style
+	}{
+		{name: "focused columns", focus: FocusColumns, style: highlightStyle},
+		{name: "unfocused columns pane", focus: FocusTable, style: dimHighlightStyle},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := base
+			m.focus = tc.focus
+
+			out := m.viewColumns(w, h)
+			lines := strings.Split(out, "\n")
+			if len(lines) < 3 {
+				t.Fatalf("expected at least 3 lines, got %d", len(lines))
+			}
+
+			want := tc.style.Width(w).Render(plain)
+			if lines[2] != want {
+				t.Fatalf("expected highlighted row render %q, got %q", want, lines[2])
+			}
+			if got := lipgloss.Width(lines[2]); got != w {
+				t.Fatalf("expected highlighted row width %d, got %d", w, got)
+			}
+		})
+	}
+}
+
+func TestViewColumnsHighlightedRowMarkMatchesSelectionState(t *testing.T) {
+	m := newTestModel()
+	m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
+	m.sel = selection.New([]string{"alpha"})
+	m.selectedColName = "alpha"
+	m.focus = FocusColumns
+	m.updateFilteredCols()
+
+	w, h := 30, 6
+	baseName := truncate("alpha", w-12)
+	baseType := truncate("BIGINT", 8)
+
+	out := m.viewColumns(w, h)
+	lines := strings.Split(out, "\n")
+	wantUnselected := highlightStyle.Width(w).Render(fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, baseName, baseType, ""))
+	if lines[2] != wantUnselected {
+		t.Fatalf("expected unselected highlighted mark render %q, got %q", wantUnselected, lines[2])
+	}
+
+	m.sel.Add("alpha")
+	out = m.viewColumns(w, h)
+	lines = strings.Split(out, "\n")
+	wantSelected := highlightStyle.Width(w).Render(fmt.Sprintf("%s %s %s%s", selectedMarkGlyph, baseName, baseType, ""))
+	if lines[2] != wantSelected {
+		t.Fatalf("expected selected highlighted mark render %q, got %q", wantSelected, lines[2])
 	}
 }

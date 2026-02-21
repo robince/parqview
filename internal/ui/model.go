@@ -1137,9 +1137,9 @@ func (m Model) viewColumns(w, h int) string {
 
 		if isHighlighted {
 			// Build line from plain text so highlight style controls the whole row
-			markChar := "○"
+			markChar := unselectedMarkGlyph
 			if m.sel.IsSelected(col.Name) {
-				markChar = "●"
+				markChar = selectedMarkGlyph
 			}
 			plain := fmt.Sprintf("%s %s %s%s", markChar, name, typeStr, statsStr)
 			if m.focus == FocusColumns {

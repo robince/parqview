@@ -2,6 +2,11 @@ package ui
 
 import "github.com/charmbracelet/lipgloss"
 
+const (
+	selectedMarkGlyph   = "●"
+	unselectedMarkGlyph = "○"
+)
+
 var (
 	// Pane borders
 	activeBorderStyle = lipgloss.NewStyle().
@@ -85,8 +90,8 @@ var (
 	nullDotActiveHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("69")).Render("•")
 
 	// Column list
-	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("●")
-	unselectedMark = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("○")
+	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)
+	unselectedMark = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(unselectedMarkGlyph)
 
 	highlightStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("25")).
