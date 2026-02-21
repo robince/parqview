@@ -582,12 +582,12 @@ func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
 	if m.tableOffset == prevOffset {
 		return m, nil
 	}
-	m.clampTableRowCursor() // pointer-receiver on value copy; cursor may exceed new page's row count
+	m.clampTableRowCursor() // clamp against stale data; re-clamped in previewDoneMsg handler
 	return m, m.loadPreview()
 }
 
 func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
-	m.clampTableRowCursor() // pointer-receiver method on value copy; Go auto-takes address
+	m.clampTableRowCursor()
 	switch key {
 	case "up", "k":
 		if m.tableRowCursor > 0 {
