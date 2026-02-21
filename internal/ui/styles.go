@@ -5,6 +5,11 @@ import "github.com/charmbracelet/lipgloss"
 const (
 	selectedMarkGlyph   = "●"
 	unselectedMarkGlyph = "○"
+
+	// Table layout constants
+	tableColWidth  = 14 // fixed column width for v1
+	tableRowNumW   = 6  // row number column width
+	tableRowPrefixW = 1  // prefix space for null dot alignment
 )
 
 var (

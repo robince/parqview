@@ -736,10 +736,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 func (m Model) visibleColCount() int {
 	tableWidth := m.width * 65 / 100
 	w := tableWidth - 2
-	colWidth := 14
-	rowNumW := 6
-	rowPrefixW := 1
-	visibleCols := (w - rowNumW - rowPrefixW) / colWidth
+	visibleCols := (w - tableRowNumW - tableRowPrefixW) / tableColWidth
 	if visibleCols < 1 {
 		visibleCols = 1
 	}
@@ -942,9 +939,9 @@ func (m Model) viewTable(w, h int) string {
 		return ""
 	}
 
-	colWidth := 14 // fixed column width for v1
-	rowNumW := 6
-	rowPrefixW := 1
+	colWidth := tableColWidth
+	rowNumW := tableRowNumW
+	rowPrefixW := tableRowPrefixW
 
 	// How many columns fit
 	visibleCols := (w - rowNumW - rowPrefixW) / colWidth
@@ -1012,49 +1009,14 @@ func (m Model) viewTable(w, h int) string {
 		}
 
 		// Row number
+		var line string
 		if isSelectedRow {
-			line := rowDot + activeRowNumStyle.Render(fmt.Sprintf("%*d", rowNumW, rowNum))
-			row := m.tableData[r]
-			for i := startCol; i < endCol && i < len(row); i++ {
-				val := truncate(row[i], colWidth-1)
-				cell := fmt.Sprintf(" %-*s", colWidth-1, val)
-				isNull := row[i] == "NULL"
-				isSelectedCol := i == cursorColIdx
-
-				switch {
-				case isSelectedCol && isNull:
-					line += crosshairNullStyle.Render(cell)
-				case isSelectedCol:
-					line += crosshairCellStyle.Render(cell)
-				case isNull:
-					line += activeRowNullStyle.Render(cell)
-				default:
-					line += activeRowCellStyle.Render(cell)
-				}
-			}
-			lines = append(lines, line)
+			line = rowDot + activeRowNumStyle.Render(fmt.Sprintf("%*d", rowNumW, rowNum))
 		} else {
-			line := rowDot + rowNumStyle.Render(fmt.Sprintf("%*d", rowNumW, rowNum))
-			row := m.tableData[r]
-			for i := startCol; i < endCol && i < len(row); i++ {
-				val := truncate(row[i], colWidth-1)
-				cell := fmt.Sprintf(" %-*s", colWidth-1, val)
-				isNull := row[i] == "NULL"
-				isSelectedCol := i == cursorColIdx
-
-				switch {
-				case isSelectedCol && isNull:
-					line += activeColNullStyle.Render(cell)
-				case isSelectedCol:
-					line += activeColCellStyle.Render(cell)
-				case isNull:
-					line += nullStyle.Render(cell)
-				default:
-					line += cellStyle.Render(cell)
-				}
-			}
-			lines = append(lines, line)
+			line = rowDot + rowNumStyle.Render(fmt.Sprintf("%*d", rowNumW, rowNum))
 		}
+		line += m.renderRowCells(m.tableData[r], startCol, endCol, colWidth, cursorColIdx, isSelectedRow)
+		lines = append(lines, line)
 	}
 
 	// Footer row with null counts
@@ -1064,6 +1026,36 @@ func (m Model) viewTable(w, h int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderRowCells(row []string, startCol, endCol, colWidth, cursorColIdx int, isSelectedRow bool) string {
+	var s string
+	for i := startCol; i < endCol && i < len(row); i++ {
+		val := truncate(row[i], colWidth-1)
+		cell := fmt.Sprintf(" %-*s", colWidth-1, val)
+		isNull := row[i] == "NULL"
+		isSelectedCol := i == cursorColIdx
+
+		switch {
+		case isSelectedRow && isSelectedCol && isNull:
+			s += crosshairNullStyle.Render(cell)
+		case isSelectedRow && isSelectedCol:
+			s += crosshairCellStyle.Render(cell)
+		case isSelectedRow && isNull:
+			s += activeRowNullStyle.Render(cell)
+		case isSelectedRow:
+			s += activeRowCellStyle.Render(cell)
+		case isSelectedCol && isNull:
+			s += activeColNullStyle.Render(cell)
+		case isSelectedCol:
+			s += activeColCellStyle.Render(cell)
+		case isNull:
+			s += nullStyle.Render(cell)
+		default:
+			s += cellStyle.Render(cell)
+		}
+	}
+	return s
 }
 
 func (m Model) viewTableFooter() string {
