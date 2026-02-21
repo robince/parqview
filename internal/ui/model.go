@@ -202,6 +202,11 @@ func (m *Model) updateFilteredCols() {
 		if m.colCursor >= len(m.filteredCols) {
 			m.colCursor = max(0, len(m.filteredCols)-1)
 		}
+		if len(m.filteredCols) > 0 {
+			m.selectedColName = m.filteredCols[m.colCursor].Name
+		} else {
+			m.selectedColName = ""
+		}
 	}
 }
 
