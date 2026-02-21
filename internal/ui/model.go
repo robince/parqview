@@ -566,9 +566,16 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleTablePageDown() (tea.Model, tea.Cmd) {
+	return m.pageTableOffset(m.pageSize)
+}
+
+func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
 	prevOffset := m.tableOffset
 	maxOff := m.maxTableOffset()
-	m.tableOffset += m.pageSize
+	m.tableOffset += delta
+	if m.tableOffset < 0 {
+		m.tableOffset = 0
+	}
 	if m.tableOffset > maxOff {
 		m.tableOffset = maxOff
 	}
@@ -693,47 +700,13 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		m.tableRowCursor = max(0, m.visibleTableRows()-1)
 		return m, m.loadPreview()
 	case "ctrl+f":
-		prevOffset := m.tableOffset
-		maxOff := m.maxTableOffset()
-		m.tableOffset += m.pageSize
-		if m.tableOffset > maxOff {
-			m.tableOffset = maxOff
-		}
-		if m.tableOffset == prevOffset {
-			return m, nil
-		}
-		return m, m.loadPreview()
+		return m.pageTableOffset(m.pageSize)
 	case "ctrl+b":
-		prevOffset := m.tableOffset
-		m.tableOffset -= m.pageSize
-		if m.tableOffset < 0 {
-			m.tableOffset = 0
-		}
-		if m.tableOffset == prevOffset {
-			return m, nil
-		}
-		return m, m.loadPreview()
+		return m.pageTableOffset(-m.pageSize)
 	case "ctrl+d":
-		prevOffset := m.tableOffset
-		maxOff := m.maxTableOffset()
-		m.tableOffset += m.pageSize / 2
-		if m.tableOffset > maxOff {
-			m.tableOffset = maxOff
-		}
-		if m.tableOffset == prevOffset {
-			return m, nil
-		}
-		return m, m.loadPreview()
+		return m.pageTableOffset(m.pageSize / 2)
 	case "ctrl+u":
-		prevOffset := m.tableOffset
-		m.tableOffset -= m.pageSize / 2
-		if m.tableOffset < 0 {
-			m.tableOffset = 0
-		}
-		if m.tableOffset == prevOffset {
-			return m, nil
-		}
-		return m, m.loadPreview()
+		return m.pageTableOffset(-(m.pageSize / 2))
 	case "f":
 		// Toggle null filter
 		if m.rowFilter != "" {

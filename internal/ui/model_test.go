@@ -155,6 +155,93 @@ func TestHandleTableKeyCtrlPagingLoadsOnlyWhenOffsetChanges(t *testing.T) {
 	}
 }
 
+func TestHandleKeyToggleShowSelectedGlobalLoadsPreview(t *testing.T) {
+	cases := []struct {
+		name  string
+		focus Focus
+	}{
+		{name: "table focus", focus: FocusTable},
+		{name: "columns focus", focus: FocusColumns},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel()
+			m.focus = tc.focus
+			m.columns = []types.ColumnInfo{{Name: "alpha"}}
+			m.sel = selection.New(nil)
+			m.tableRowCursor = 3
+
+			updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+			if cmd == nil {
+				t.Fatal("expected load command when toggling showSelected with s")
+			}
+			m = updated.(Model)
+			if !m.showSelected {
+				t.Fatal("expected showSelected enabled after s")
+			}
+			if m.tableRowCursor != 0 {
+				t.Fatalf("expected row cursor reset to 0 after s, got %d", m.tableRowCursor)
+			}
+
+			m.tableRowCursor = 2
+			updated, cmd = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+			if cmd == nil {
+				t.Fatal("expected load command when toggling showSelected with S")
+			}
+			m = updated.(Model)
+			if m.showSelected {
+				t.Fatal("expected showSelected disabled after S")
+			}
+			if m.tableRowCursor != 0 {
+				t.Fatalf("expected row cursor reset to 0 after S, got %d", m.tableRowCursor)
+			}
+		})
+	}
+}
+
+func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
+	t.Run("table focus uses selected column", func(t *testing.T) {
+		m := newTestModel()
+		m.focus = FocusTable
+		m.columns = []types.ColumnInfo{{Name: "alpha"}}
+		m.selectedColName = "alpha"
+		m.updateFilteredCols()
+
+		updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+		if cmd == nil {
+			t.Fatal("expected detail load command from table focus enter")
+		}
+		m = updated.(Model)
+		if m.detailCol != "alpha" {
+			t.Fatalf("expected detail col alpha, got %q", m.detailCol)
+		}
+		if m.overlay != OverlayDetail {
+			t.Fatalf("expected detail overlay, got %v", m.overlay)
+		}
+	})
+
+	t.Run("columns focus uses active column", func(t *testing.T) {
+		m := newTestModel()
+		m.focus = FocusColumns
+		m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
+		m.selectedColName = "alpha"
+		m.colCursor = 1
+		m.updateFilteredCols()
+
+		updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+		if cmd == nil {
+			t.Fatal("expected detail load command from columns focus enter")
+		}
+		m = updated.(Model)
+		if m.detailCol != "alpha" {
+			t.Fatalf("expected detail col alpha from active column, got %q", m.detailCol)
+		}
+		if m.overlay != OverlayDetail {
+			t.Fatalf("expected detail overlay, got %v", m.overlay)
+		}
+	})
+}
+
 func TestHandleTableKeyHorizontalNavigationTracksViewportPaging(t *testing.T) {
 	m := newTestModel()
 	m.width = 100
