@@ -223,6 +223,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
+		m.clampTableRowCursor()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -234,6 +235,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.tableData = msg.rows
 			m.tableCols = msg.colNames
+			m.reconcileSelectedColNameWithTableCols()
 			m.totalRows = msg.totalRows
 			if msg.filterRows >= 0 {
 				m.filterRows = msg.filterRows
@@ -243,10 +245,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.tableOffset != prevOffset {
 				return m, m.loadPreview()
 			}
-			// Clamp row cursor after data load
-			if m.tableRowCursor >= len(m.tableData) {
-				m.tableRowCursor = max(0, len(m.tableData)-1)
-			}
+			m.clampTableRowCursor()
 		}
 		return m, nil
 
@@ -411,6 +410,53 @@ func (m Model) columnsPaneDimensions() (int, int) {
 	return colWidth - 2, mainHeight - 2
 }
 
+func (m Model) tablePaneDimensions() (int, int) {
+	mainHeight := m.height - 2
+	tableWidth := m.width * 65 / 100
+	return tableWidth - 2, mainHeight - 2
+}
+
+func (m Model) visibleTableRows() int {
+	_, h := m.tablePaneDimensions()
+	maxRows := h - 2
+	if maxRows < 1 {
+		maxRows = 1
+	}
+	return maxRows
+}
+
+func (m *Model) clampTableRowCursor() {
+	maxRows := m.visibleTableRows()
+	if len(m.tableData) < maxRows {
+		maxRows = len(m.tableData)
+	}
+	maxCursor := maxRows - 1
+	if maxCursor < 0 {
+		maxCursor = 0
+	}
+	if m.tableRowCursor > maxCursor {
+		m.tableRowCursor = maxCursor
+	}
+	if m.tableRowCursor < 0 {
+		m.tableRowCursor = 0
+	}
+}
+
+func (m *Model) reconcileSelectedColNameWithTableCols() {
+	if len(m.tableCols) == 0 {
+		m.selectedColName = ""
+		return
+	}
+	for _, name := range m.tableCols {
+		if name == m.selectedColName {
+			m.syncCursorFromSelectedColName()
+			return
+		}
+	}
+	m.selectedColName = m.tableCols[0]
+	m.syncCursorFromSelectedColName()
+}
+
 func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "/":
@@ -488,6 +534,7 @@ func (m Model) handleTablePageDown() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
+	m.clampTableRowCursor()
 	switch key {
 	case "up", "k":
 		if m.tableRowCursor > 0 {
@@ -498,7 +545,15 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			return m, m.loadPreview()
 		}
 	case "down", "j":
-		if m.tableRowCursor < len(m.tableData)-1 {
+		maxVisibleRows := m.visibleTableRows()
+		if len(m.tableData) < maxVisibleRows {
+			maxVisibleRows = len(m.tableData)
+		}
+		maxVisibleCursor := maxVisibleRows - 1
+		if maxVisibleCursor < 0 {
+			maxVisibleCursor = 0
+		}
+		if m.tableRowCursor < maxVisibleCursor {
 			m.tableRowCursor++
 		} else {
 			maxOff := m.maxTableOffset()

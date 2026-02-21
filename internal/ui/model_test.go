@@ -6,6 +6,92 @@ import (
 	"github.com/robince/parqview/internal/types"
 )
 
+func TestHandleTableKeyDownKeepsCursorWithinVisibleRowsAndScrolls(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 10
+	m.pageSize = 50
+	m.totalRows = 200
+	m.tableData = make([][]string, 50)
+	for i := range m.tableData {
+		m.tableData[i] = []string{"v"}
+	}
+
+	for i := 0; i < 3; i++ {
+		updated, cmd := m.handleTableKey("down")
+		if cmd != nil {
+			t.Fatalf("expected no load command before visible-row boundary, got %v", cmd)
+		}
+		m = updated.(Model)
+	}
+
+	if m.tableRowCursor != 3 {
+		t.Fatalf("expected row cursor at last visible row (3), got %d", m.tableRowCursor)
+	}
+
+	updated, cmd := m.handleTableKey("down")
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected load command when moving past visible rows")
+	}
+	if m.tableRowCursor != 3 {
+		t.Fatalf("expected row cursor to stay on visible bottom row, got %d", m.tableRowCursor)
+	}
+	if m.tableOffset != 1 {
+		t.Fatalf("expected tableOffset to advance, got %d", m.tableOffset)
+	}
+}
+
+func TestPreviewDoneMsgReconcilesSelectedColumnWhenProjectionChanges(t *testing.T) {
+	m := newTestModel()
+	m.columns = []types.ColumnInfo{
+		{Name: "alpha"},
+		{Name: "beta"},
+		{Name: "gamma"},
+	}
+	m.selectedColName = "beta"
+	m.colCursor = 1
+	m.updateFilteredCols()
+
+	m = updateModel(t, m, previewDoneMsg{
+		rows:      [][]string{{"1", "2"}},
+		colNames:  []string{"alpha", "gamma"},
+		totalRows: 2,
+	})
+
+	if m.selectedColName != "alpha" {
+		t.Fatalf("expected selectedColName to move to first visible column, got %q", m.selectedColName)
+	}
+	if m.tableColCursor() != 0 {
+		t.Fatalf("expected table column cursor to point at visible column 0, got %d", m.tableColCursor())
+	}
+	if m.colCursor != 0 {
+		t.Fatalf("expected column pane cursor to sync to alpha, got %d", m.colCursor)
+	}
+}
+
+func TestPreviewDoneMsgClampsRowCursorToVisibleRows(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 10
+	m.tableRowCursor = 40
+
+	rows := make([][]string, 50)
+	for i := range rows {
+		rows[i] = []string{"v"}
+	}
+
+	m = updateModel(t, m, previewDoneMsg{
+		rows:      rows,
+		colNames:  []string{"alpha"},
+		totalRows: 50,
+	})
+
+	if m.tableRowCursor != 3 {
+		t.Fatalf("expected row cursor to clamp to last visible row (3), got %d", m.tableRowCursor)
+	}
+}
+
 func TestUpdateFilteredColsResyncsSelectedColumn(t *testing.T) {
 	t.Run("selected column filtered out resyncs to cursor", func(t *testing.T) {
 		m := Model{
