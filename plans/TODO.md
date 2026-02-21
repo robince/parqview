@@ -14,7 +14,8 @@ UI/UX
 - resizing:
   - resizing panes
   - resizing column width
-- data filering:
+- how to handle longer column names?
+- data filtering:
   - filter on this value (e.g. in a user id)
   - possibly add this user-id to filter set? (more complicated interface)
 
