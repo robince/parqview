@@ -282,6 +282,35 @@ func TestHandleTableKeyGPositionsCursorAtFinalRow(t *testing.T) {
 	}
 }
 
+func TestHandleTableKeyGWithZeroVisibleRowsStaysWithinBounds(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 6
+	m.pageSize = 50
+	m.totalRows = 200
+	m.tableCols = []string{"c0"}
+
+	if got := m.visibleTableRows(); got != 0 {
+		t.Fatalf("expected zero visible rows, got %d", got)
+	}
+	if got := m.maxTableOffset(); got != int(m.totalRows)-1 {
+		t.Fatalf("expected maxTableOffset %d, got %d", int(m.totalRows)-1, got)
+	}
+
+	updated, cmd := m.handleTableKey("G")
+	if cmd == nil {
+		t.Fatal("expected load command for G")
+	}
+	m = updated.(Model)
+
+	if m.tableOffset != int(m.totalRows)-1 {
+		t.Fatalf("expected tableOffset at final row index %d, got %d", int(m.totalRows)-1, m.tableOffset)
+	}
+	if m.tableRowCursor != 0 {
+		t.Fatalf("expected row cursor clamped to 0, got %d", m.tableRowCursor)
+	}
+}
+
 func TestPreviewDoneMsgReconcilesSelectedColumnWhenProjectionChanges(t *testing.T) {
 	m := newTestModel()
 	m.columns = []types.ColumnInfo{
