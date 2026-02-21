@@ -1084,13 +1084,15 @@ func (m Model) viewTableFooter() string {
 	// tableData may have shrunk (e.g. after filter/resize). If clamping
 	// activates, it indicates a state bug upstream worth investigating.
 	rowCursor := m.tableRowCursor
-	if rowCursor < 0 {
-		rowCursor = 0
+	if len(m.tableData) > 0 {
+		if rowCursor < 0 {
+			rowCursor = 0
+		}
+		if rowCursor >= len(m.tableData) {
+			rowCursor = len(m.tableData) - 1
+		}
 	}
-	if rowCursor >= len(m.tableData) {
-		rowCursor = len(m.tableData) - 1
-	}
-	if rowCursor >= 0 {
+	if rowCursor >= 0 && rowCursor < len(m.tableData) {
 		row := m.tableData[rowCursor]
 		nullCount := 0
 		for _, v := range row {
