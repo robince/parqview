@@ -196,6 +196,9 @@ func (m Model) columnsHasFilteredCol(name string) bool {
 	return false
 }
 
+// columnsActiveColName returns the column that actions (x, enter) operate on
+// in the columns pane. The crosshair column (selectedColName) takes priority
+// over the colCursor position when both are visible in the filtered list.
 func (m Model) columnsActiveColName() string {
 	if m.selectedColName != "" && m.columnsHasFilteredCol(m.selectedColName) {
 		return m.selectedColName
@@ -940,11 +943,8 @@ func (m Model) viewTable(w, h int) string {
 		return ""
 	}
 
-	// How many columns fit
-	visibleCols := (w - tableRowNumW - tableRowPrefixW) / tableColWidth
-	if visibleCols < 1 {
-		visibleCols = 1
-	}
+	// How many columns fit (uses same formula as visibleColCount)
+	visibleCols := m.visibleColCount()
 
 	startCol := m.computeTableColOff(visibleCols)
 	if startCol >= len(m.tableCols) {
@@ -988,8 +988,13 @@ func (m Model) viewTable(w, h int) string {
 	// Data rows — footer is only rendered when there's room for it.
 	maxRows := m.tableDataRowsHeight(h)
 	renderFooter := h > 1
+	// Clamp cursor for rendering in case data hasn't loaded yet after navigation
+	renderCursor := m.tableRowCursor
+	if renderCursor >= maxRows {
+		renderCursor = max(0, maxRows-1)
+	}
 	for r := 0; r < maxRows && r < len(m.tableData); r++ {
-		isSelectedRow := r == m.tableRowCursor
+		isSelectedRow := r == renderCursor
 		rowNum := m.tableOffset + r + 1
 
 		// Check if row has any nulls (across all columns, not just visible)
