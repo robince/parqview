@@ -152,6 +152,88 @@ func TestHandleTableKeyCtrlPagingLoadsOnlyWhenOffsetChanges(t *testing.T) {
 	}
 }
 
+func TestHandleTableKeyHorizontalNavigationTracksViewportPaging(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c0"
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
+	}
+
+	cases := []struct {
+		name             string
+		key              string
+		expectedSelected string
+		expectedStartCol int
+	}{
+		{name: "right moves cursor within first page", key: "right", expectedSelected: "c1", expectedStartCol: 0},
+		{name: "end jumps to last column", key: "$", expectedSelected: "c9", expectedStartCol: 6},
+		{name: "home jumps to first column", key: "0", expectedSelected: "c0", expectedStartCol: 0},
+		{name: "page right shifts one full screenful", key: "]", expectedSelected: "c7", expectedStartCol: 4},
+		{name: "page right clamps at final start", key: "]", expectedSelected: "c9", expectedStartCol: 6},
+		{name: "page left shifts one full screenful", key: "[", expectedSelected: "c5", expectedStartCol: 2},
+		{name: "page left back to first page", key: "[", expectedSelected: "c3", expectedStartCol: 0},
+		{name: "left moves within current page", key: "left", expectedSelected: "c2", expectedStartCol: 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			updated, cmd := m.handleTableKey(tc.key)
+			if cmd != nil {
+				t.Fatalf("expected no load command for horizontal key %q", tc.key)
+			}
+			m = updated.(Model)
+
+			if m.selectedColName != tc.expectedSelected {
+				t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
+			}
+			startCol := m.computeTableColOff(m.visibleColCount())
+			if startCol != tc.expectedStartCol {
+				t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
+			}
+		})
+	}
+}
+
+func TestHandleTableKeyGPositionsCursorAtFinalRow(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 10
+	m.pageSize = 50
+	m.totalRows = 200
+	m.tableCols = []string{"c0"}
+
+	updated, cmd := m.handleTableKey("G")
+	if cmd == nil {
+		t.Fatal("expected load command for G")
+	}
+	m = updated.(Model)
+
+	if m.tableOffset != m.maxTableOffset() {
+		t.Fatalf("expected tableOffset at max (%d), got %d", m.maxTableOffset(), m.tableOffset)
+	}
+	if m.tableRowCursor != m.visibleTableRows()-1 {
+		t.Fatalf("expected row cursor at bottom visible row (%d), got %d", m.visibleTableRows()-1, m.tableRowCursor)
+	}
+
+	rows := make([][]string, 4)
+	for i := range rows {
+		rows[i] = []string{"v"}
+	}
+	m = updateModel(t, m, previewDoneMsg{
+		rows:      rows,
+		colNames:  []string{"c0"},
+		totalRows: 200,
+	})
+
+	absRow := m.tableOffset + m.tableRowCursor + 1
+	if absRow != int(m.totalRows) {
+		t.Fatalf("expected cursor on final row %d, got %d (offset=%d cursor=%d)", m.totalRows, absRow, m.tableOffset, m.tableRowCursor)
+	}
+}
+
 func TestPreviewDoneMsgReconcilesSelectedColumnWhenProjectionChanges(t *testing.T) {
 	m := newTestModel()
 	m.columns = []types.ColumnInfo{

@@ -602,31 +602,43 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case "[":
 		// Page columns left by one screenful
-		visibleCols := m.visibleColCount()
-		idx := m.tableColCursor()
-		if idx < 0 {
-			idx = 0
-		}
-		newIdx := idx - visibleCols
-		if newIdx < 0 {
-			newIdx = 0
-		}
 		if len(m.tableCols) > 0 {
+			visibleCols := m.visibleColCount()
+			startCol := m.computeTableColOff(visibleCols)
+			newStart := startCol - visibleCols
+			if newStart < 0 {
+				newStart = 0
+			}
+			newIdx := newStart + visibleCols - 1
+			if newIdx >= len(m.tableCols) {
+				newIdx = len(m.tableCols) - 1
+			}
+			if newIdx < 0 {
+				newIdx = 0
+			}
 			m.selectedColName = m.tableCols[newIdx]
 			m.syncCursorFromSelectedColName()
 		}
 	case "]":
 		// Page columns right by one screenful
-		visibleCols := m.visibleColCount()
-		idx := m.tableColCursor()
-		if idx < 0 {
-			idx = 0
-		}
-		newIdx := idx + visibleCols
-		if newIdx >= len(m.tableCols) {
-			newIdx = len(m.tableCols) - 1
-		}
 		if len(m.tableCols) > 0 {
+			visibleCols := m.visibleColCount()
+			startCol := m.computeTableColOff(visibleCols)
+			maxStart := len(m.tableCols) - visibleCols
+			if maxStart < 0 {
+				maxStart = 0
+			}
+			newStart := startCol + visibleCols
+			if newStart > maxStart {
+				newStart = maxStart
+			}
+			newIdx := newStart + visibleCols - 1
+			if newIdx >= len(m.tableCols) {
+				newIdx = len(m.tableCols) - 1
+			}
+			if newIdx < 0 {
+				newIdx = 0
+			}
 			m.selectedColName = m.tableCols[newIdx]
 			m.syncCursorFromSelectedColName()
 		}
@@ -636,7 +648,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		return m, m.loadPreview()
 	case "G":
 		m.tableOffset = m.maxTableOffset()
-		m.tableRowCursor = 0
+		m.tableRowCursor = m.visibleTableRows() - 1
 		return m, m.loadPreview()
 	case "ctrl+f":
 		prevOffset := m.tableOffset
