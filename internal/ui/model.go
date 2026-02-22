@@ -1387,13 +1387,10 @@ func (m Model) rowHasNullAt(rowIdx int) bool {
 		}
 		return false
 	}
-	// When lengths match, rowIdx from a tableData range loop is always < len(tableRowHasNull).
+	// When lengths match, len(tableRowHasNull) == len(tableData),
+	// so rowIdx >= len(tableRowHasNull) implies rowIdx >= len(tableData) — no live scan needed.
 	if rowIdx < len(m.tableRowHasNull) {
 		return m.tableRowHasNull[rowIdx]
-	}
-	// rowIdx out of range for a synced cache — do a live scan as a defensive fallback.
-	if rowIdx < len(m.tableData) {
-		return rowHasNull(m.tableData[rowIdx])
 	}
 	return false
 }
