@@ -85,15 +85,14 @@ type Model struct {
 
 	// Table state
 	tableData       [][]string
-	tableRowHasNull []bool
 	tableCols       []string // column names in current projection
 	tableOffset     int      // row offset for pagination
 	tableRowCursor  int      // row cursor position within visible page
 	tableColOffHint int      // preferred column offset; -1 = auto
-	showSelected    bool     // show only selected columns
-	rowFilter       string   // active SQL filter
-	totalRows       int64
-	filterRows      int64 // -1 means no filter active
+	showSelected   bool     // show only selected columns
+	rowFilter      string   // active SQL filter
+	totalRows      int64
+	filterRows     int64 // -1 means no filter active
 
 	// Profiling
 	summaries map[string]*types.ColumnSummary
@@ -159,9 +158,6 @@ func (m Model) tableColCursor() int {
 // computeTableColOff returns the scroll offset to keep the column cursor visible.
 // If tableColOffHint is set and the cursor is visible within that viewport, use it.
 func (m Model) computeTableColOff(visibleCols int) int {
-	if visibleCols <= 0 {
-		return 0
-	}
 	cursor := m.tableColCursor()
 	maxOff := len(m.tableCols) - visibleCols
 	if maxOff < 0 {
@@ -283,7 +279,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
 		} else {
 			m.tableData = msg.rows
-			m.tableRowHasNull = rowHasNullFlags(msg.rows)
 			m.tableCols = msg.colNames
 			m.reconcileSelectedColNameWithTableCols()
 			m.totalRows = msg.totalRows
@@ -586,11 +581,6 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		}
 		m.sel.RemoveAll(names)
 		if m.showSelected {
-			if m.sel.Count() == 0 {
-				m.showSelected = false
-				m.statusMsg = "show-selected off (no columns selected)"
-				m.updateFilteredCols()
-			}
 			return m, m.loadPreview()
 		}
 	case "A":
@@ -601,9 +591,6 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 	case "X":
 		m.sel.Clear()
 		if m.showSelected {
-			m.showSelected = false
-			m.statusMsg = "show-selected off (no columns selected)"
-			m.updateFilteredCols()
 			return m, m.loadPreview()
 		}
 	case "y":
@@ -649,9 +636,6 @@ func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
 func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 	// Clamp on the local copy (value receiver); the returned m carries the clamped value.
 	m.clampTableRowCursor()
-	if (key == "up" || key == "k" || key == "down" || key == "j") && m.visibleTableRows() == 0 {
-		return m, nil
-	}
 	switch key {
 	case "up", "k":
 		if m.tableRowCursor > 0 {
@@ -760,11 +744,11 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 // visibleColCount returns how many columns fit in the table pane.
 func (m Model) visibleColCount() int {
 	w, _ := m.tablePaneDimensions()
-	colAreaWidth := w - tableRowNumW - tableRowPrefixW
-	if colAreaWidth < tableColWidth {
-		return 0
+	visibleCols := (w - tableRowNumW - tableRowPrefixW) / tableColWidth
+	if visibleCols < 1 {
+		visibleCols = 1
 	}
-	return colAreaWidth / tableColWidth
+	return visibleCols
 }
 
 // pageColumnsHorizontal scrolls the column viewport by one screenful.
@@ -774,9 +758,6 @@ func (m Model) pageColumnsHorizontal(direction int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	visibleCols := m.visibleColCount()
-	if visibleCols == 0 {
-		return m, nil
-	}
 	startCol := m.computeTableColOff(visibleCols)
 	newStart := startCol + direction*visibleCols
 	if newStart < 0 {
@@ -1011,9 +992,6 @@ func (m Model) viewTable(w, h int) string {
 
 	// How many columns fit
 	visibleCols := m.visibleColCount()
-	if visibleCols == 0 {
-		return "Terminal too small to display columns"
-	}
 
 	startCol := m.computeTableColOff(visibleCols)
 	if startCol >= len(m.tableCols) {
@@ -1069,7 +1047,14 @@ func (m Model) viewTable(w, h int) string {
 		isSelectedRow := r == renderCursor
 		rowNum := m.tableOffset + r + 1
 
-		rowHasNull := m.rowHasNullAt(r, m.tableData[r])
+		// Check if row has any nulls (across all columns, not just visible)
+		rowHasNull := false
+		for _, v := range m.tableData[r] {
+			if v == "NULL" {
+				rowHasNull = true
+				break
+			}
+		}
 		rowDot := " "
 		if rowHasNull {
 			rowDot = nullDot
@@ -1097,8 +1082,7 @@ func (m Model) viewTable(w, h int) string {
 }
 
 func (m Model) renderRowCells(row []string, startCol, endCol, colWidth, cursorColIdx int, isSelectedRow bool) string {
-	var b strings.Builder
-	b.Grow((endCol - startCol) * colWidth)
+	var s string
 	for i := startCol; i < endCol && i < len(row); i++ {
 		val := truncate(row[i], colWidth-1)
 		cell := fmt.Sprintf(" %-*s", colWidth-1, val)
@@ -1107,48 +1091,24 @@ func (m Model) renderRowCells(row []string, startCol, endCol, colWidth, cursorCo
 
 		switch {
 		case isSelectedRow && isSelectedCol && isNull:
-			b.WriteString(crosshairNullStyle.Render(cell))
+			s += crosshairNullStyle.Render(cell)
 		case isSelectedRow && isSelectedCol:
-			b.WriteString(crosshairCellStyle.Render(cell))
+			s += crosshairCellStyle.Render(cell)
 		case isSelectedRow && isNull:
-			b.WriteString(activeRowNullStyle.Render(cell))
+			s += activeRowNullStyle.Render(cell)
 		case isSelectedRow:
-			b.WriteString(activeRowCellStyle.Render(cell))
+			s += activeRowCellStyle.Render(cell)
 		case isSelectedCol && isNull:
-			b.WriteString(activeColNullStyle.Render(cell))
+			s += activeColNullStyle.Render(cell)
 		case isSelectedCol:
-			b.WriteString(activeColCellStyle.Render(cell))
+			s += activeColCellStyle.Render(cell)
 		case isNull:
-			b.WriteString(nullStyle.Render(cell))
+			s += nullStyle.Render(cell)
 		default:
-			b.WriteString(cellStyle.Render(cell))
+			s += cellStyle.Render(cell)
 		}
 	}
-	return b.String()
-}
-
-func rowHasNullFlags(rows [][]string) []bool {
-	flags := make([]bool, len(rows))
-	for i, row := range rows {
-		flags[i] = rowHasNull(row)
-	}
-	return flags
-}
-
-func (m Model) rowHasNullAt(rowIdx int, row []string) bool {
-	if rowIdx >= 0 && rowIdx < len(m.tableRowHasNull) {
-		return m.tableRowHasNull[rowIdx]
-	}
-	return rowHasNull(row)
-}
-
-func rowHasNull(row []string) bool {
-	for _, v := range row {
-		if v == "NULL" {
-			return true
-		}
-	}
-	return false
+	return s
 }
 
 func (m Model) viewTableFooter() string {

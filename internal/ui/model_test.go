@@ -199,56 +199,6 @@ func TestHandleKeyToggleShowSelectedGlobalLoadsPreview(t *testing.T) {
 	}
 }
 
-func TestHandleColumnsKeyClearingSelectionDisablesShowSelected(t *testing.T) {
-	t.Run("d disables show-selected when selection becomes empty", func(t *testing.T) {
-		m := newTestModel()
-		m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
-		m.sel = selection.New([]string{"alpha", "beta"})
-		m.sel.Add("alpha")
-		m.showSelected = true
-		m.updateFilteredCols()
-
-		updated, cmd := m.handleColumnsKey("d")
-		if cmd == nil {
-			t.Fatal("expected load command for d in show-selected mode")
-		}
-		m = updated.(Model)
-
-		if m.showSelected {
-			t.Fatal("expected showSelected off after removing all selected columns")
-		}
-		if got := m.statusMsg; got != "show-selected off (no columns selected)" {
-			t.Fatalf("unexpected status message %q", got)
-		}
-	})
-
-	t.Run("X disables show-selected when clearing all", func(t *testing.T) {
-		m := newTestModel()
-		m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
-		m.sel = selection.New([]string{"alpha", "beta"})
-		m.sel.Add("alpha")
-		m.sel.Add("beta")
-		m.showSelected = true
-		m.updateFilteredCols()
-
-		updated, cmd := m.handleColumnsKey("X")
-		if cmd == nil {
-			t.Fatal("expected load command for X in show-selected mode")
-		}
-		m = updated.(Model)
-
-		if m.showSelected {
-			t.Fatal("expected showSelected off after clearing selection")
-		}
-		if m.sel.Count() != 0 {
-			t.Fatalf("expected empty selection, got %d", m.sel.Count())
-		}
-		if got := m.statusMsg; got != "show-selected off (no columns selected)" {
-			t.Fatalf("unexpected status message %q", got)
-		}
-	})
-}
-
 func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	t.Run("table focus uses selected column", func(t *testing.T) {
 		m := newTestModel()
@@ -339,27 +289,6 @@ func TestHandleTableKeyHorizontalNavigationTracksViewportPaging(t *testing.T) {
 	}
 }
 
-func TestHandleTableKeyVerticalNavigationNoVisibleRowsIsNoOp(t *testing.T) {
-	m := newTestModel()
-	m.width = 120
-	m.height = 6
-	m.totalRows = 200
-	m.tableData = [][]string{{"v"}}
-
-	if got := m.visibleTableRows(); got != 0 {
-		t.Fatalf("expected zero visible rows, got %d", got)
-	}
-
-	updated, cmd := m.handleTableKey("down")
-	if cmd != nil {
-		t.Fatal("expected no load command when no rows are visible")
-	}
-	m = updated.(Model)
-	if m.tableOffset != 0 || m.tableRowCursor != 0 {
-		t.Fatalf("expected unchanged offset/cursor, got offset=%d cursor=%d", m.tableOffset, m.tableRowCursor)
-	}
-}
-
 func TestHandleTableKeyHorizontalNavigationPagingBoundaries(t *testing.T) {
 	t.Run("page left at first page is no-op", func(t *testing.T) {
 		m := newTestModel()
@@ -401,27 +330,6 @@ func TestHandleTableKeyHorizontalNavigationPagingBoundaries(t *testing.T) {
 		}
 		if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 0 {
 			t.Fatalf("expected start col to remain 0, got %d", startCol)
-		}
-	})
-
-	t.Run("page right is no-op when no columns fit", func(t *testing.T) {
-		m := newTestModel()
-		m.width = 20
-		m.height = 10
-		m.tableCols = []string{"c0", "c1", "c2"}
-		m.selectedColName = "c1"
-
-		if got := m.visibleColCount(); got != 0 {
-			t.Fatalf("expected visibleColCount=0 for tiny width, got %d", got)
-		}
-
-		updated, cmd := m.handleTableKey("]")
-		if cmd != nil {
-			t.Fatalf("expected no load command for horizontal key %q", "]")
-		}
-		m = updated.(Model)
-		if m.selectedColName != "c1" {
-			t.Fatalf("expected selected column unchanged, got %q", m.selectedColName)
 		}
 	})
 }
@@ -628,30 +536,6 @@ func TestPreviewDoneMsgClampsRowCursorToVisibleRows(t *testing.T) {
 
 	if m.tableRowCursor != 2 {
 		t.Fatalf("expected row cursor to clamp to last visible row (2), got %d", m.tableRowCursor)
-	}
-}
-
-func TestPreviewDoneMsgCachesRowNullFlagsForView(t *testing.T) {
-	m := newTestModel()
-	m.width = 120
-	m.height = 12
-	m.tableCols = []string{"alpha", "beta"}
-	m.selectedColName = "alpha"
-
-	m = updateModel(t, m, previewDoneMsg{
-		rows: [][]string{
-			{"1", "NULL"},
-			{"2", "3"},
-		},
-		colNames:  []string{"alpha", "beta"},
-		totalRows: 2,
-	})
-
-	if got, want := len(m.tableRowHasNull), 2; got != want {
-		t.Fatalf("expected %d row-null flags, got %d", want, got)
-	}
-	if !m.tableRowHasNull[0] || m.tableRowHasNull[1] {
-		t.Fatalf("unexpected row-null flags: %#v", m.tableRowHasNull)
 	}
 }
 
