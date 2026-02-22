@@ -51,6 +51,7 @@ type previewDoneMsg struct {
 	colNames   []string
 	totalRows  int64
 	filterRows int64
+	seq        uint64
 	err        error
 }
 
@@ -99,16 +100,21 @@ type Model struct {
 	summaries map[string]*types.ColumnSummary
 
 	// UI state
-	focus     Focus
-	overlay   Overlay
-	detailCol string // column shown in detail panel
-	detailTab int    // 0=TopValues, 1=Stats, 2=Histogram
-	width     int
-	height    int
-	statusMsg string
-	ready     bool
+	focus           Focus
+	overlay         Overlay
+	detailCol       string // column shown in detail panel
+	detailTab       int    // 0=TopValues, 1=Stats, 2=Histogram
+	width           int
+	height          int
+	statusMsg       string
+	ready           bool
+	tableSplitPct   int
+	draggingDivider bool
 
-	pageSize int // rows per page
+	pageSize         int // rows per page
+	tableColWidths   map[string]int
+	previewSeq       uint64
+	latestPreviewSeq uint64
 }
 
 // NewModel creates the initial model.
@@ -129,18 +135,22 @@ func NewModel(eng *engine.Engine, fileName string) Model {
 	}
 
 	m := Model{
-		engine:          eng,
-		fileName:        fileName,
-		columns:         cols,
-		sel:             selection.New(names),
-		searchInput:     ti,
-		summaries:       make(map[string]*types.ColumnSummary),
-		filterRows:      -1,
-		tableColOffHint: -1,
-		totalRows:       eng.TotalRows(),
-		pageSize:        50,
-		focus:           FocusTable,
-		selectedColName: firstCol,
+		engine:           eng,
+		fileName:         fileName,
+		columns:          cols,
+		sel:              selection.New(names),
+		searchInput:      ti,
+		summaries:        make(map[string]*types.ColumnSummary),
+		filterRows:       -1,
+		tableColOffHint:  -1,
+		totalRows:        eng.TotalRows(),
+		pageSize:         50,
+		focus:            FocusTable,
+		selectedColName:  firstCol,
+		tableSplitPct:    tableSplitPct,
+		tableColWidths:   make(map[string]int),
+		previewSeq:       1,
+		latestPreviewSeq: 1,
 	}
 	m.updateFilteredCols()
 	return m
@@ -174,6 +184,148 @@ func (m Model) computeTableColOff(visibleCols int) int {
 		return 0
 	}
 	return cursor - visibleCols + 1
+}
+
+func (m Model) splitPctBounds() (int, int) {
+	if m.width <= 0 {
+		return 50, 50
+	}
+	minPct := (minPaneOuterW*100 + m.width - 1) / m.width // ceil
+	maxPct := 100 - minPct
+	if minPct > maxPct {
+		return 50, 50
+	}
+	return minPct, maxPct
+}
+
+func (m *Model) clampSplitPct() {
+	if m.tableSplitPct <= 0 {
+		m.tableSplitPct = tableSplitPct
+	}
+	minPct, maxPct := m.splitPctBounds()
+	if m.tableSplitPct < minPct {
+		m.tableSplitPct = minPct
+	}
+	if m.tableSplitPct > maxPct {
+		m.tableSplitPct = maxPct
+	}
+}
+
+func (m Model) tableOuterWidth() int {
+	if m.width <= 0 {
+		return 0
+	}
+	minPct, maxPct := m.splitPctBounds()
+	pct := m.tableSplitPct
+	if pct <= 0 {
+		pct = tableSplitPct
+	}
+	if pct < minPct {
+		pct = minPct
+	}
+	if pct > maxPct {
+		pct = maxPct
+	}
+	w := m.width * pct / 100
+	if w < 0 {
+		return 0
+	}
+	if w > m.width {
+		return m.width
+	}
+	return w
+}
+
+func (m Model) columnsOuterWidth() int {
+	w := m.width - m.tableOuterWidth()
+	if w < 0 {
+		return 0
+	}
+	return w
+}
+
+func (m Model) mainHeight() int {
+	h := m.height - statusBarH
+	if h < 0 {
+		return 0
+	}
+	return h
+}
+
+func (m Model) mainAreaContains(y int) bool {
+	top := 1 // top bar occupies the first terminal row
+	bottom := top + m.mainHeight()
+	return y >= top && y < bottom
+}
+
+func (m Model) dividerX() int {
+	return m.tableOuterWidth()
+}
+
+func (m Model) nearDivider(x int) bool {
+	div := m.dividerX()
+	return x >= div-dividerGrabRadius && x <= div+dividerGrabRadius
+}
+
+func (m *Model) setSplitFromMouseX(x int) {
+	if m.width <= 0 {
+		return
+	}
+	target := x + 1
+	if target < 0 {
+		target = 0
+	}
+	if target > m.width {
+		target = m.width
+	}
+	m.tableSplitPct = (target*100 + m.width/2) / m.width
+	m.clampSplitPct()
+}
+
+func (m Model) previewLimit() int {
+	limit := m.visibleTableRows() + previewHeadroom
+	if limit < previewMinRows {
+		limit = previewMinRows
+	}
+	if limit > previewMaxRows {
+		limit = previewMaxRows
+	}
+	if active := int(m.activeRowCount()); active > 0 && limit > active {
+		limit = active
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	return limit
+}
+
+func (m Model) needsMorePreviewRows() bool {
+	if len(m.tableCols) == 0 {
+		return false
+	}
+	active := int(m.activeRowCount())
+	if active <= 0 {
+		return false
+	}
+	needed := m.previewLimit()
+	remaining := active - m.tableOffset
+	if remaining < needed {
+		needed = max(0, remaining)
+	}
+	return len(m.tableData) < needed
+}
+
+func (m *Model) nextPreviewCmd() tea.Cmd {
+	m.previewSeq++
+	m.latestPreviewSeq = m.previewSeq
+	return m.loadPreviewCmd(m.previewSeq)
+}
+
+func (m Model) columnWidth(colName string) int {
+	if w, ok := m.tableColWidths[colName]; ok && w >= tableColMinWidth {
+		return w
+	}
+	return tableColWidth
 }
 
 // syncSelectedColFromCursor sets selectedColName from the columns pane cursor.
@@ -255,7 +407,7 @@ func (m *Model) updateFilteredCols() {
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		m.loadPreview(),
+		m.loadPreviewCmd(m.latestPreviewSeq),
 		m.profileNext(),
 	)
 }
@@ -266,18 +418,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
+		m.clampSplitPct()
 		prevOffset := m.tableOffset
 		m.clampTableOffset()
 		m.clampTableRowCursor()
 		if m.tableOffset != prevOffset {
-			return m, m.loadPreview()
+			return m, m.nextPreviewCmd()
+		}
+		if m.needsMorePreviewRows() {
+			return m, m.nextPreviewCmd()
 		}
 		return m, nil
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
 	case previewDoneMsg:
+		if msg.seq < m.latestPreviewSeq {
+			return m, nil
+		}
 		m.tableColOffHint = -1
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
@@ -293,9 +455,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			prevOffset := m.tableOffset
 			m.clampTableOffset()
 			if m.tableOffset != prevOffset {
-				return m, m.loadPreview()
+				return m, m.nextPreviewCmd()
 			}
 			m.clampTableRowCursor()
+			if m.needsMorePreviewRows() {
+				return m, m.nextPreviewCmd()
+			}
 		}
 		return m, nil
 
@@ -328,7 +493,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tableRowCursor = 0
 			m.overlay = OverlayNone
 			m.statusMsg = fmt.Sprintf("Jumped to row %d", msg.rowID)
-			return m, m.loadPreview()
+			return m, m.nextPreviewCmd()
 		}
 		return m, nil
 
@@ -391,6 +556,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "q", "ctrl+c":
 		return m, tea.Quit
+	case "ctrl+l":
+		m.clampSplitPct()
+		m.clampTableOffset()
+		m.clampTableRowCursor()
+		if m.needsMorePreviewRows() {
+			return m, tea.Batch(tea.ClearScreen, m.nextPreviewCmd())
+		}
+		return m, tea.ClearScreen
 	case "?":
 		m.overlay = OverlayHelp
 		return m, nil
@@ -405,7 +578,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.showSelected = !m.showSelected
 		m.tableColOffHint = -1
 		m.tableRowCursor = 0
-		return m, m.loadPreview()
+		return m, m.nextPreviewCmd()
 	case "enter":
 		targetCol := m.selectedColName
 		if m.focus == FocusColumns {
@@ -438,6 +611,45 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.handleTableKey(key)
 }
 
+func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if (m.overlay != OverlayNone || m.searchFocused) && !(m.draggingDivider && msg.Action == tea.MouseActionRelease) {
+		return m, nil
+	}
+
+	switch msg.Action {
+	case tea.MouseActionPress:
+		switch msg.Button {
+		case tea.MouseButtonLeft:
+			if m.mainAreaContains(msg.Y) && m.nearDivider(msg.X) {
+				m.draggingDivider = true
+				m.setSplitFromMouseX(msg.X)
+			}
+		case tea.MouseButtonWheelUp:
+			if m.focus == FocusColumns {
+				return m.handleColumnsKey("up")
+			}
+			return m.handleTableKey("up")
+		case tea.MouseButtonWheelDown:
+			if m.focus == FocusColumns {
+				return m.handleColumnsKey("down")
+			}
+			return m.handleTableKey("down")
+		}
+
+	case tea.MouseActionMotion:
+		if m.draggingDivider {
+			m.setSplitFromMouseX(msg.X)
+		}
+
+	case tea.MouseActionRelease:
+		if m.draggingDivider {
+			m.draggingDivider = false
+		}
+	}
+
+	return m, nil
+}
+
 func (m Model) handleColumnsPaging() (tea.Model, tea.Cmd) {
 	// Page down in column list
 	_, h := m.columnsPaneDimensions()
@@ -455,11 +667,8 @@ func (m Model) handleColumnsPaging() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) columnsPaneDimensions() (int, int) {
-	mainHeight := m.height - statusBarH
-	tableWidth := m.width * tableSplitPct / 100
-	colWidth := m.width - tableWidth
-	w := colWidth - paneBorderW
-	h := mainHeight - paneBorderH
+	w := m.columnsOuterWidth() - paneBorderW
+	h := m.mainHeight() - paneBorderH
 	if w < 0 {
 		w = 0
 	}
@@ -478,9 +687,15 @@ func (m Model) columnsListHeight(h int) int {
 }
 
 func (m Model) tablePaneDimensions() (int, int) {
-	mainHeight := m.height - statusBarH
-	tableWidth := m.width * tableSplitPct / 100
-	return tableWidth - paneBorderW, mainHeight - paneBorderH
+	w := m.tableOuterWidth() - paneBorderW
+	h := m.mainHeight() - paneBorderH
+	if w < 0 {
+		w = 0
+	}
+	if h < 0 {
+		h = 0
+	}
+	return w, h
 }
 
 func (m Model) tableDataRowsHeight(h int) int {
@@ -567,7 +782,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 					// the deselected column was the highlighted one).
 					m.updateFilteredCols()
 				}
-				return m, m.loadPreview()
+				return m, m.nextPreviewCmd()
 			}
 		}
 	case "a":
@@ -577,7 +792,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		}
 		m.sel.AddAll(names)
 		if m.showSelected {
-			return m, m.loadPreview()
+			return m, m.nextPreviewCmd()
 		}
 	case "d":
 		names := make([]string, len(m.filteredCols))
@@ -591,12 +806,12 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				m.statusMsg = "show-selected off (no columns selected)"
 				m.updateFilteredCols()
 			}
-			return m, m.loadPreview()
+			return m, m.nextPreviewCmd()
 		}
 	case "A":
 		m.sel.SelectAll()
 		if m.showSelected {
-			return m, m.loadPreview()
+			return m, m.nextPreviewCmd()
 		}
 	case "X":
 		m.sel.Clear()
@@ -604,7 +819,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			m.showSelected = false
 			m.statusMsg = "show-selected off (no columns selected)"
 			m.updateFilteredCols()
-			return m, m.loadPreview()
+			return m, m.nextPreviewCmd()
 		}
 	case "y":
 		selected := m.sel.Selected()
@@ -643,7 +858,7 @@ func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.clampTableRowCursor() // clamp against stale data; re-clamped in previewDoneMsg handler
-	return m, m.loadPreview()
+	return m, m.nextPreviewCmd()
 }
 
 func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
@@ -659,7 +874,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		} else if m.tableOffset > 0 {
 			m.tableOffset--
 			// tableRowCursor stays at 0
-			return m, m.loadPreview()
+			return m, m.nextPreviewCmd()
 		}
 	case "down", "j":
 		maxVisibleRows := m.visibleTableRows()
@@ -677,7 +892,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			if m.tableOffset < maxOff {
 				m.tableOffset++
 				// tableRowCursor stays at bottom
-				return m, m.loadPreview()
+				return m, m.nextPreviewCmd()
 			}
 		}
 	case "left", "h":
@@ -719,11 +934,11 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 	case "g":
 		m.tableOffset = 0
 		m.tableRowCursor = 0
-		return m, m.loadPreview()
+		return m, m.nextPreviewCmd()
 	case "G":
 		m.tableOffset = m.maxTableOffset()
 		m.tableRowCursor = max(0, m.visibleTableRows()-1)
-		return m, m.loadPreview()
+		return m, m.nextPreviewCmd()
 	case "ctrl+f":
 		return m.pageTableOffset(m.pageSize)
 	case "ctrl+b":
@@ -752,7 +967,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		}
 		m.tableOffset = 0
 		m.tableRowCursor = 0
-		return m, m.loadPreview()
+		return m, m.nextPreviewCmd()
 	}
 	return m, nil
 }
@@ -761,10 +976,23 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 func (m Model) visibleColCount() int {
 	w, _ := m.tablePaneDimensions()
 	colAreaWidth := w - tableRowNumW - tableRowPrefixW
-	if colAreaWidth < tableColWidth {
+	if colAreaWidth < tableColMinWidth {
 		return 0
 	}
-	return colAreaWidth / tableColWidth
+	remaining := colAreaWidth
+	count := 0
+	for _, colName := range m.tableCols {
+		colW := m.columnWidth(colName)
+		if colW < tableColMinWidth {
+			colW = tableColMinWidth
+		}
+		if remaining < colW {
+			break
+		}
+		remaining -= colW
+		count++
+	}
+	return count
 }
 
 // pageColumnsHorizontal scrolls the column viewport by one screenful.
@@ -812,11 +1040,11 @@ func (m Model) pageColumnsHorizontal(direction int) (tea.Model, tea.Cmd) {
 
 // Commands
 
-func (m Model) loadPreview() tea.Cmd {
+func (m Model) loadPreviewCmd(seq uint64) tea.Cmd {
 	eng := m.engine
 	colNames := m.projectionCols()
 	rowFilter := m.rowFilter
-	limit := m.pageSize
+	limit := m.previewLimit()
 	offset := m.tableOffset
 	maxOffset := m.maxTableOffset()
 	if offset > maxOffset {
@@ -830,7 +1058,7 @@ func (m Model) loadPreview() tea.Cmd {
 		ctx := context.Background()
 		rows, err := eng.Preview(ctx, colNames, rowFilter, limit, offset)
 		if err != nil {
-			return previewDoneMsg{err: err}
+			return previewDoneMsg{seq: seq, err: err}
 		}
 		totalRows := eng.TotalRows()
 		var filterRows int64 = -1
@@ -842,6 +1070,7 @@ func (m Model) loadPreview() tea.Cmd {
 			colNames:   colNames,
 			totalRows:  totalRows,
 			filterRows: filterRows,
+			seq:        seq,
 		}
 	}
 }
@@ -934,28 +1163,31 @@ func (m Model) View() string {
 	topBar := m.viewTopBar()
 	bottomBar := m.viewBottomBar()
 
-	mainHeight := m.height - statusBarH // top + bottom bars
+	mainHeight := m.mainHeight() // top + bottom bars
 
-	// Split: table gets tableSplitPct%, columns gets the rest
-	tableWidth := m.width * tableSplitPct / 100
-	colWidth := m.width - tableWidth
+	tableWidth := m.tableOuterWidth()
+	colWidth := m.columnsOuterWidth()
 
-	tableView := m.viewTable(tableWidth-paneBorderW, mainHeight-paneBorderH)
-	colView := m.viewColumns(colWidth-paneBorderW, mainHeight-paneBorderH)
+	tableInnerW := max(0, tableWidth-paneBorderW)
+	tableInnerH := max(0, mainHeight-paneBorderH)
+	colInnerW := max(0, colWidth-paneBorderW)
+	colInnerH := max(0, mainHeight-paneBorderH)
+	tableView := m.viewTable(tableInnerW, tableInnerH)
+	colView := m.viewColumns(colInnerW, colInnerH)
 
 	// Apply borders based on focus
 	var tablePane, colPane string
 	if m.focus == FocusTable {
-		tablePane = activeBorderStyle.Width(tableWidth - 2).Height(mainHeight - 2).Render(tableView)
-		colPane = inactiveBorderStyle.Width(colWidth - 2).Height(mainHeight - 2).Render(colView)
+		tablePane = activeBorderStyle.Width(max(0, tableWidth-2)).Height(max(0, mainHeight-2)).Render(tableView)
+		colPane = inactiveBorderStyle.Width(max(0, colWidth-2)).Height(max(0, mainHeight-2)).Render(colView)
 	} else {
-		tablePane = inactiveBorderStyle.Width(tableWidth - 2).Height(mainHeight - 2).Render(tableView)
-		colPane = activeBorderStyle.Width(colWidth - 2).Height(mainHeight - 2).Render(colView)
+		tablePane = inactiveBorderStyle.Width(max(0, tableWidth-2)).Height(max(0, mainHeight-2)).Render(tableView)
+		colPane = activeBorderStyle.Width(max(0, colWidth-2)).Height(max(0, mainHeight-2)).Render(colView)
 	}
 
 	// Detail overlay rendered on top of columns pane
 	if m.overlay == OverlayDetail {
-		colPane = activeBorderStyle.Width(colWidth - 2).Height(mainHeight - 2).Render(m.viewDetail(colWidth - 4))
+		colPane = activeBorderStyle.Width(max(0, colWidth-2)).Height(max(0, mainHeight-2)).Render(m.viewDetail(max(0, colWidth-4)))
 	}
 
 	main := lipgloss.JoinHorizontal(lipgloss.Top, tablePane, colPane)
@@ -965,15 +1197,22 @@ func (m Model) View() string {
 
 func (m Model) viewTopBar() string {
 	left := fmt.Sprintf(" %s  %d rows × %d cols", m.fileName, m.totalRows, len(m.columns))
-	right := ""
+	rightPlain := ""
 	if m.rowFilter != "" {
 		filterInfo := "Filter: rows with nulls"
 		if m.filterRows >= 0 {
 			filterInfo += fmt.Sprintf(" (%d rows)", m.filterRows)
 		}
-		right = filterStyle.Render(filterInfo)
+		rightPlain = filterInfo
 	}
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	contentW := max(0, m.width-topBottomBarPadW)
+	left = truncateDisplay(left, contentW)
+	rightPlain = truncateDisplay(rightPlain, contentW)
+	if lipgloss.Width(left)+lipgloss.Width(rightPlain) > contentW {
+		left = truncateDisplay(left, max(0, contentW-lipgloss.Width(rightPlain)))
+	}
+	right := filterStyle.Render(rightPlain)
+	gap := contentW - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 0 {
 		gap = 0
 	}
@@ -984,9 +1223,9 @@ func (m Model) viewBottomBar() string {
 	selCount := m.sel.Count()
 	var hints string
 	if m.focus == FocusColumns {
-		hints = "/:search  x:toggle  a:add  d:rm  y:copy  Enter:detail"
+		hints = "/:search  x:toggle  a:add  d:rm  y:copy  Enter:detail  wheel:cursor"
 	} else {
-		hints = "hjkl:move  space:pgdn  []:col-page  f:null-filter"
+		hints = "hjkl:move  space:pgdn  []:col-page  f:null-filter  drag:divider  Ctrl+L:redraw"
 	}
 	status := fmt.Sprintf("  Sel: %d/%d", selCount, len(m.columns))
 	if m.showSelected {
@@ -995,7 +1234,17 @@ func (m Model) viewBottomBar() string {
 	if m.statusMsg != "" {
 		status += "  " + m.statusMsg
 	}
-	return bottomBarStyle.Width(m.width).Render(hints + status)
+	contentW := max(0, m.width-topBottomBarPadW)
+	hints = truncateDisplay(hints, contentW)
+	status = truncateDisplay(status, contentW)
+	if lipgloss.Width(hints)+lipgloss.Width(status) > contentW {
+		hints = truncateDisplay(hints, max(0, contentW-lipgloss.Width(status)))
+	}
+	gap := contentW - lipgloss.Width(hints) - lipgloss.Width(status)
+	if gap < 0 {
+		gap = 0
+	}
+	return bottomBarStyle.Width(m.width).Render(hints + strings.Repeat(" ", gap) + status)
 }
 
 func (m Model) viewTable(w, h int) string {
@@ -1031,8 +1280,12 @@ func (m Model) viewTable(w, h int) string {
 	// Header (space prefix for alignment with row null dots)
 	header := " " + rowNumStyle.Render(fmt.Sprintf("%*s", tableRowNumW, "#"))
 	for i := startCol; i < endCol; i++ {
-		name := truncate(m.tableCols[i], tableColWidth-2)
-		nameStr := fmt.Sprintf(" %-*s", tableColWidth-2, name)
+		colW := m.columnWidth(m.tableCols[i])
+		if colW < tableColMinWidth {
+			colW = tableColMinWidth
+		}
+		name := truncate(m.tableCols[i], max(0, colW-2))
+		nameStr := fmt.Sprintf(" %-*s", max(0, colW-2), name)
 		// Check if column has nulls from profiling
 		hasNulls := false
 		if s, ok := m.summaries[m.tableCols[i]]; ok && s.Loaded && s.MissingCount > 0 {
@@ -1082,7 +1335,7 @@ func (m Model) viewTable(w, h int) string {
 		} else {
 			line = rowDot + rowNumStyle.Render(fmt.Sprintf("%*d", tableRowNumW, rowNum))
 		}
-		line += m.renderRowCells(m.tableData[r], startCol, endCol, tableColWidth, cursorColIdx, isSelectedRow)
+		line += m.renderRowCells(m.tableData[r], startCol, endCol, cursorColIdx, isSelectedRow)
 		lines = append(lines, line)
 	}
 
@@ -1096,12 +1349,16 @@ func (m Model) viewTable(w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) renderRowCells(row []string, startCol, endCol, colWidth, cursorColIdx int, isSelectedRow bool) string {
+func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, isSelectedRow bool) string {
 	var b strings.Builder
-	b.Grow((endCol - startCol) * colWidth)
+	b.Grow((endCol - startCol) * tableColWidth)
 	for i := startCol; i < endCol && i < len(row); i++ {
-		val := truncate(row[i], colWidth-1)
-		cell := fmt.Sprintf(" %-*s", colWidth-1, val)
+		colW := m.columnWidth(m.tableCols[i])
+		if colW < tableColMinWidth {
+			colW = tableColMinWidth
+		}
+		val := truncate(row[i], max(0, colW-1))
+		cell := fmt.Sprintf(" %-*s", max(0, colW-1), val)
 		isNull := row[i] == "NULL"
 		isSelectedCol := i == cursorColIdx
 
@@ -1221,7 +1478,7 @@ func (m Model) viewColumns(w, h int) string {
 		col := m.filteredCols[i]
 		isHighlighted := col.Name == activeCol
 
-		name := truncate(col.Name, w-12)
+		name := truncate(col.Name, max(0, w-12))
 		typeStr := truncate(col.DuckType, 8)
 		statsStr := ""
 		if s, ok := m.summaries[col.Name]; ok && s.Loaded {
@@ -1236,9 +1493,9 @@ func (m Model) viewColumns(w, h int) string {
 			}
 			plain := fmt.Sprintf("%s %s %s%s", markChar, name, typeStr, statsStr)
 			if m.focus == FocusColumns {
-				lines = append(lines, highlightStyle.Width(w).Render(plain))
+				lines = append(lines, clampLineWidth(highlightStyle.Width(w).Render(plain), w))
 			} else {
-				lines = append(lines, dimHighlightStyle.Width(w).Render(plain))
+				lines = append(lines, clampLineWidth(dimHighlightStyle.Width(w).Render(plain), w))
 			}
 		} else {
 			mark := unselectedMark
@@ -1247,7 +1504,7 @@ func (m Model) viewColumns(w, h int) string {
 			}
 			typeBadge := typeBadgeStyle.Render(typeStr)
 			stats := statStyle.Render(statsStr)
-			lines = append(lines, fmt.Sprintf("%s %s %s%s", mark, name, typeBadge, stats))
+			lines = append(lines, clampLineWidth(fmt.Sprintf("%s %s %s%s", mark, name, typeBadge, stats), w))
 		}
 	}
 
@@ -1361,10 +1618,12 @@ func (m Model) viewHelp() string {
 	help := []struct{ key, desc string }{
 		{"Tab", "Switch focus (Table ↔ Columns)"},
 		{"q / Ctrl+C", "Quit"},
+		{"Ctrl+L", "Redraw screen"},
 		{"?", "Toggle help"},
 		{"s", "Toggle show selected columns only"},
 		{"Space", "Page down (rows or columns list)"},
 		{"Enter", "Open column detail"},
+		{"Mouse wheel", "Scroll cursor in focused pane"},
 		{"", ""},
 		{"── Columns Pane ──", ""},
 		{"/", "Focus search"},
@@ -1388,6 +1647,7 @@ func (m Model) viewHelp() string {
 		{"Ctrl+B", "Page up"},
 		{"Ctrl+D / Ctrl+U", "Half page down / up"},
 		{"f", "Toggle null-row filter"},
+		{"Mouse drag divider", "Resize table/columns split"},
 		{"", ""},
 		{"── Detail Panel ──", ""},
 		{"t", "Cycle tabs (Top Values / Stats / Histogram)"},
@@ -1439,6 +1699,40 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen-1] + "…"
 }
 
+func truncateDisplay(s string, maxW int) string {
+	if maxW <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= maxW {
+		return s
+	}
+	if maxW == 1 {
+		return "…"
+	}
+	limit := maxW - 1
+	var b strings.Builder
+	cur := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if cur+rw > limit {
+			break
+		}
+		b.WriteRune(r)
+		cur += rw
+	}
+	return b.String() + "…"
+}
+
+func clampLineWidth(line string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(line) <= w {
+		return line
+	}
+	return lipgloss.NewStyle().MaxWidth(w).Render(line)
+}
+
 func (m Model) columnType(colName string) string {
 	for _, c := range m.columns {
 		if c.Name == colName {
@@ -1462,9 +1756,6 @@ func (m Model) maxTableOffset() int {
 	}
 
 	navigableRows := m.visibleTableRows()
-	if m.pageSize > 0 && m.pageSize < navigableRows {
-		navigableRows = m.pageSize
-	}
 	if navigableRows == 0 {
 		return max(0, int(active)-1)
 	}

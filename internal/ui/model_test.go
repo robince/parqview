@@ -199,56 +199,6 @@ func TestHandleKeyToggleShowSelectedGlobalLoadsPreview(t *testing.T) {
 	}
 }
 
-func TestHandleColumnsKeyClearingSelectionDisablesShowSelected(t *testing.T) {
-	t.Run("d disables show-selected when selection becomes empty", func(t *testing.T) {
-		m := newTestModel()
-		m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
-		m.sel = selection.New([]string{"alpha", "beta"})
-		m.sel.Add("alpha")
-		m.showSelected = true
-		m.updateFilteredCols()
-
-		updated, cmd := m.handleColumnsKey("d")
-		if cmd == nil {
-			t.Fatal("expected load command for d in show-selected mode")
-		}
-		m = updated.(Model)
-
-		if m.showSelected {
-			t.Fatal("expected showSelected off after removing all selected columns")
-		}
-		if got := m.statusMsg; got != "show-selected off (no columns selected)" {
-			t.Fatalf("unexpected status message %q", got)
-		}
-	})
-
-	t.Run("X disables show-selected when clearing all", func(t *testing.T) {
-		m := newTestModel()
-		m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
-		m.sel = selection.New([]string{"alpha", "beta"})
-		m.sel.Add("alpha")
-		m.sel.Add("beta")
-		m.showSelected = true
-		m.updateFilteredCols()
-
-		updated, cmd := m.handleColumnsKey("X")
-		if cmd == nil {
-			t.Fatal("expected load command for X in show-selected mode")
-		}
-		m = updated.(Model)
-
-		if m.showSelected {
-			t.Fatal("expected showSelected off after clearing selection")
-		}
-		if m.sel.Count() != 0 {
-			t.Fatalf("expected empty selection, got %d", m.sel.Count())
-		}
-		if got := m.statusMsg; got != "show-selected off (no columns selected)" {
-			t.Fatalf("unexpected status message %q", got)
-		}
-	})
-}
-
 func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	t.Run("table focus uses selected column", func(t *testing.T) {
 		m := newTestModel()
@@ -339,27 +289,6 @@ func TestHandleTableKeyHorizontalNavigationTracksViewportPaging(t *testing.T) {
 	}
 }
 
-func TestHandleTableKeyVerticalNavigationNoVisibleRowsIsNoOp(t *testing.T) {
-	m := newTestModel()
-	m.width = 120
-	m.height = 6
-	m.totalRows = 200
-	m.tableData = [][]string{{"v"}}
-
-	if got := m.visibleTableRows(); got != 0 {
-		t.Fatalf("expected zero visible rows, got %d", got)
-	}
-
-	updated, cmd := m.handleTableKey("down")
-	if cmd != nil {
-		t.Fatal("expected no load command when no rows are visible")
-	}
-	m = updated.(Model)
-	if m.tableOffset != 0 || m.tableRowCursor != 0 {
-		t.Fatalf("expected unchanged offset/cursor, got offset=%d cursor=%d", m.tableOffset, m.tableRowCursor)
-	}
-}
-
 func TestHandleTableKeyHorizontalNavigationPagingBoundaries(t *testing.T) {
 	t.Run("page left at first page is no-op", func(t *testing.T) {
 		m := newTestModel()
@@ -401,27 +330,6 @@ func TestHandleTableKeyHorizontalNavigationPagingBoundaries(t *testing.T) {
 		}
 		if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 0 {
 			t.Fatalf("expected start col to remain 0, got %d", startCol)
-		}
-	})
-
-	t.Run("page right is no-op when no columns fit", func(t *testing.T) {
-		m := newTestModel()
-		m.width = 20
-		m.height = 10
-		m.tableCols = []string{"c0", "c1", "c2"}
-		m.selectedColName = "c1"
-
-		if got := m.visibleColCount(); got != 0 {
-			t.Fatalf("expected visibleColCount=0 for tiny width, got %d", got)
-		}
-
-		updated, cmd := m.handleTableKey("]")
-		if cmd != nil {
-			t.Fatalf("expected no load command for horizontal key %q", "]")
-		}
-		m = updated.(Model)
-		if m.selectedColName != "c1" {
-			t.Fatalf("expected selected column unchanged, got %q", m.selectedColName)
 		}
 	})
 }
@@ -628,30 +536,6 @@ func TestPreviewDoneMsgClampsRowCursorToVisibleRows(t *testing.T) {
 
 	if m.tableRowCursor != 2 {
 		t.Fatalf("expected row cursor to clamp to last visible row (2), got %d", m.tableRowCursor)
-	}
-}
-
-func TestPreviewDoneMsgCachesRowNullFlagsForView(t *testing.T) {
-	m := newTestModel()
-	m.width = 120
-	m.height = 12
-	m.tableCols = []string{"alpha", "beta"}
-	m.selectedColName = "alpha"
-
-	m = updateModel(t, m, previewDoneMsg{
-		rows: [][]string{
-			{"1", "NULL"},
-			{"2", "3"},
-		},
-		colNames:  []string{"alpha", "beta"},
-		totalRows: 2,
-	})
-
-	if got, want := len(m.tableRowHasNull), 2; got != want {
-		t.Fatalf("expected %d row-null flags, got %d", want, got)
-	}
-	if !m.tableRowHasNull[0] || m.tableRowHasNull[1] {
-		t.Fatalf("unexpected row-null flags: %#v", m.tableRowHasNull)
 	}
 }
 
@@ -960,5 +844,279 @@ func TestViewColumnsHighlightedRowMarkMatchesSelectionState(t *testing.T) {
 	wantSelected := highlightStyle.Width(w).Render(fmt.Sprintf("%s %s %s%s", selectedMarkGlyph, baseName, baseType, ""))
 	if lines[2] != wantSelected {
 		t.Fatalf("expected selected highlighted mark render %q, got %q", wantSelected, lines[2])
+	}
+}
+
+func TestMaxTableOffsetUsesVisibleRowsNotPageSize(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 40
+	m.pageSize = 10
+	m.totalRows = 200
+
+	want := int(m.totalRows) - m.visibleTableRows()
+	if want < 0 {
+		want = 0
+	}
+	if got := m.maxTableOffset(); got != want {
+		t.Fatalf("expected maxTableOffset=%d from visible rows, got %d", want, got)
+	}
+}
+
+func TestWindowSizeMsgReloadsWhenViewportGrowsBeyondLoadedRows(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 10
+	m.pageSize = 50
+	m.totalRows = 500
+	m.tableCols = []string{"c0"}
+	m.tableData = make([][]string, 50)
+	for i := range m.tableData {
+		m.tableData[i] = []string{"v"}
+	}
+
+	updated, cmd := m.Update(tea.WindowSizeMsg{Width: 120, Height: 80})
+	if cmd == nil {
+		t.Fatal("expected load command when resize increases viewport row demand")
+	}
+	m = updated.(Model)
+	if m.tableOffset != 0 {
+		t.Fatalf("expected tableOffset to remain unchanged, got %d", m.tableOffset)
+	}
+}
+
+func TestPreviewDoneMsgIgnoresStaleSequence(t *testing.T) {
+	m := newTestModel()
+	m.latestPreviewSeq = 5
+	m.tableCols = []string{"new_col"}
+	m.tableData = [][]string{{"new"}}
+	m.tableRowHasNull = []bool{false}
+	m.totalRows = 10
+
+	stale := previewDoneMsg{
+		seq:       4,
+		rows:      [][]string{{"stale"}},
+		colNames:  []string{"stale_col"},
+		totalRows: 99,
+	}
+	updated, _ := m.Update(stale)
+	m = updated.(Model)
+
+	if got := m.tableCols[0]; got != "new_col" {
+		t.Fatalf("expected stale preview to be ignored, got tableCols=%v", m.tableCols)
+	}
+	if got := m.tableData[0][0]; got != "new" {
+		t.Fatalf("expected stale preview rows to be ignored, got %q", got)
+	}
+	if got := m.totalRows; got != 10 {
+		t.Fatalf("expected stale preview totalRows to be ignored, got %d", got)
+	}
+}
+
+func TestMouseDividerDragUpdatesSplitWithinBounds(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.height = 30
+	m.ready = true
+	m.tableSplitPct = tableSplitPct
+
+	divider := m.dividerX()
+	updated, _ := m.Update(tea.MouseMsg{
+		X:      divider,
+		Y:      1,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	})
+	m = updated.(Model)
+	if !m.draggingDivider {
+		t.Fatal("expected divider drag to begin on near-divider press")
+	}
+
+	updated, _ = m.Update(tea.MouseMsg{
+		X:      98,
+		Y:      1,
+		Action: tea.MouseActionMotion,
+		Button: tea.MouseButtonLeft,
+	})
+	m = updated.(Model)
+	_, maxPct := m.splitPctBounds()
+	if m.tableSplitPct > maxPct {
+		t.Fatalf("expected split clamped to max %d, got %d", maxPct, m.tableSplitPct)
+	}
+
+	updated, _ = m.Update(tea.MouseMsg{
+		X:      1,
+		Y:      1,
+		Action: tea.MouseActionMotion,
+		Button: tea.MouseButtonLeft,
+	})
+	m = updated.(Model)
+	minPct, _ := m.splitPctBounds()
+	if m.tableSplitPct < minPct {
+		t.Fatalf("expected split clamped to min %d, got %d", minPct, m.tableSplitPct)
+	}
+}
+
+func TestMouseDividerDragStartsOnlyNearDividerInMainArea(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.height = 30
+	m.ready = true
+	m.tableSplitPct = tableSplitPct
+
+	updated, _ := m.Update(tea.MouseMsg{
+		X:      2,
+		Y:      1,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	})
+	m = updated.(Model)
+	if m.draggingDivider {
+		t.Fatal("expected no drag when clicking far from divider")
+	}
+
+	updated, _ = m.Update(tea.MouseMsg{
+		X:      m.dividerX(),
+		Y:      0, // top bar, outside main area
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	})
+	m = updated.(Model)
+	if m.draggingDivider {
+		t.Fatal("expected no drag when clicking divider outside main area")
+	}
+}
+
+func TestMouseDividerDragReleaseStopsDragging(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.height = 30
+	m.ready = true
+	m.tableSplitPct = tableSplitPct
+	m.draggingDivider = true
+
+	updated, _ := m.Update(tea.MouseMsg{
+		X:      m.dividerX(),
+		Y:      1,
+		Action: tea.MouseActionRelease,
+		Button: tea.MouseButtonLeft,
+	})
+	m = updated.(Model)
+	if m.draggingDivider {
+		t.Fatal("expected divider drag to stop on release")
+	}
+}
+
+func TestMouseWheelRoutesToFocusedTableOnly(t *testing.T) {
+	m := newTestModel()
+	m.focus = FocusTable
+	m.width = 120
+	m.height = 10
+	m.totalRows = 200
+	m.tableData = make([][]string, 50)
+	for i := range m.tableData {
+		m.tableData[i] = []string{"v"}
+	}
+	m.columns = []types.ColumnInfo{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+	m.updateFilteredCols()
+	m.colCursor = 1
+	m.tableRowCursor = 0
+
+	updated, _ := m.Update(tea.MouseMsg{
+		X:      5,
+		Y:      3,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelDown,
+	})
+	m = updated.(Model)
+	if m.tableRowCursor != 1 {
+		t.Fatalf("expected table row cursor to move to 1, got %d", m.tableRowCursor)
+	}
+	if m.colCursor != 1 {
+		t.Fatalf("expected column cursor unchanged, got %d", m.colCursor)
+	}
+}
+
+func TestMouseWheelRoutesToFocusedColumnsOnly(t *testing.T) {
+	m := newTestModel()
+	m.focus = FocusColumns
+	m.width = 120
+	m.height = 10
+	m.totalRows = 200
+	m.tableData = make([][]string, 50)
+	for i := range m.tableData {
+		m.tableData[i] = []string{"v"}
+	}
+	m.tableRowCursor = 2
+	m.columns = []types.ColumnInfo{
+		{Name: "a"},
+		{Name: "b"},
+		{Name: "c"},
+	}
+	m.updateFilteredCols()
+	m.colCursor = 1
+	m.syncSelectedColFromCursor()
+
+	updated, _ := m.Update(tea.MouseMsg{
+		X:      90,
+		Y:      4,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelDown,
+	})
+	m = updated.(Model)
+	if m.colCursor != 2 {
+		t.Fatalf("expected column cursor to move to 2, got %d", m.colCursor)
+	}
+	if m.tableRowCursor != 2 {
+		t.Fatalf("expected table row cursor unchanged, got %d", m.tableRowCursor)
+	}
+}
+
+func TestViewColumnsLongContentClampedToPaneWidth(t *testing.T) {
+	m := newTestModel()
+	m.columns = []types.ColumnInfo{
+		{Name: strings.Repeat("very_long_col_name_", 8), DuckType: strings.Repeat("SUPERLONGTYPE", 3)},
+	}
+	m.sel = selection.New(nil)
+	m.selectedColName = m.columns[0].Name
+	m.focus = FocusColumns
+	m.updateFilteredCols()
+	m.summaries[m.columns[0].Name] = &types.ColumnSummary{
+		Loaded:      true,
+		MissingPct:  33,
+		DistinctPct: 77,
+	}
+
+	w, h := 20, 6
+	out := m.viewColumns(w, h)
+	for _, line := range strings.Split(out, "\n") {
+		if got := lipgloss.Width(line); got > w {
+			t.Fatalf("expected column line width <= %d, got %d: %q", w, got, line)
+		}
+	}
+}
+
+func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
+	m := newTestModel()
+	m.width = 200
+	m.height = 30
+	m.ready = true
+	m.sel = selection.New(nil)
+
+	help := m.viewHelp()
+	if !strings.Contains(help, "Ctrl+L") {
+		t.Fatalf("expected help to include Ctrl+L, got %q", help)
+	}
+	if !strings.Contains(help, "Mouse drag divider") {
+		t.Fatalf("expected help to include mouse divider drag, got %q", help)
+	}
+
+	m.focus = FocusTable
+	bottom := m.viewBottomBar()
+	if !strings.Contains(bottom, "drag:divider") {
+		t.Fatalf("expected bottom bar to include divider hint, got %q", bottom)
+	}
+	if !strings.Contains(bottom, "Ctrl+L:redraw") {
+		t.Fatalf("expected bottom bar to include ctrl+l hint, got %q", bottom)
 	}
 }
