@@ -555,6 +555,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				if !m.sel.IsSelected(targetCol) {
 					if m.sel.Count() == 0 {
 						m.showSelected = false
+						m.statusMsg = "show-selected off (no columns selected)"
 					}
 					// updateFilteredCols handles cursor clamping and
 					// selectedColName re-sync (including the case where
