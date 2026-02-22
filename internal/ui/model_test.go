@@ -263,9 +263,9 @@ func TestHandleTableKeyHorizontalNavigationTracksViewportPaging(t *testing.T) {
 		{name: "home jumps to first column", key: "0", expectedSelected: "c0", expectedStartCol: 0},
 		{name: "page right shifts one full screenful", key: "]", expectedSelected: "c7", expectedStartCol: 4},
 		{name: "page right clamps at final start", key: "]", expectedSelected: "c9", expectedStartCol: 6},
-		{name: "page left shifts one full screenful", key: "[", expectedSelected: "c5", expectedStartCol: 2},
-		{name: "page left back to first page", key: "[", expectedSelected: "c3", expectedStartCol: 0},
-		{name: "left moves within current page", key: "left", expectedSelected: "c2", expectedStartCol: 0},
+		{name: "page left lands at left edge", key: "[", expectedSelected: "c2", expectedStartCol: 0},
+		{name: "page left no-op at first page", key: "[", expectedSelected: "c2", expectedStartCol: 0},
+		{name: "left moves within current page", key: "left", expectedSelected: "c1", expectedStartCol: 0},
 	}
 
 	for _, tc := range cases {

@@ -758,7 +758,12 @@ func (m Model) pageColumnsHorizontal(direction int) (tea.Model, tea.Cmd) {
 	if newStart == startCol {
 		return m, nil
 	}
-	newIdx := newStart + visibleCols - 1
+	var newIdx int
+	if direction < 0 {
+		newIdx = newStart // land at left edge when paging left
+	} else {
+		newIdx = newStart + visibleCols - 1 // land at right edge when paging right
+	}
 	if newIdx >= len(m.tableCols) {
 		newIdx = len(m.tableCols) - 1
 	}
