@@ -1,0 +1,39 @@
+{
+  "name": "parqview",
+  "image": "mcr.microsoft.com/devcontainers/go:1.25-bookworm",
+  "runArgs": ["--platform=linux/arm64"],
+  "features": {
+    "ghcr.io/devcontainers-contrib/features/just:1": {},
+    "ghcr.io/guiyomh/features/golangci-lint:0": {},
+    "ghcr.io/devcontainers/features/node:1": { "version": "lts" }
+  },
+  "mounts": [
+    {
+      "source": "${localEnv:HOME}/.claude",
+      "target": "/home/vscode/.claude",
+      "type": "bind"
+    },
+    {
+      "source": "${localEnv:HOME}/.codex",
+      "target": "/home/vscode/.codex",
+      "type": "bind"
+    }
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go"
+      ],
+      "settings": {
+        "go.toolsManagement.checkForUpdates": "local",
+        "go.useLanguageServer": true,
+        "go.gopath": "/go",
+        "go.goroot": "/usr/local/go"
+      }
+    }
+  },
+  "postCreateCommand": "go mod download && go install golang.org/x/tools/gopls@latest && go install github.com/go-delve/delve/cmd/dlv@latest && go install golang.org/x/tools/cmd/goimports@latest && go install honnef.co/go/tools/cmd/staticcheck@latest && npm install -g @anthropic-ai/claude-code @openai/codex",
+  "remoteEnv": {
+    "CGO_ENABLED": "1"
+  }
+}

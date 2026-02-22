@@ -7,16 +7,23 @@ const (
 	unselectedMarkGlyph = "○"
 
 	// Layout constants
-	tableSplitPct      = 65 // percentage of width for table pane
-	statusBarH         = 2  // height reserved for status/bottom bar
-	paneBorderW        = 2  // horizontal border+padding total (left + right)
-	paneBorderH        = 2  // vertical border+padding total (top + bottom)
+	tableSplitPct     = 65 // default percentage of width for table pane
+	statusBarH        = 2  // height reserved for status/bottom bar
+	paneBorderW       = 2  // horizontal border+padding total (left + right)
+	paneBorderH       = 2  // vertical border+padding total (top + bottom)
+	minPaneOuterW     = 24 // minimum pane width (including border)
+	dividerGrabRadius = 1  // mouse hit radius around divider
+	previewHeadroom   = 20 // extra preview rows beyond visible viewport
+	previewMinRows    = 50 // lower bound for preview fetch size
+	previewMaxRows    = 500
+	topBottomBarPadW  = 2 // horizontal padding in top/bottom bar styles
 
 	// Table layout constants
 	tableColWidth      = 14 // fixed column width for v1
-	tableRowNumW       = 6  // row number column width
-	tableRowPrefixW    = 1  // prefix space for null dot alignment
-	tableFooterPrefixW = 2  // leading spaces in footer row (for alignment with row-number gutter)
+	tableColMinWidth   = 4
+	tableRowNumW       = 6 // row number column width
+	tableRowPrefixW    = 1 // prefix space for null dot alignment
+	tableFooterPrefixW = 2 // leading spaces in footer row (for alignment with row-number gutter)
 )
 
 var (
