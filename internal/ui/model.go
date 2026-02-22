@@ -317,6 +317,7 @@ func (m *Model) nextPreviewCmd() tea.Cmd {
 }
 
 func (m Model) columnWidth(_ string) int {
+	// column-specific widths not yet implemented; parameter kept for call-site compatibility
 	return tableColWidth
 }
 
@@ -1338,9 +1339,6 @@ func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, 
 	var b strings.Builder
 	for i := startCol; i < endCol && i < len(row); i++ {
 		colW := m.columnWidth(m.tableCols[i])
-		if colW < tableColMinWidth {
-			colW = tableColMinWidth
-		}
 		val := truncate(row[i], max(0, colW-1))
 		cell := fmt.Sprintf(" %-*s", max(0, colW-1), val)
 		isNull := row[i] == "NULL"
@@ -1376,6 +1374,9 @@ func rowHasNullFlags(rows [][]string) []bool {
 	return flags
 }
 
+// rowHasNullAt reports whether the row at rowIdx contains a NULL value.
+// Callers must ensure tableRowHasNull is populated via rowHasNullFlags(tableData)
+// whenever tableData is updated; this function returns false for out-of-range indices.
 func (m Model) rowHasNullAt(rowIdx int) bool {
 	return rowIdx >= 0 && rowIdx < len(m.tableRowHasNull) && m.tableRowHasNull[rowIdx]
 }
