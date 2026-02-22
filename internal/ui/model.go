@@ -274,12 +274,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case previewDoneMsg:
+		m.tableColOffHint = -1
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
 		} else {
 			m.tableData = msg.rows
 			m.tableCols = msg.colNames
-			m.tableColOffHint = -1
 			m.reconcileSelectedColNameWithTableCols()
 			m.totalRows = msg.totalRows
 			if msg.filterRows >= 0 {
