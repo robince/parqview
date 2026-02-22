@@ -1123,17 +1123,15 @@ func (m Model) viewTableFooter() string {
 	if rowCursor >= len(m.tableData) {
 		rowCursor = len(m.tableData) - 1
 	}
-	{
-		row := m.tableData[rowCursor]
-		nullCount := 0
-		for _, v := range row {
-			if v == "NULL" {
-				nullCount++
-			}
+	row := m.tableData[rowCursor]
+	nullCount := 0
+	for _, v := range row {
+		if v == "NULL" {
+			nullCount++
 		}
-		absRow := m.tableOffset + rowCursor + 1
-		parts = append(parts, fmt.Sprintf("Row %d: %d/%d missing (projected)", absRow, nullCount, len(row)))
 	}
+	absRow := m.tableOffset + rowCursor + 1
+	parts = append(parts, fmt.Sprintf("Row %d: %d/%d missing (projected)", absRow, nullCount, len(row)))
 
 	// Column info from profiling
 	if m.selectedColName != "" {
