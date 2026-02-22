@@ -316,8 +316,9 @@ func (m *Model) nextPreviewCmd() tea.Cmd {
 	return m.loadPreviewCmd(m.latestPreviewSeq)
 }
 
+// TODO: when per-column widths are implemented, audit all call sites — the parameter
+// is currently ignored, so callers may be passing stale column names undetected.
 func (m Model) columnWidth(_ string) int {
-	// column-specific widths not yet implemented; parameter kept for call-site compatibility
 	return tableColWidth
 }
 
@@ -1386,8 +1387,13 @@ func (m Model) rowHasNullAt(rowIdx int) bool {
 		}
 		return false
 	}
+	// When lengths match, rowIdx from a tableData range loop is always < len(tableRowHasNull).
 	if rowIdx < len(m.tableRowHasNull) {
 		return m.tableRowHasNull[rowIdx]
+	}
+	// rowIdx out of range for a synced cache — do a live scan as a defensive fallback.
+	if rowIdx < len(m.tableData) {
+		return rowHasNull(m.tableData[rowIdx])
 	}
 	return false
 }
