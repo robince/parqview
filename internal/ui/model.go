@@ -974,7 +974,7 @@ func (m Model) visibleColCount() int {
 	if colAreaWidth < tableColMinWidth {
 		return 0
 	}
-	return colAreaWidth / tableColWidth
+	return min(colAreaWidth/tableColWidth, len(m.tableCols))
 }
 
 // pageColumnsHorizontal scrolls the column viewport by one screenful.
