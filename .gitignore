@@ -5,6 +5,7 @@
 # Test data (generated)
 testdata/sample.parquet
 testdata/sample.csv
+testdata/large_sample.parquet
 
 # IDE
 .idea/
