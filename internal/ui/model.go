@@ -1375,10 +1375,18 @@ func rowHasNullFlags(rows [][]string) []bool {
 }
 
 // rowHasNullAt reports whether the row at rowIdx contains a NULL value.
-// Callers must ensure tableRowHasNull is populated via rowHasNullFlags(tableData)
-// whenever tableData is updated; this function returns false for out-of-range indices.
+// Falls back to scanning the live row data if tableRowHasNull is out of sync with tableData.
 func (m Model) rowHasNullAt(rowIdx int) bool {
-	return rowIdx >= 0 && rowIdx < len(m.tableRowHasNull) && m.tableRowHasNull[rowIdx]
+	if rowIdx < 0 {
+		return false
+	}
+	if rowIdx < len(m.tableRowHasNull) {
+		return m.tableRowHasNull[rowIdx]
+	}
+	if rowIdx < len(m.tableData) {
+		return rowHasNull(m.tableData[rowIdx])
+	}
+	return false
 }
 
 func rowHasNull(row []string) bool {
