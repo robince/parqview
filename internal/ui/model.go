@@ -112,8 +112,6 @@ type Model struct {
 	draggingDivider bool
 
 	pageSize         int // rows per page
-	tableColWidths   map[string]int
-	previewSeq       uint64
 	latestPreviewSeq uint64
 }
 
@@ -148,8 +146,6 @@ func NewModel(eng *engine.Engine, fileName string) Model {
 		focus:            FocusTable,
 		selectedColName:  firstCol,
 		tableSplitPct:    tableSplitPct,
-		tableColWidths:   make(map[string]int),
-		previewSeq:       1,
 		latestPreviewSeq: 1,
 	}
 	m.updateFilteredCols()
@@ -316,15 +312,11 @@ func (m Model) needsMorePreviewRows() bool {
 }
 
 func (m *Model) nextPreviewCmd() tea.Cmd {
-	m.previewSeq++
-	m.latestPreviewSeq = m.previewSeq
-	return m.loadPreviewCmd(m.previewSeq)
+	m.latestPreviewSeq++
+	return m.loadPreviewCmd(m.latestPreviewSeq)
 }
 
-func (m Model) columnWidth(colName string) int {
-	if w, ok := m.tableColWidths[colName]; ok && w >= tableColMinWidth {
-		return w
-	}
+func (m Model) columnWidth(_ string) int {
 	return tableColWidth
 }
 
@@ -982,20 +974,7 @@ func (m Model) visibleColCount() int {
 	if colAreaWidth < tableColMinWidth {
 		return 0
 	}
-	remaining := colAreaWidth
-	count := 0
-	for _, colName := range m.tableCols {
-		colW := m.columnWidth(colName)
-		if colW < tableColMinWidth {
-			colW = tableColMinWidth
-		}
-		if remaining < colW {
-			break
-		}
-		remaining -= colW
-		count++
-	}
-	return count
+	return colAreaWidth / tableColWidth
 }
 
 // pageColumnsHorizontal scrolls the column viewport by one screenful.
@@ -1214,7 +1193,10 @@ func (m Model) viewTopBar() string {
 	if lipgloss.Width(left)+lipgloss.Width(rightPlain) > contentW {
 		left = truncateDisplay(left, max(0, contentW-lipgloss.Width(rightPlain)))
 	}
-	right := filterStyle.Render(rightPlain)
+	var right string
+	if rightPlain != "" {
+		right = filterStyle.Render(rightPlain)
+	}
 	gap := contentW - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 0 {
 		gap = 0
