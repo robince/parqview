@@ -1375,16 +1375,19 @@ func rowHasNullFlags(rows [][]string) []bool {
 }
 
 // rowHasNullAt reports whether the row at rowIdx contains a NULL value.
-// Falls back to scanning the live row data if tableRowHasNull is out of sync with tableData.
+// Falls back to a full live scan when the cache is out of sync with tableData.
 func (m Model) rowHasNullAt(rowIdx int) bool {
 	if rowIdx < 0 {
 		return false
 	}
+	if len(m.tableRowHasNull) != len(m.tableData) {
+		if rowIdx < len(m.tableData) {
+			return rowHasNull(m.tableData[rowIdx])
+		}
+		return false
+	}
 	if rowIdx < len(m.tableRowHasNull) {
 		return m.tableRowHasNull[rowIdx]
-	}
-	if rowIdx < len(m.tableData) {
-		return rowHasNull(m.tableData[rowIdx])
 	}
 	return false
 }
