@@ -11,7 +11,8 @@ import (
 // newTestModel creates a minimal Model suitable for unit tests.
 func newTestModel() Model {
 	return Model{
-		summaries: make(map[string]*types.ColumnSummary),
+		summaries:       make(map[string]*types.ColumnSummary),
+		tableColOffHint: -1,
 	}
 }
 

@@ -2,6 +2,23 @@ package ui
 
 import "github.com/charmbracelet/lipgloss"
 
+const (
+	selectedMarkGlyph   = "●"
+	unselectedMarkGlyph = "○"
+
+	// Layout constants
+	tableSplitPct      = 65 // percentage of width for table pane
+	statusBarH         = 2  // height reserved for status/bottom bar
+	paneBorderW        = 2  // horizontal border+padding total (left + right)
+	paneBorderH        = 2  // vertical border+padding total (top + bottom)
+
+	// Table layout constants
+	tableColWidth      = 14 // fixed column width for v1
+	tableRowNumW       = 6  // row number column width
+	tableRowPrefixW    = 1  // prefix space for null dot alignment
+	tableFooterPrefixW = 2  // leading spaces in footer row (for alignment with row-number gutter)
+)
+
 var (
 	// Pane borders
 	activeBorderStyle = lipgloss.NewStyle().
@@ -40,13 +57,61 @@ var (
 	rowNumStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("243"))
 
+	// Column cursor highlight in data pane
+	activeColHeaderStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("230")).
+				Background(lipgloss.Color("69"))
+
+	activeColCellStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("255")).
+				Background(lipgloss.Color("238"))
+
+	activeColNullStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("246")).
+				Background(lipgloss.Color("238")).
+				Italic(true)
+
+	// Row cursor highlight in data pane
+	activeRowCellStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("252")).
+				Background(lipgloss.Color("236"))
+
+	activeRowNullStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("246")).
+				Background(lipgloss.Color("236")).
+				Italic(true)
+
+	activeRowNumStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("230"))
+
+	// Crosshair (row + column intersection)
+	crosshairCellStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("255")).
+				Background(lipgloss.Color("240"))
+
+	crosshairNullStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("248")).
+				Background(lipgloss.Color("240")).
+				Italic(true)
+
+	// Null indicator dots (pre-rendered strings, not reusable styles)
+	nullDot             = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("•")
+	nullDotHeader       = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("62")).Render("•")
+	nullDotActiveHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("69")).Render("•")
+
 	// Column list
-	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("●")
-	unselectedMark = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("○")
+	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)
+	unselectedMark = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(unselectedMarkGlyph)
 
 	highlightStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("237")).
+			Background(lipgloss.Color("25")).
 			Foreground(lipgloss.Color("230"))
+
+	dimHighlightStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("238")).
+				Foreground(lipgloss.Color("252"))
 
 	typeBadgeStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("243"))

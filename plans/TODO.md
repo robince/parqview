@@ -1,15 +1,36 @@
+
 TODO
 
-- versions and cli args (help, version)
-- testing
-- if selected column mode update interactively as columns are selected
-- global key for selected vs non-selected (not only when data view is selected)
-- key to toggle display above each column
-- open file within app with fuzzy search in tree from current working dir
-- done scroll columns off to the left if all columns are visible
-- add a notion of selected column, matched between both panels
-- more obvious visual highligth in right hand column panel
-- if i press return show details of the selected column like now, but activated from either panel
-- current top values don't compute
-- need to work on null filtering handling. 
-- space page to next page
+FILE OPEN
+- ctrl-o fuzzy search open file parquet or csv matching
+
+UI/UX
+- ctrl-l to force redraw
+- data pane doesnt resize height (max 50 rows)
+- add the orange dot column nan to column pane
+- when i scroll the column pane with the mouse the data pane scrolls up so the header row and first rows are not visible
+- --help arg
+- show histogram above columns?
+- for details default to stats pain for numerical columns, and top for catergorical (based on cardinality)
+- cell navigation:
+  - gg: top left cell
+  - navigate tor row/column, vim style? how to handle high row numbers
+- resizing:
+  - resizing panes
+  - resizing column width
+- how to handle longer column names?
+- data filtering:
+  - filter on this value (e.g. in a user id)
+  - possibly add this user-id to filter set? (more complicated interface)
+- column pane navigation
+  - jump to top, 
+  - fuzzy search
+  - f, go to next 
+
+NULL FEATURE
+- r, jump to column with next null in this row
+- c, jump to row next null in this column
+
+
+BUGS
+- column pane too long lose title bar without a redraw

@@ -5,6 +5,7 @@
 # Test data (generated)
 testdata/sample.parquet
 testdata/sample.csv
+testdata/large_sample.parquet
 
 # IDE
 .idea/
@@ -14,4 +15,4 @@ testdata/sample.csv
 
 # OS
 .DS_Store
-.claude/settings.local.json
+.claude
