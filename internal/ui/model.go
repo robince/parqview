@@ -551,7 +551,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 					// Only re-derive selectedColName when the deselected column
 					// was the active one. Otherwise selectedColName is still valid
 					// by name even though colCursor may have shifted indices.
-					if targetCol == m.selectedColName {
+					if targetCol == m.selectedColName || !m.columnsHasFilteredCol(m.selectedColName) {
 						m.syncSelectedColFromCursor()
 					}
 				}
@@ -682,53 +682,9 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			m.syncCursorFromSelectedColName()
 		}
 	case "[":
-		// Page columns left by one screenful
-		if len(m.tableCols) > 0 {
-			visibleCols := m.visibleColCount()
-			startCol := m.computeTableColOff(visibleCols)
-			newStart := startCol - visibleCols
-			if newStart < 0 {
-				newStart = 0
-			}
-			if newStart == startCol {
-				return m, nil
-			}
-			newIdx := newStart + visibleCols - 1
-			if newIdx >= len(m.tableCols) {
-				newIdx = len(m.tableCols) - 1
-			}
-			if newIdx < 0 {
-				newIdx = 0
-			}
-			m.selectedColName = m.tableCols[newIdx]
-			m.syncCursorFromSelectedColName()
-		}
+		return m.pageColumnsHorizontal(-1)
 	case "]":
-		// Page columns right by one screenful
-		if len(m.tableCols) > 0 {
-			visibleCols := m.visibleColCount()
-			startCol := m.computeTableColOff(visibleCols)
-			maxStart := len(m.tableCols) - visibleCols
-			if maxStart < 0 {
-				maxStart = 0
-			}
-			newStart := startCol + visibleCols
-			if newStart > maxStart {
-				newStart = maxStart
-			}
-			if newStart == startCol {
-				return m, nil
-			}
-			newIdx := newStart + visibleCols - 1
-			if newIdx >= len(m.tableCols) {
-				newIdx = len(m.tableCols) - 1
-			}
-			if newIdx < 0 {
-				newIdx = 0
-			}
-			m.selectedColName = m.tableCols[newIdx]
-			m.syncCursorFromSelectedColName()
-		}
+		return m.pageColumnsHorizontal(1)
 	case "g":
 		m.tableOffset = 0
 		m.tableRowCursor = 0
@@ -778,6 +734,40 @@ func (m Model) visibleColCount() int {
 		visibleCols = 1
 	}
 	return visibleCols
+}
+
+// pageColumnsHorizontal scrolls the column viewport by one screenful.
+// direction should be -1 (left) or +1 (right).
+func (m Model) pageColumnsHorizontal(direction int) (tea.Model, tea.Cmd) {
+	if len(m.tableCols) == 0 {
+		return m, nil
+	}
+	visibleCols := m.visibleColCount()
+	startCol := m.computeTableColOff(visibleCols)
+	newStart := startCol + direction*visibleCols
+	if newStart < 0 {
+		newStart = 0
+	}
+	maxStart := len(m.tableCols) - visibleCols
+	if maxStart < 0 {
+		maxStart = 0
+	}
+	if newStart > maxStart {
+		newStart = maxStart
+	}
+	if newStart == startCol {
+		return m, nil
+	}
+	newIdx := newStart + visibleCols - 1
+	if newIdx >= len(m.tableCols) {
+		newIdx = len(m.tableCols) - 1
+	}
+	if newIdx < 0 {
+		newIdx = 0
+	}
+	m.selectedColName = m.tableCols[newIdx]
+	m.syncCursorFromSelectedColName()
+	return m, nil
 }
 
 // Commands
