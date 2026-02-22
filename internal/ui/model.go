@@ -553,6 +553,9 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				// the cursor so selectedColName stays valid while the
 				// preview reloads.
 				if !m.sel.IsSelected(targetCol) {
+					// updateFilteredCols handles cursor clamping and
+					// selectedColName re-sync (including the case where
+					// the deselected column was the highlighted one).
 					m.updateFilteredCols()
 				}
 				return m, m.loadPreview()
