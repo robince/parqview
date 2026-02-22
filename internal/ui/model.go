@@ -279,6 +279,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.tableData = msg.rows
 			m.tableCols = msg.colNames
+			m.tableColOffHint = -1
 			m.reconcileSelectedColNameWithTableCols()
 			m.totalRows = msg.totalRows
 			if msg.filterRows >= 0 {
@@ -562,7 +563,9 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 					// Only re-derive selectedColName when the deselected column
 					// was the active one. Otherwise selectedColName is still valid
 					// by name even though colCursor may have shifted indices.
-					if targetCol == m.selectedColName || !m.columnsHasFilteredCol(m.selectedColName) {
+					if len(m.filteredCols) == 0 {
+						m.selectedColName = ""
+					} else if targetCol == m.selectedColName || !m.columnsHasFilteredCol(m.selectedColName) {
 						m.syncSelectedColFromCursor()
 					}
 				}
@@ -635,6 +638,7 @@ func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
+	// Clamp on the local copy (value receiver); the returned m carries the clamped value.
 	m.clampTableRowCursor()
 	switch key {
 	case "up", "k":
