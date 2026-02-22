@@ -9,8 +9,8 @@ const (
 	// Layout constants
 	tableSplitPct      = 65 // percentage of width for table pane
 	statusBarH         = 2  // height reserved for status/bottom bar
-	paneBorderW        = 2  // horizontal border padding per pane
-	paneBorderH        = 2  // vertical border padding per pane
+	paneBorderW        = 2  // horizontal border+padding total (left + right)
+	paneBorderH        = 2  // vertical border+padding total (top + bottom)
 
 	// Table layout constants
 	tableColWidth      = 14 // fixed column width for v1

@@ -624,6 +624,7 @@ func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
+	m.clampTableRowCursor()
 	switch key {
 	case "up", "k":
 		if m.tableRowCursor > 0 {
