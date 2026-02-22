@@ -976,6 +976,7 @@ func (m Model) visibleColCount() int {
 	if colAreaWidth < tableColMinWidth {
 		return 0
 	}
+	// Uniform width assumed; see columnWidth TODO.
 	return min(colAreaWidth/tableColWidth, len(m.tableCols))
 }
 
