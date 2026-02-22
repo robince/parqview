@@ -554,20 +554,6 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				// preview reloads.
 				if !m.sel.IsSelected(targetCol) {
 					m.updateFilteredCols()
-					if m.colCursor >= len(m.filteredCols) {
-						m.colCursor = len(m.filteredCols) - 1
-					}
-					if m.colCursor < 0 {
-						m.colCursor = 0
-					}
-					// Only re-derive selectedColName when the deselected column
-					// was the active one. Otherwise selectedColName is still valid
-					// by name even though colCursor may have shifted indices.
-					if len(m.filteredCols) == 0 {
-						m.selectedColName = ""
-					} else if targetCol == m.selectedColName || !m.columnsHasFilteredCol(m.selectedColName) {
-						m.syncSelectedColFromCursor()
-					}
 				}
 				return m, m.loadPreview()
 			}
@@ -989,6 +975,9 @@ func (m Model) viewTable(w, h int) string {
 	}
 	if h <= 0 {
 		return ""
+	}
+	if m.visibleTableRows() == 0 {
+		return "Terminal too small to display rows"
 	}
 
 	// How many columns fit
