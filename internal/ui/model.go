@@ -162,7 +162,7 @@ func (m Model) computeTableColOff(visibleCols int) int {
 	if h := m.tableColOffHint; h >= 0 && cursor >= h && cursor < h+visibleCols {
 		return h
 	}
-	if cursor < 0 || cursor < visibleCols {
+	if cursor < visibleCols {
 		return 0
 	}
 	return cursor - visibleCols + 1
@@ -393,6 +393,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "s", "S":
 		m.showSelected = !m.showSelected
+		m.tableColOffHint = -1
 		m.tableRowCursor = 0
 		return m, m.loadPreview()
 	case "enter":
