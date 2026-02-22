@@ -96,7 +96,7 @@ var (
 				Background(lipgloss.Color("240")).
 				Italic(true)
 
-	// Null indicator dots
+	// Null indicator dots (pre-rendered strings, not reusable styles)
 	nullDot             = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("•")
 	nullDotHeader       = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("62")).Render("•")
 	nullDotActiveHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("69")).Render("•")

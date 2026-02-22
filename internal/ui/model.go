@@ -1140,10 +1140,14 @@ func (m Model) viewTableFooter() string {
 	if m.selectedColName != "" {
 		colName := truncate(m.selectedColName, 20)
 		colType := truncate(m.columnType(m.selectedColName), 20)
+		typeInfo := ""
+		if colType != "" {
+			typeInfo = fmt.Sprintf(" (%s)", colType)
+		}
 		if s, ok := m.summaries[m.selectedColName]; ok && s.Loaded {
-			parts = append(parts, fmt.Sprintf("Col %q (%s): %d missing (%.1f%%)", colName, colType, s.MissingCount, s.MissingPct))
+			parts = append(parts, fmt.Sprintf("Col %q%s: %d missing (%.1f%%)", colName, typeInfo, s.MissingCount, s.MissingPct))
 		} else {
-			parts = append(parts, fmt.Sprintf("Col %q (%s): ...", colName, colType))
+			parts = append(parts, fmt.Sprintf("Col %q%s: ...", colName, typeInfo))
 		}
 	}
 
