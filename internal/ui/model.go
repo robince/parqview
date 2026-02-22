@@ -84,10 +84,11 @@ type Model struct {
 	selectedColName string
 
 	// Table state
-	tableData      [][]string
-	tableCols      []string // column names in current projection
-	tableOffset    int      // row offset for pagination
-	tableRowCursor int      // row cursor position within visible page
+	tableData       [][]string
+	tableCols       []string // column names in current projection
+	tableOffset     int      // row offset for pagination
+	tableRowCursor  int      // row cursor position within visible page
+	tableColOffHint int      // preferred column offset; -1 = auto
 	showSelected   bool     // show only selected columns
 	rowFilter      string   // active SQL filter
 	totalRows      int64
@@ -134,6 +135,7 @@ func NewModel(eng *engine.Engine, fileName string) Model {
 		searchInput:     ti,
 		summaries:       make(map[string]*types.ColumnSummary),
 		filterRows:      -1,
+		tableColOffHint: -1,
 		totalRows:       eng.TotalRows(),
 		pageSize:        50,
 		focus:           FocusTable,
@@ -153,9 +155,13 @@ func (m Model) tableColCursor() int {
 	return -1
 }
 
-// computeTableColOff returns the minimal scroll offset to keep the column cursor visible.
+// computeTableColOff returns the scroll offset to keep the column cursor visible.
+// If tableColOffHint is set and the cursor is visible within that viewport, use it.
 func (m Model) computeTableColOff(visibleCols int) int {
 	cursor := m.tableColCursor()
+	if h := m.tableColOffHint; h >= 0 && cursor >= h && cursor < h+visibleCols {
+		return h
+	}
 	if cursor < 0 || cursor < visibleCols {
 		return 0
 	}
@@ -654,6 +660,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "left", "h":
+		m.tableColOffHint = -1
 		idx := m.tableColCursor()
 		if idx > 0 {
 			m.selectedColName = m.tableCols[idx-1]
@@ -663,6 +670,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			m.syncCursorFromSelectedColName()
 		}
 	case "right", "l":
+		m.tableColOffHint = -1
 		idx := m.tableColCursor()
 		if idx >= 0 && idx < len(m.tableCols)-1 {
 			m.selectedColName = m.tableCols[idx+1]
@@ -672,11 +680,13 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			m.syncCursorFromSelectedColName()
 		}
 	case "0":
+		m.tableColOffHint = -1
 		if len(m.tableCols) > 0 {
 			m.selectedColName = m.tableCols[0]
 			m.syncCursorFromSelectedColName()
 		}
 	case "$":
+		m.tableColOffHint = -1
 		if len(m.tableCols) > 0 {
 			m.selectedColName = m.tableCols[len(m.tableCols)-1]
 			m.syncCursorFromSelectedColName()
@@ -770,6 +780,7 @@ func (m Model) pageColumnsHorizontal(direction int) (tea.Model, tea.Cmd) {
 	if newIdx < 0 {
 		newIdx = 0
 	}
+	m.tableColOffHint = newStart
 	m.selectedColName = m.tableCols[newIdx]
 	m.syncCursorFromSelectedColName()
 	return m, nil
