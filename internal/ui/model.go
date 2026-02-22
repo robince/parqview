@@ -553,6 +553,9 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				// the cursor so selectedColName stays valid while the
 				// preview reloads.
 				if !m.sel.IsSelected(targetCol) {
+					if m.sel.Count() == 0 {
+						m.showSelected = false
+					}
 					// updateFilteredCols handles cursor clamping and
 					// selectedColName re-sync (including the case where
 					// the deselected column was the highlighted one).
@@ -1111,18 +1114,16 @@ func (m Model) viewTableFooter() string {
 
 	var parts []string
 
-	// Row null count — clamp cursor defensively for transient states where
+	// Clamp cursor defensively for transient states where
 	// tableData may have shrunk (e.g. after filter/resize).
 	rowCursor := m.tableRowCursor
-	if len(m.tableData) > 0 {
-		if rowCursor < 0 {
-			rowCursor = 0
-		}
-		if rowCursor >= len(m.tableData) {
-			rowCursor = len(m.tableData) - 1
-		}
+	if rowCursor < 0 {
+		rowCursor = 0
 	}
-	if rowCursor >= 0 && rowCursor < len(m.tableData) {
+	if rowCursor >= len(m.tableData) {
+		rowCursor = len(m.tableData) - 1
+	}
+	{
 		row := m.tableData[rowCursor]
 		nullCount := 0
 		for _, v := range row {
