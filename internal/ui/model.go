@@ -159,7 +159,11 @@ func (m Model) tableColCursor() int {
 // If tableColOffHint is set and the cursor is visible within that viewport, use it.
 func (m Model) computeTableColOff(visibleCols int) int {
 	cursor := m.tableColCursor()
-	if h := m.tableColOffHint; h >= 0 && cursor >= h && cursor < h+visibleCols {
+	maxOff := len(m.tableCols) - visibleCols
+	if maxOff < 0 {
+		maxOff = 0
+	}
+	if h := m.tableColOffHint; h >= 0 && h <= maxOff && cursor >= h && cursor < h+visibleCols {
 		return h
 	}
 	if cursor < visibleCols {
