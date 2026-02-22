@@ -1,6 +1,16 @@
 build:
     go build -o parqview ./cmd/parqview
 
+# DevContainer helpers
+dc-up:
+    devcontainer up --workspace-folder .
+
+dc-shell:
+    devcontainer exec --workspace-folder . bash
+
+dc-rebuild:
+    devcontainer up --workspace-folder . --remove-existing-container
+
 test:
     go test ./...
 
