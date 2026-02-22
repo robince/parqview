@@ -656,6 +656,7 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 		{"NULL", "x"},
 		{"y", "z"},
 	}
+	m.tableRowHasNull = rowHasNullFlags(m.tableData)
 	m.summaries["a"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
 	m.summaries["b"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
 

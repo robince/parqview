@@ -867,6 +867,9 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 	if (key == "up" || key == "k" || key == "down" || key == "j") && m.visibleTableRows() == 0 {
 		return m, nil
 	}
+	if (key == "left" || key == "h" || key == "right" || key == "l") && m.visibleColCount() == 0 {
+		return m, nil
+	}
 	switch key {
 	case "up", "k":
 		if m.tableRowCursor > 0 {
@@ -1322,7 +1325,7 @@ func (m Model) viewTable(w, h int) string {
 		isSelectedRow := r == renderCursor
 		rowNum := m.tableOffset + r + 1
 
-		rowHasNull := m.rowHasNullAt(r, m.tableData[r])
+		rowHasNull := m.rowHasNullAt(r)
 		rowDot := " "
 		if rowHasNull {
 			rowDot = nullDot
@@ -1351,7 +1354,6 @@ func (m Model) viewTable(w, h int) string {
 
 func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, isSelectedRow bool) string {
 	var b strings.Builder
-	b.Grow((endCol - startCol) * tableColWidth)
 	for i := startCol; i < endCol && i < len(row); i++ {
 		colW := m.columnWidth(m.tableCols[i])
 		if colW < tableColMinWidth {
@@ -1392,11 +1394,8 @@ func rowHasNullFlags(rows [][]string) []bool {
 	return flags
 }
 
-func (m Model) rowHasNullAt(rowIdx int, row []string) bool {
-	if rowIdx >= 0 && rowIdx < len(m.tableRowHasNull) {
-		return m.tableRowHasNull[rowIdx]
-	}
-	return rowHasNull(row)
+func (m Model) rowHasNullAt(rowIdx int) bool {
+	return rowIdx >= 0 && rowIdx < len(m.tableRowHasNull) && m.tableRowHasNull[rowIdx]
 }
 
 func rowHasNull(row []string) bool {
