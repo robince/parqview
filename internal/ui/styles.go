@@ -6,6 +6,12 @@ const (
 	selectedMarkGlyph   = "●"
 	unselectedMarkGlyph = "○"
 
+	// Layout constants
+	tableSplitPct      = 65 // percentage of width for table pane
+	statusBarH         = 2  // height reserved for status/bottom bar
+	paneBorderW        = 2  // horizontal border padding per pane
+	paneBorderH        = 2  // vertical border padding per pane
+
 	// Table layout constants
 	tableColWidth      = 14 // fixed column width for v1
 	tableRowNumW       = 6  // row number column width

@@ -199,6 +199,9 @@ func (m Model) columnsHasFilteredCol(name string) bool {
 // columnsActiveColName returns the column that actions (x, enter) operate on
 // in the columns pane. The crosshair column (selectedColName) takes priority
 // over the colCursor position when both are visible in the filtered list.
+// After reconcileSelectedColNameWithTableCols (e.g. projection change while a
+// search filter is active), selectedColName may differ from colCursor — the
+// highlight and actions will follow selectedColName, not the cursor position.
 func (m Model) columnsActiveColName() string {
 	if m.selectedColName != "" && m.columnsHasFilteredCol(m.selectedColName) {
 		return m.selectedColName
@@ -435,11 +438,11 @@ func (m Model) handleColumnsPaging() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) columnsPaneDimensions() (int, int) {
-	mainHeight := m.height - 2
-	tableWidth := m.width * 65 / 100
+	mainHeight := m.height - statusBarH
+	tableWidth := m.width * tableSplitPct / 100
 	colWidth := m.width - tableWidth
-	w := colWidth - 2
-	h := mainHeight - 2
+	w := colWidth - paneBorderW
+	h := mainHeight - paneBorderH
 	if w < 0 {
 		w = 0
 	}
@@ -458,9 +461,9 @@ func (m Model) columnsListHeight(h int) int {
 }
 
 func (m Model) tablePaneDimensions() (int, int) {
-	mainHeight := m.height - 2
-	tableWidth := m.width * 65 / 100
-	return tableWidth - 2, mainHeight - 2
+	mainHeight := m.height - statusBarH
+	tableWidth := m.width * tableSplitPct / 100
+	return tableWidth - paneBorderW, mainHeight - paneBorderH
 }
 
 func (m Model) tableDataRowsHeight(h int) int {
@@ -621,7 +624,6 @@ func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
-	m.clampTableRowCursor()
 	switch key {
 	case "up", "k":
 		if m.tableRowCursor > 0 {
@@ -901,14 +903,14 @@ func (m Model) View() string {
 	topBar := m.viewTopBar()
 	bottomBar := m.viewBottomBar()
 
-	mainHeight := m.height - 2 // top + bottom bars
+	mainHeight := m.height - statusBarH // top + bottom bars
 
-	// Split: table gets 65%, columns gets 35%
-	tableWidth := m.width * 65 / 100
+	// Split: table gets tableSplitPct%, columns gets the rest
+	tableWidth := m.width * tableSplitPct / 100
 	colWidth := m.width - tableWidth
 
-	tableView := m.viewTable(tableWidth-2, mainHeight-2)
-	colView := m.viewColumns(colWidth-2, mainHeight-2)
+	tableView := m.viewTable(tableWidth-paneBorderW, mainHeight-paneBorderH)
+	colView := m.viewColumns(colWidth-paneBorderW, mainHeight-paneBorderH)
 
 	// Apply borders based on focus
 	var tablePane, colPane string
@@ -1102,8 +1104,7 @@ func (m Model) viewTableFooter() string {
 	var parts []string
 
 	// Row null count — clamp cursor defensively for transient states where
-	// tableData may have shrunk (e.g. after filter/resize). If clamping
-	// activates, it indicates a state bug upstream worth investigating.
+	// tableData may have shrunk (e.g. after filter/resize).
 	rowCursor := m.tableRowCursor
 	if len(m.tableData) > 0 {
 		if rowCursor < 0 {
