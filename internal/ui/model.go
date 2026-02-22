@@ -613,6 +613,9 @@ func (m Model) handleTablePageDown() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
+	if m.visibleTableRows() == 0 {
+		return m, nil
+	}
 	prevOffset := m.tableOffset
 	maxOff := m.maxTableOffset()
 	m.tableOffset += delta
