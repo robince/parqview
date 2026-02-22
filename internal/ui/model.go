@@ -316,9 +316,8 @@ func (m *Model) nextPreviewCmd() tea.Cmd {
 	return m.loadPreviewCmd(m.latestPreviewSeq)
 }
 
-// TODO: when per-column widths are implemented, audit all call sites — the parameter
-// is currently ignored, so callers may be passing stale column names undetected.
-func (m Model) columnWidth(_ string) int {
+// TODO: add per-column widths; until then all columns use tableColWidth.
+func (m Model) columnWidth() int {
 	return tableColWidth
 }
 
@@ -1268,7 +1267,7 @@ func (m Model) viewTable(w, h int) string {
 	// Header (space prefix for alignment with row null dots)
 	header := " " + rowNumStyle.Render(fmt.Sprintf("%*s", tableRowNumW, "#"))
 	for i := startCol; i < endCol; i++ {
-		colW := m.columnWidth(m.tableCols[i])
+		colW := m.columnWidth()
 		if colW < tableColMinWidth {
 			colW = tableColMinWidth
 		}
@@ -1340,7 +1339,7 @@ func (m Model) viewTable(w, h int) string {
 func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, isSelectedRow bool) string {
 	var b strings.Builder
 	for i := startCol; i < endCol && i < len(row) && i < len(m.tableCols); i++ {
-		colW := m.columnWidth(m.tableCols[i])
+		colW := m.columnWidth()
 		val := truncate(row[i], max(0, colW-1))
 		cell := fmt.Sprintf(" %-*s", max(0, colW-1), val)
 		isNull := row[i] == "NULL"

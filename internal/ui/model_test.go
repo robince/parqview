@@ -400,6 +400,33 @@ func TestHandleTableKeyGWithZeroVisibleRowsStaysWithinBounds(t *testing.T) {
 	}
 }
 
+func TestHandleTableKeyHorizontalNoOpWhenZeroVisibleCols(t *testing.T) {
+	m := newTestModel()
+	// Narrow terminal: tableOuterWidth will be too small to show any columns.
+	m.width = 10
+	m.height = 20
+	m.tableCols = []string{"a", "b"}
+	m.selectedColName = "a"
+
+	if got := m.visibleColCount(); got != 0 {
+		t.Fatalf("expected zero visible columns at width %d, got %d", m.width, got)
+	}
+
+	for _, key := range []string{"left", "h", "right", "l"} {
+		updated, cmd := m.handleTableKey(key)
+		if cmd != nil {
+			t.Errorf("key %q: expected no command, got %v", key, cmd)
+		}
+		um := updated.(Model)
+		if um.selectedColName != m.selectedColName {
+			t.Errorf("key %q: expected selectedColName %q, got %q", key, m.selectedColName, um.selectedColName)
+		}
+		if um.tableColOffHint != m.tableColOffHint {
+			t.Errorf("key %q: expected tableColOffHint %d, got %d", key, m.tableColOffHint, um.tableColOffHint)
+		}
+	}
+}
+
 func TestPreviewDoneMsgReconcilesSelectedColumnWhenProjectionChanges(t *testing.T) {
 	m := newTestModel()
 	m.columns = []types.ColumnInfo{
@@ -678,26 +705,46 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 }
 
 func TestRowHasNullAtFallbackPath(t *testing.T) {
-	m := newTestModel()
-	m.tableData = [][]string{
+	data := [][]string{
 		{"NULL", "x"},
 		{"y", "z"},
 	}
-	// Mismatched cache triggers the fallback live-scan branch.
-	m.tableRowHasNull = nil
 
-	if !m.rowHasNullAt(0) {
-		t.Error("expected rowHasNullAt(0) to return true via fallback scan")
-	}
-	if m.rowHasNullAt(1) {
-		t.Error("expected rowHasNullAt(1) to return false via fallback scan")
-	}
-	if m.rowHasNullAt(-1) {
-		t.Error("expected rowHasNullAt(-1) to return false")
-	}
-	if m.rowHasNullAt(99) {
-		t.Error("expected rowHasNullAt(99) to return false for out-of-range index")
-	}
+	t.Run("mismatched cache triggers live scan", func(t *testing.T) {
+		m := newTestModel()
+		m.tableData = data
+		m.tableRowHasNull = nil // length mismatch
+
+		if !m.rowHasNullAt(0) {
+			t.Error("expected rowHasNullAt(0) to return true via fallback scan")
+		}
+		if m.rowHasNullAt(1) {
+			t.Error("expected rowHasNullAt(1) to return false via fallback scan")
+		}
+		if m.rowHasNullAt(-1) {
+			t.Error("expected rowHasNullAt(-1) to return false")
+		}
+		if m.rowHasNullAt(99) {
+			t.Error("expected rowHasNullAt(99) to return false for out-of-range index")
+		}
+	})
+
+	t.Run("synced cache is consulted directly", func(t *testing.T) {
+		m := newTestModel()
+		m.tableData = data
+		m.tableRowHasNull = rowHasNullFlags(m.tableData)
+
+		if !m.rowHasNullAt(0) {
+			t.Error("expected rowHasNullAt(0) to return true from cache")
+		}
+		if m.rowHasNullAt(1) {
+			t.Error("expected rowHasNullAt(1) to return false from cache")
+		}
+		// Out-of-range with synced cache: no live scan, just false.
+		if m.rowHasNullAt(99) {
+			t.Error("expected rowHasNullAt(99) to return false for out-of-range with synced cache")
+		}
+	})
 }
 
 func TestViewTableDoesNotOverflowWidthWithRowPrefix(t *testing.T) {
