@@ -677,6 +677,29 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 	}
 }
 
+func TestRowHasNullAtFallbackPath(t *testing.T) {
+	m := newTestModel()
+	m.tableData = [][]string{
+		{"NULL", "x"},
+		{"y", "z"},
+	}
+	// Mismatched cache triggers the fallback live-scan branch.
+	m.tableRowHasNull = nil
+
+	if !m.rowHasNullAt(0) {
+		t.Error("expected rowHasNullAt(0) to return true via fallback scan")
+	}
+	if m.rowHasNullAt(1) {
+		t.Error("expected rowHasNullAt(1) to return false via fallback scan")
+	}
+	if m.rowHasNullAt(-1) {
+		t.Error("expected rowHasNullAt(-1) to return false")
+	}
+	if m.rowHasNullAt(99) {
+		t.Error("expected rowHasNullAt(99) to return false for out-of-range index")
+	}
+}
+
 func TestViewTableDoesNotOverflowWidthWithRowPrefix(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"c0", "c1", "c2", "c3"}

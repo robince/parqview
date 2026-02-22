@@ -1338,7 +1338,7 @@ func (m Model) viewTable(w, h int) string {
 
 func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, isSelectedRow bool) string {
 	var b strings.Builder
-	for i := startCol; i < endCol && i < len(row); i++ {
+	for i := startCol; i < endCol && i < len(row) && i < len(m.tableCols); i++ {
 		colW := m.columnWidth(m.tableCols[i])
 		val := truncate(row[i], max(0, colW-1))
 		cell := fmt.Sprintf(" %-*s", max(0, colW-1), val)
