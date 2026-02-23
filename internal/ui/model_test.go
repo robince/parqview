@@ -402,7 +402,8 @@ func TestHandleTableKeyGWithZeroVisibleRowsStaysWithinBounds(t *testing.T) {
 
 func TestHandleTableKeyHorizontalNoOpWhenZeroVisibleCols(t *testing.T) {
 	m := newTestModel()
-	// Narrow terminal: tableOuterWidth will be too small to show any columns.
+	// width=10 is narrower than tableOuterWidth (border+padding) + tableColMinWidth,
+	// so visibleColCount() returns 0. If layout constants change, the guard below will catch it.
 	m.width = 10
 	m.height = 20
 	m.tableCols = []string{"a", "b"}
