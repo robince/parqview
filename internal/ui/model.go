@@ -1268,9 +1268,6 @@ func (m Model) viewTable(w, h int) string {
 	header := " " + rowNumStyle.Render(fmt.Sprintf("%*s", tableRowNumW, "#"))
 	for i := startCol; i < endCol; i++ {
 		colW := m.columnWidth()
-		if colW < tableColMinWidth {
-			colW = tableColMinWidth
-		}
 		name := truncate(m.tableCols[i], max(0, colW-2))
 		nameStr := fmt.Sprintf(" %-*s", max(0, colW-2), name)
 		// Check if column has nulls from profiling
@@ -1338,6 +1335,7 @@ func (m Model) viewTable(w, h int) string {
 
 func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, isSelectedRow bool) string {
 	var b strings.Builder
+	b.Grow((endCol - startCol) * tableColWidth)
 	for i := startCol; i < endCol && i < len(row) && i < len(m.tableCols); i++ {
 		colW := m.columnWidth()
 		val := truncate(row[i], max(0, colW-1))
