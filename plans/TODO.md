@@ -1,6 +1,11 @@
 
 TODO
 
+- null orange marker in column list
+- navigation keys for column list, space, ctrl-f ctrl-b paging, top of list, top of page, bottom of page
+- data pane cross hair movement, when right column is selected moving left scrolls the data keeping cursor in right column instead of moving cursor, data shouldn't scroll left until cursor selected column is at left most visible column (same as vertical movement)
+- esc to clear search string
+  
 FILE OPEN
 - ctrl-o fuzzy search open file parquet or csv matching
 
