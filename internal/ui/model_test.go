@@ -620,6 +620,7 @@ func TestHandleKeyEscClearsFocusedSearch(t *testing.T) {
 	}
 	m.searchInput = textinput.New()
 	m.searchInput.Prompt = "/ "
+	m.searchInput.PromptStyle = searchPromptStyle
 	m.searchInput.SetValue("alpha")
 	m.searchQuery = "alpha"
 	m.searchFocused = true
