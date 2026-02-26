@@ -915,28 +915,27 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		idx := m.tableColCursor()
 		if idx >= 0 && idx < len(m.tableCols)-1 {
 			visibleCols := m.visibleColCount()
-			startCol := m.computeTableColOff(visibleCols)
-			nextIdx := idx + 1
-			endCol := startCol + visibleCols - 1
-			if endCol < 0 {
-				endCol = 0
-			}
-			if endCol >= len(m.tableCols) {
-				endCol = len(m.tableCols) - 1
-			}
-			if idx < endCol {
-				// Cursor can move within the current viewport; keep it fixed.
-				m.tableColOffHint = startCol
-			} else {
-				// Cursor is at the right edge; now shift viewport right with it.
-				maxStart := len(m.tableCols) - visibleCols
-				if maxStart < 0 {
-					maxStart = 0
+			if visibleCols > 0 {
+				startCol := m.computeTableColOff(visibleCols)
+				nextIdx := idx + 1
+				endCol := startCol + visibleCols - 1
+				if endCol >= len(m.tableCols) {
+					endCol = len(m.tableCols) - 1
 				}
-				m.tableColOffHint = min(maxStart, startCol+1)
+				if idx < endCol {
+					// Cursor can move within the current viewport; keep it fixed.
+					m.tableColOffHint = startCol
+				} else {
+					// Cursor is at the right edge; now shift viewport right with it.
+					maxStart := len(m.tableCols) - visibleCols
+					if maxStart < 0 {
+						maxStart = 0
+					}
+					m.tableColOffHint = min(maxStart, startCol+1)
+				}
+				m.selectedColName = m.tableCols[nextIdx]
+				m.syncCursorFromSelectedColName()
 			}
-			m.selectedColName = m.tableCols[nextIdx]
-			m.syncCursorFromSelectedColName()
 		} else if idx < 0 && len(m.tableCols) > 0 {
 			m.tableColOffHint = -1
 			m.selectedColName = m.tableCols[0]
