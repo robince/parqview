@@ -756,8 +756,8 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			m.searchQuery = ""
 			m.updateFilteredCols()
 		}
-		// No default: case exists in this switch; all unhandled keys fall
-		// through to "return m, nil" below, so this early return is safe.
+		// No default: case exists in this switch; all unhandled keys exit
+		// the switch and reach the "return m, nil" below, so this early return is safe.
 		return m, nil
 	case "up", "k":
 		if m.colCursor > 0 {
