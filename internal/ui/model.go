@@ -361,6 +361,9 @@ func (m *Model) clampColumnsListState() {
 	}
 
 	listHeight := m.currentColumnsListHeight()
+	if listHeight < 1 {
+		return
+	}
 	maxOff := max(0, n-listHeight)
 	if m.colListOff < 0 {
 		m.colListOff = 0
@@ -1341,7 +1344,7 @@ func (m Model) viewBottomBar() string {
 	selCount := m.sel.Count()
 	var hints string
 	if m.focus == FocusColumns {
-		hints = "jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG:ends  HML:view  /:search  x:toggle"
+		hints = "jk:move  C-f/b:page  C-d/u:half  gG/HML:jump  /:search  x:toggle  a/d/y:sel"
 	} else {
 		hints = "hjkl:move  space:pgdn  []:col-page  f:null-filter  drag:divider  Ctrl+L:redraw"
 	}
