@@ -1481,7 +1481,7 @@ func (m Model) viewColumns(w, h int) string {
 		}
 		name := truncate(col.Name, nameWidth)
 		namePart := name
-		if hasNulls {
+		if hasNulls && nameWidth > 0 {
 			namePart += " " + nullDot
 		}
 		typeStr := truncate(col.DuckType, 8)
