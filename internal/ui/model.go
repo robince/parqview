@@ -324,10 +324,10 @@ func (m Model) columnWidth() int {
 
 // syncSelectedColFromCursor sets selectedColName from the columns pane cursor.
 func (m *Model) syncSelectedColFromCursor() {
+	m.clampColumnsListState()
 	if m.colCursor >= 0 && m.colCursor < len(m.filteredCols) {
 		m.selectedColName = m.filteredCols[m.colCursor].Name
 	}
-	m.clampColumnsListState()
 }
 
 // syncCursorFromSelectedColName finds selectedColName in filteredCols and sets colCursor.
@@ -386,7 +386,6 @@ func (m *Model) applyColumnsStep(step int) {
 	}
 	m.colCursor += step
 	m.colListOff += step
-	m.clampColumnsListState()
 	m.syncSelectedColFromCursor()
 }
 
@@ -830,13 +829,11 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.colCursor > 0 {
 			m.colCursor--
-			m.clampColumnsListState()
 			m.syncSelectedColFromCursor()
 		}
 	case "down", "j":
 		if m.colCursor < len(m.filteredCols)-1 {
 			m.colCursor++
-			m.clampColumnsListState()
 			m.syncSelectedColFromCursor()
 		}
 	case " ":
@@ -1762,12 +1759,12 @@ func (m Model) viewHelp() string {
 		{"", ""},
 		{"── Columns Pane ──", ""},
 		{"/", "Focus search"},
-		{"Esc", "Unfocus search"},
-		{"Ctrl+U", "Clear search"},
+		{"Esc (search input)", "Unfocus search"},
+		{"Ctrl+U (search input)", "Clear search query"},
 		{"↑/↓ or j/k", "Move cursor"},
 		{"Space / Ctrl+F", "Page down"},
 		{"Ctrl+B", "Page up"},
-		{"Ctrl+D / Ctrl+U", "Half page down / up"},
+		{"Ctrl+D / Ctrl+U (nav)", "Half page down / up"},
 		{"g / G or Home / End", "Top / bottom of list"},
 		{"H / M / L", "Top / middle / bottom of visible list"},
 		{"x", "Toggle selection (crosshair col)"},
