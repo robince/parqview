@@ -154,7 +154,7 @@ func NewModel(eng *engine.Engine, fileName, launchDir string) Model {
 	ti.CharLimit = 256
 
 	pickerTI := textinput.New()
-	pickerTI.Prompt = "find> "
+	pickerTI.Prompt = ""
 	pickerTI.CharLimit = 256
 	pickerTI.Focus()
 
@@ -255,18 +255,6 @@ func (m *Model) applyEngine(eng *engine.Engine, fileName string) {
 	}
 	m.updateFilteredCols()
 	m.statusMsg = fmt.Sprintf("Opened %s", fileName)
-}
-
-func (m *Model) clearLoadedFile() {
-	m.dataToken++
-	m.latestPreviewSeq++
-	if m.engine != nil {
-		_ = m.engine.Close()
-	}
-	m.engine = nil
-	m.fileName = ""
-	m.resetLoadedDataState()
-	m.statusMsg = "No file loaded (Ctrl+O to open .parquet/.csv)"
 }
 
 // tableColCursor returns the index of selectedColName in tableCols, or -1.
@@ -879,10 +867,8 @@ func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.statusMsg = fmt.Sprintf("Opening %s...", filepath.Base(targetPath))
 				return m, m.openFileCmd(targetPath)
 			}
-			if len(m.pickerItems) == 0 {
-				m.statusMsg = fmt.Sprintf("Open path error: %v", err)
-				return m, nil
-			}
+			m.statusMsg = fmt.Sprintf("Path not found: %v", err)
+			return m, nil
 		}
 
 		if len(m.pickerItems) == 0 {

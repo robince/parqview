@@ -68,6 +68,8 @@ func runApp(eng *engine.Engine, fileName, cwd string) error {
 	finalModel, err := p.Run()
 	if m, ok := finalModel.(ui.Model); ok {
 		_ = m.Close()
+	} else if eng != nil {
+		_ = eng.Close()
 	}
 	return err
 }
