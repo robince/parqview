@@ -705,6 +705,53 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 	}
 }
 
+func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
+	t.Run("unhighlighted row", func(t *testing.T) {
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{
+			{Name: "alpha", DuckType: "BIGINT"},
+			{Name: "beta", DuckType: "VARCHAR"},
+		}
+		m.sel = selection.New(nil)
+		m.selectedColName = "beta"
+		m.focus = FocusTable
+		m.updateFilteredCols()
+		m.summaries["alpha"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+		m.summaries["beta"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
+
+		out := m.viewColumns(40, 8)
+		lines := strings.Split(out, "\n")
+		if len(lines) < 4 {
+			t.Fatalf("expected at least 4 lines from columns view, got %d", len(lines))
+		}
+		if !strings.Contains(lines[2], "alpha "+nullDot) {
+			t.Fatalf("expected null dot directly after alpha in column list, got %q", lines[2])
+		}
+		if strings.Contains(lines[3], "beta "+nullDot) {
+			t.Fatalf("expected no null dot for beta without nulls, got %q", lines[3])
+		}
+	})
+
+	t.Run("highlighted row", func(t *testing.T) {
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
+		m.sel = selection.New(nil)
+		m.selectedColName = "alpha"
+		m.focus = FocusColumns
+		m.updateFilteredCols()
+		m.summaries["alpha"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+
+		out := m.viewColumns(40, 6)
+		lines := strings.Split(out, "\n")
+		if len(lines) < 3 {
+			t.Fatalf("expected at least 3 lines from columns view, got %d", len(lines))
+		}
+		if !strings.Contains(lines[2], "alpha "+nullDot) {
+			t.Fatalf("expected highlighted row to include null dot after alpha, got %q", lines[2])
+		}
+	})
+}
+
 func TestRowHasNullAtFallbackPath(t *testing.T) {
 	data := [][]string{
 		{"NULL", "x"},

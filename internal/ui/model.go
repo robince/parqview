@@ -1472,7 +1472,20 @@ func (m Model) viewColumns(w, h int) string {
 		col := m.filteredCols[i]
 		isHighlighted := col.Name == activeCol
 
-		name := truncate(col.Name, max(0, w-12))
+		hasNulls := false
+		if s, ok := m.summaries[col.Name]; ok && s.Loaded && s.MissingCount > 0 {
+			hasNulls = true
+		}
+
+		nameWidth := max(0, w-12)
+		if hasNulls {
+			nameWidth = max(0, nameWidth-2)
+		}
+		name := truncate(col.Name, nameWidth)
+		namePart := name
+		if hasNulls {
+			namePart += " " + nullDot
+		}
 		typeStr := truncate(col.DuckType, 8)
 		statsStr := ""
 		if s, ok := m.summaries[col.Name]; ok && s.Loaded {
@@ -1485,7 +1498,7 @@ func (m Model) viewColumns(w, h int) string {
 			if m.sel.IsSelected(col.Name) {
 				markChar = selectedMarkGlyph
 			}
-			plain := fmt.Sprintf("%s %s %s%s", markChar, name, typeStr, statsStr)
+			plain := fmt.Sprintf("%s %s %s%s", markChar, namePart, typeStr, statsStr)
 			if m.focus == FocusColumns {
 				lines = append(lines, clampLineWidth(highlightStyle.Width(w).Render(plain), w))
 			} else {
@@ -1498,7 +1511,7 @@ func (m Model) viewColumns(w, h int) string {
 			}
 			typeBadge := typeBadgeStyle.Render(typeStr)
 			stats := statStyle.Render(statsStr)
-			lines = append(lines, clampLineWidth(fmt.Sprintf("%s %s %s%s", mark, name, typeBadge, stats), w))
+			lines = append(lines, clampLineWidth(fmt.Sprintf("%s %s %s%s", mark, namePart, typeBadge, stats), w))
 		}
 	}
 
