@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/robince/parqview/internal/engine"
 	"github.com/robince/parqview/internal/selection"
 	"github.com/robince/parqview/internal/types"
 )
@@ -1368,6 +1369,58 @@ func TestHandleKeyCtrlOOpensFilePickerAndReturnsInputInitCmd(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected non-nil picker input init command after ctrl+o")
+	}
+}
+
+func TestFilePickerCtrlCQuits(t *testing.T) {
+	m := NewModel(nil, "", t.TempDir())
+	m.openFilePicker()
+
+	_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("expected quit command for ctrl+c in file picker")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("expected tea.QuitMsg, got %T", cmd())
+	}
+}
+
+func TestOpenFileDoneIgnoresStaleRequest(t *testing.T) {
+	m := NewModel(nil, "", t.TempDir())
+	m.openReqID = 2
+
+	currentEngine := &engine.Engine{}
+	updated, _ := m.Update(openFileDoneMsg{
+		path:  "/tmp/new.csv",
+		eng:   currentEngine,
+		reqID: 2,
+	})
+	m = updated.(Model)
+
+	if m.engine != currentEngine {
+		t.Fatal("expected current request engine to be applied")
+	}
+	if m.fileName != "new.csv" {
+		t.Fatalf("expected current request file name to be applied, got %q", m.fileName)
+	}
+	if got := m.statusMsg; got != "Opened new.csv" {
+		t.Fatalf("expected open status for current request, got %q", got)
+	}
+
+	updated, _ = m.Update(openFileDoneMsg{
+		path:  "/tmp/old.csv",
+		reqID: 1,
+	})
+	m = updated.(Model)
+
+	if m.engine != currentEngine {
+		t.Fatal("expected stale request to be ignored")
+	}
+	if m.fileName != "new.csv" {
+		t.Fatalf("expected stale request to keep file name new.csv, got %q", m.fileName)
+	}
+	if got := m.statusMsg; got != "Opened new.csv" {
+		t.Fatalf("expected stale request to keep status, got %q", got)
 	}
 }
 

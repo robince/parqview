@@ -72,9 +72,10 @@ type firstNullMsg struct {
 }
 
 type openFileDoneMsg struct {
-	path string
-	eng  *engine.Engine
-	err  error
+	path  string
+	eng   *engine.Engine
+	reqID uint64
+	err   error
 }
 
 type filePickerItem struct {
@@ -145,6 +146,7 @@ type Model struct {
 	pageSize         int // rows per page
 	latestPreviewSeq uint64
 	dataToken        uint64
+	openReqID        uint64
 }
 
 // NewModel creates the initial model.
@@ -538,6 +540,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case openFileDoneMsg:
+		if msg.reqID != m.openReqID {
+			if msg.eng != nil {
+				_ = msg.eng.Close()
+			}
+			return m, nil
+		}
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("Error opening file: %v", msg.err)
 			return m, nil
@@ -806,6 +814,8 @@ func (m *Model) openFilePicker() tea.Cmd {
 func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch key {
+	case "ctrl+c":
+		return m, tea.Quit
 	case "esc":
 		m.overlay = OverlayNone
 		return m, nil
@@ -866,7 +876,9 @@ func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				m.overlay = OverlayNone
 				m.statusMsg = fmt.Sprintf("Opening %s...", filepath.Base(targetPath))
-				return m, m.openFileCmd(targetPath)
+				m.openReqID++
+				reqID := m.openReqID
+				return m, m.openFileCmd(targetPath, reqID)
 			}
 			m.statusMsg = fmt.Sprintf("Path not found: %v", err)
 			return m, nil
@@ -886,7 +898,9 @@ func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.overlay = OverlayNone
 		m.statusMsg = fmt.Sprintf("Opening %s...", filepath.Base(item.path))
-		return m, m.openFileCmd(item.path)
+		m.openReqID++
+		reqID := m.openReqID
+		return m, m.openFileCmd(item.path, reqID)
 	}
 
 	var cmd tea.Cmd
@@ -1211,14 +1225,14 @@ func isWordBoundary(s string, i int) bool {
 	return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 }
 
-func (m Model) openFileCmd(path string) tea.Cmd {
+func (m Model) openFileCmd(path string, reqID uint64) tea.Cmd {
 	absPath := path
 	if abs, err := filepath.Abs(path); err == nil {
 		absPath = abs
 	}
 	return func() tea.Msg {
 		eng, err := engine.New(absPath)
-		return openFileDoneMsg{path: absPath, eng: eng, err: err}
+		return openFileDoneMsg{path: absPath, eng: eng, reqID: reqID, err: err}
 	}
 }
 
