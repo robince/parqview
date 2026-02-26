@@ -1456,7 +1456,7 @@ func (m Model) viewColumns(w, h int) string {
 	case m.searchQuery != "":
 		lines = append(lines, searchPromptStyle.Render("/ ")+m.searchQuery)
 	default:
-		lines = append(lines, searchPromptStyle.Render(truncate("/ (type / to search)", w)))
+		lines = append(lines, searchPromptStyle.Render(truncateDisplay("/ (type / to search)", w)))
 	}
 	lines = append(lines, "")
 

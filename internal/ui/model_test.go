@@ -816,7 +816,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 			t.Fatalf("expected dot suppressed when nameWidth==0, got %q", out)
 		}
 		for _, line := range strings.Split(out, "\n") {
-			if len([]rune(line)) > 14 {
+			if lipgloss.Width(line) > 14 {
 				t.Fatalf("line exceeds width 14: %q", line)
 			}
 		}
