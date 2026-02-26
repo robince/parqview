@@ -76,6 +76,80 @@ func TestHandleTableKeyDownCanReachFinalRowWithSmallViewport(t *testing.T) {
 	}
 }
 
+func TestHandleTableKeyRFindsNextMissingIncludingNaN(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a", "b", "c"}
+	m.filteredCols = []types.ColumnInfo{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"1", "NaN", "NULL"}}
+	m.tableRowCursor = 0
+
+	updated, cmd := m.handleTableKey("r")
+	if cmd != nil {
+		t.Fatalf("expected no command for row-local missing jump, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.selectedColName != "b" {
+		t.Fatalf("expected first r to land on NaN column b, got %q", m.selectedColName)
+	}
+
+	updated, cmd = m.handleTableKey("r")
+	if cmd != nil {
+		t.Fatalf("expected no command for row-local missing jump, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.selectedColName != "c" {
+		t.Fatalf("expected second r to land on NULL column c, got %q", m.selectedColName)
+	}
+
+	updated, cmd = m.handleTableKey("R")
+	if cmd != nil {
+		t.Fatalf("expected no command for reverse row-local missing jump, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.selectedColName != "b" {
+		t.Fatalf("expected R to land back on NaN column b, got %q", m.selectedColName)
+	}
+}
+
+func TestHandleTableKeyRNoMissingSetsStatus(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a", "b"}
+	m.filteredCols = []types.ColumnInfo{{Name: "a"}, {Name: "b"}}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"1", "2"}}
+	m.tableRowCursor = 0
+
+	updated, cmd := m.handleTableKey("r")
+	if cmd != nil {
+		t.Fatalf("expected no command when no row-missing exists, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.statusMsg != "No missing values in this row" {
+		t.Fatalf("unexpected status: %q", m.statusMsg)
+	}
+}
+
+func TestHandleTableKeyCReturnsCommandWhenColumnSelected(t *testing.T) {
+	m := newCmdTestModel()
+	m.selectedColName = "alpha"
+	m.tableCols = []string{"alpha"}
+	m.tableData = [][]string{{"1"}}
+	m.totalRows = 10
+
+	updated, cmd := m.handleTableKey("c")
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected command for column-missing jump")
+	}
+
+	updated, cmd = m.handleTableKey("C")
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected command for reverse column-missing jump")
+	}
+}
+
 func TestWindowSizeMsgClampsOffsetAndKeepsPageDownMonotonic(t *testing.T) {
 	m := newCmdTestModel()
 	m.width = 120

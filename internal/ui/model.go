@@ -16,6 +16,7 @@ import (
 
 	"github.com/robince/parqview/internal/clipboard"
 	"github.com/robince/parqview/internal/engine"
+	"github.com/robince/parqview/internal/missing"
 	"github.com/robince/parqview/internal/selection"
 	"github.com/robince/parqview/internal/types"
 	"github.com/robince/parqview/internal/util"
@@ -69,6 +70,17 @@ type firstNullMsg struct {
 	offset int64
 	token  uint64
 	err    error
+}
+
+type nextNullMsg struct {
+	rowID    int64
+	offset   int64
+	wrapped  bool
+	token    uint64
+	colName  string
+	rowIndex int64
+	reverse  bool
+	err      error
 }
 
 type openFileDoneMsg struct {
@@ -697,7 +709,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err != nil:
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
 		case msg.rowID == 0:
-			m.statusMsg = "No nulls found"
+			m.statusMsg = "No missing values found"
 		default:
 			// Jump to the row
 			m.tableOffset = max(0, int(msg.offset))
@@ -708,6 +720,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.nextPreviewCmd()
 		}
 		return m, nil
+
+	case nextNullMsg:
+		if msg.token != m.dataToken {
+			return m, nil
+		}
+		switch {
+		case msg.err != nil:
+			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
+			return m, nil
+		case msg.rowID == 0:
+			m.statusMsg = fmt.Sprintf("No missing values in column %q", msg.colName)
+			return m, nil
+		default:
+			m.tableOffset = max(0, int(msg.offset))
+			m.clampTableOffset()
+			m.tableRowCursor = 0
+			var dir, dirTitle string
+			if msg.reverse {
+				dir = "previous"
+				dirTitle = "Previous"
+			} else {
+				dir = "next"
+				dirTitle = "Next"
+			}
+			if msg.wrapped {
+				m.statusMsg = fmt.Sprintf("Wrapped to %s missing in %q", dir, msg.colName)
+			} else {
+				m.statusMsg = fmt.Sprintf("%s missing in %q at row %d", dirTitle, msg.colName, msg.rowID)
+			}
+			return m, m.nextPreviewCmd()
+		}
 
 	case statusMsg:
 		m.statusMsg = string(msg)
@@ -1735,6 +1778,32 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		m.tableOffset = 0
 		m.tableRowCursor = 0
 		return m, m.nextPreviewCmd()
+	case "r":
+		if m.jumpToNextMissingInRow(false) {
+			return m, nil
+		}
+		m.statusMsg = "No missing values in this row"
+	case "R":
+		if m.jumpToNextMissingInRow(true) {
+			return m, nil
+		}
+		m.statusMsg = "No missing values in this row"
+	case "c":
+		colName := m.selectedColName
+		if colName == "" {
+			m.statusMsg = "No active column"
+			return m, nil
+		}
+		currentRow := int64(m.tableOffset + m.tableRowCursor)
+		return m, m.jumpToNextNullInColumn(colName, m.rowFilter, currentRow, false)
+	case "C":
+		colName := m.selectedColName
+		if colName == "" {
+			m.statusMsg = "No active column"
+			return m, nil
+		}
+		currentRow := int64(m.tableOffset + m.tableRowCursor)
+		return m, m.jumpToNextNullInColumn(colName, m.rowFilter, currentRow, true)
 	}
 	return m, nil
 }
@@ -1916,6 +1985,87 @@ func (m Model) jumpToFirstNull(colName, rowFilter string) tea.Cmd {
 	}
 }
 
+func (m Model) jumpToNextNullInColumn(colName, rowFilter string, currentOffset int64, reverse bool) tea.Cmd {
+	eng := m.engine
+	if eng == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx := context.Background()
+		rowID, err := eng.RowIDForOffset(ctx, currentOffset, rowFilter)
+		if err != nil {
+			return nextNullMsg{token: m.dataToken, colName: colName, reverse: reverse, err: err}
+		}
+		var nextRowID int64
+		var wrapped bool
+		if reverse {
+			nextRowID, wrapped, err = eng.PrevNullRow(ctx, colName, rowFilter, rowID)
+		} else {
+			nextRowID, wrapped, err = eng.NextNullRow(ctx, colName, rowFilter, rowID)
+		}
+		if err != nil || nextRowID == 0 {
+			return nextNullMsg{
+				rowID:    nextRowID,
+				wrapped:  wrapped,
+				token:    m.dataToken,
+				colName:  colName,
+				rowIndex: currentOffset,
+				reverse:  reverse,
+				err:      err,
+			}
+		}
+		offset, err := eng.OffsetForRowID(ctx, nextRowID, rowFilter)
+		return nextNullMsg{
+			rowID:    nextRowID,
+			offset:   offset,
+			wrapped:  wrapped,
+			token:    m.dataToken,
+			colName:  colName,
+			rowIndex: currentOffset,
+			reverse:  reverse,
+			err:      err,
+		}
+	}
+}
+
+func (m *Model) jumpToNextMissingInRow(reverse bool) bool {
+	if m.tableRowCursor < 0 || m.tableRowCursor >= len(m.tableData) {
+		return false
+	}
+	row := m.tableData[m.tableRowCursor]
+	if len(row) == 0 || len(m.tableCols) == 0 {
+		return false
+	}
+	start := m.tableColCursor()
+	if start < 0 {
+		start = 0
+	}
+	for step := 1; step <= len(row); step++ {
+		var idx int
+		if reverse {
+			idx = (start - step) % len(row)
+			if idx < 0 {
+				idx += len(row)
+			}
+		} else {
+			idx = (start + step) % len(row)
+		}
+		if missing.IsDisplayMissing(row[idx]) {
+			if idx < len(m.tableCols) {
+				m.selectedColName = m.tableCols[idx]
+				m.syncCursorFromSelectedColName()
+				if reverse {
+					m.statusMsg = fmt.Sprintf("Row %d: previous missing at column %q", m.tableOffset+m.tableRowCursor+1, m.selectedColName)
+				} else {
+					m.statusMsg = fmt.Sprintf("Row %d: next missing at column %q", m.tableOffset+m.tableRowCursor+1, m.selectedColName)
+				}
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // View
 
 func (m Model) View() string {
@@ -1975,7 +2125,7 @@ func (m Model) viewTopBar() string {
 	left := fmt.Sprintf(" %s  %d rows × %d cols", fileLabel, m.totalRows, len(m.columns))
 	rightPlain := ""
 	if m.rowFilter != "" {
-		filterInfo := "Filter: rows with nulls"
+		filterInfo := "Filter: rows with missing values"
 		if m.filterRows >= 0 {
 			filterInfo += fmt.Sprintf(" (%d rows)", m.filterRows)
 		}
@@ -2004,7 +2154,7 @@ func (m Model) viewBottomBar() string {
 	if m.focus == FocusColumns {
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  /:search  x:toggle  a/d/y:sel"
 	} else {
-		hints = "Ctrl+O:open  hjkl:move  space:pgdn  []:col-page  f:null-filter  drag:divider  Ctrl+L:redraw"
+		hints = "Ctrl+O:open  hjkl:move  r/R:row missing ±  c/C:col missing ±  f:missing-filter  drag:divider  Ctrl+L:redraw"
 	}
 	status := fmt.Sprintf("  Sel: %d/%d", selCount, len(m.columns))
 	if m.showSelected {
@@ -2135,7 +2285,7 @@ func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, 
 		colW := m.columnWidth()
 		val := truncate(row[i], max(0, colW-1))
 		cell := fmt.Sprintf(" %-*s", max(0, colW-1), val)
-		isNull := row[i] == "NULL"
+		isNull := missing.IsDisplayMissing(row[i])
 		isSelectedCol := i == cursorColIdx
 
 		switch {
@@ -2190,7 +2340,7 @@ func (m Model) rowHasNullAt(rowIdx int) bool {
 
 func rowHasNull(row []string) bool {
 	for _, v := range row {
-		if v == "NULL" {
+		if missing.IsDisplayMissing(v) {
 			return true
 		}
 	}
@@ -2216,7 +2366,7 @@ func (m Model) viewTableFooter() string {
 	row := m.tableData[rowCursor]
 	nullCount := 0
 	for _, v := range row {
-		if v == "NULL" {
+		if missing.IsDisplayMissing(v) {
 			nullCount++
 		}
 	}
@@ -2419,7 +2569,7 @@ func (m Model) viewDetail(w int) string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, detailLabelStyle.Render("t:tab  n:jump-to-null  Esc:close"))
+	lines = append(lines, detailLabelStyle.Render("t:tab  n:jump-to-missing  Esc:close"))
 
 	return strings.Join(lines, "\n")
 }
@@ -2512,7 +2662,11 @@ func (m Model) viewHelp() string {
 		{"Ctrl+F / Space", "Page down"},
 		{"Ctrl+B", "Page up"},
 		{"Ctrl+D / Ctrl+U", "Half page down / up"},
-		{"f", "Toggle null-row filter"},
+		{"f", "Toggle missing-row filter"},
+		{"r", "Next missing in current row"},
+		{"R", "Previous missing in current row"},
+		{"c", "Next missing row in column"},
+		{"C", "Previous missing row in column"},
 		{"Mouse drag divider", "Resize table/columns split"},
 		{"", ""},
 		{"── File Picker ──", ""},
@@ -2523,7 +2677,7 @@ func (m Model) viewHelp() string {
 		{"", ""},
 		{"── Detail Panel ──", ""},
 		{"t", "Cycle tabs (Top Values / Stats / Histogram)"},
-		{"n", "Jump to first null"},
+		{"n", "Jump to first missing"},
 		{"Esc", "Close"},
 	}
 

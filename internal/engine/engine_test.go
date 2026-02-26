@@ -11,6 +11,8 @@ import (
 	"time"
 
 	_ "github.com/marcboeker/go-duckdb"
+
+	"github.com/robince/parqview/internal/missing"
 )
 
 func testdataDir() string {
@@ -133,7 +135,7 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	}
 
 	var expectedRowID int64
-	q := `SELECT min(` + quoteIdent(eng.internalRowIDCol) + `) FROM t_base WHERE "score" IS NULL AND (` + filter + `)`
+	q := `SELECT min(` + quoteIdent(eng.internalRowIDCol) + `) FROM t_base WHERE ` + missing.SQLPredicate(`"score"`) + ` AND (` + filter + `)`
 	if err := eng.db.QueryRowContext(ctx, q).Scan(&expectedRowID); err != nil {
 		t.Fatalf("query expected row id: %v", err)
 	}
@@ -403,5 +405,98 @@ func TestParseNullFilterColumnsQuotedIdentifiers(t *testing.T) {
 				t.Fatalf("columns mismatch: got %v want %v", gotCols, tc.wantCols)
 			}
 		})
+	}
+}
+
+func TestParseNullFilterColumnsWithNaNPredicate(t *testing.T) {
+	filter := BuildNullFilter([]string{"score", "A OR B"})
+	gotCols, err := parseNullFilterColumns(filter)
+	if err != nil {
+		t.Fatalf("parseNullFilterColumns: %v", err)
+	}
+	wantCols := []string{"score", "A OR B"}
+	if !slices.Equal(gotCols, wantCols) {
+		t.Fatalf("columns mismatch: got %v want %v", gotCols, wantCols)
+	}
+}
+
+func TestProfileBasicUsesMissingPredicate(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "nan.csv", "score\n1.0\nNaN\n\n2.5\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "score")
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+
+	var expected int64
+	q := `SELECT sum(CASE WHEN ` + missing.SQLPredicate(`"score"`) + ` THEN 1 ELSE 0 END)::BIGINT FROM t_base`
+	if err := eng.db.QueryRowContext(bg(), q).Scan(&expected); err != nil {
+		t.Fatalf("expected missing count query: %v", err)
+	}
+	if summary.MissingCount != expected {
+		t.Fatalf("missing count mismatch: got %d want %d", summary.MissingCount, expected)
+	}
+}
+
+func TestNextNullRowWrapAndRowIDForOffset(t *testing.T) {
+	eng := openSampleParquet(t)
+	ctx := bg()
+
+	first, err := eng.FirstNullRow(ctx, "score", "")
+	if err != nil {
+		t.Fatalf("FirstNullRow: %v", err)
+	}
+	if first == 0 {
+		t.Fatal("expected at least one missing score row")
+	}
+
+	rowIDAtZero, err := eng.RowIDForOffset(ctx, 0, "")
+	if err != nil {
+		t.Fatalf("RowIDForOffset(0): %v", err)
+	}
+	if rowIDAtZero != 1 {
+		t.Fatalf("unexpected row id at offset 0: got %d want 1", rowIDAtZero)
+	}
+
+	next, wrapped, err := eng.NextNullRow(ctx, "score", "", eng.TotalRows()+1)
+	if err != nil {
+		t.Fatalf("NextNullRow(wrap): %v", err)
+	}
+	if !wrapped {
+		t.Fatal("expected wrapped=true when searching after final row")
+	}
+	if next != first {
+		t.Fatalf("wrapped row mismatch: got %d want %d", next, first)
+	}
+}
+
+func TestPrevNullRowWrap(t *testing.T) {
+	eng := openSampleParquet(t)
+	ctx := bg()
+
+	var last int64
+	q := `SELECT max(` + quoteIdent(eng.internalRowIDCol) + `) FROM t_base WHERE ` + missing.SQLPredicate(`"score"`)
+	if err := eng.db.QueryRowContext(ctx, q).Scan(&last); err != nil {
+		t.Fatalf("query last missing row: %v", err)
+	}
+	if last == 0 {
+		t.Fatal("expected at least one missing score row")
+	}
+
+	prev, wrapped, err := eng.PrevNullRow(ctx, "score", "", 1)
+	if err != nil {
+		t.Fatalf("PrevNullRow(wrap): %v", err)
+	}
+	if !wrapped {
+		t.Fatal("expected wrapped=true when searching before first row")
+	}
+	if prev != last {
+		t.Fatalf("wrapped row mismatch: got %d want %d", prev, last)
 	}
 }
