@@ -818,6 +818,7 @@ func (m *Model) reconcileSelectedColNameWithTableCols() {
 	}
 	m.selectedColName = m.tableCols[0]
 	m.syncCursorFromSelectedColName()
+	m.clampColumnsListState()
 }
 
 func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {

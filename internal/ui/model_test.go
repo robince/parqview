@@ -456,6 +456,36 @@ func TestPreviewDoneMsgReconcilesSelectedColumnWhenProjectionChanges(t *testing.
 	}
 }
 
+func TestPreviewDoneMsgReconcileNotFoundClampsColumnsListOffset(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 18
+	m.columns = make([]types.ColumnInfo, 30)
+	for i := range m.columns {
+		m.columns[i] = types.ColumnInfo{Name: fmt.Sprintf("c%02d", i)}
+	}
+	m.selectedColName = "c25"
+	m.colCursor = 25
+	m.colListOff = 20
+	m.updateFilteredCols()
+
+	m = updateModel(t, m, previewDoneMsg{
+		rows:      [][]string{{"1", "2", "3"}},
+		colNames:  []string{"c00", "c01", "c02"},
+		totalRows: 1,
+	})
+
+	if m.selectedColName != "c00" {
+		t.Fatalf("expected selectedColName to reconcile to c00, got %q", m.selectedColName)
+	}
+	if m.colCursor != 0 {
+		t.Fatalf("expected column cursor to sync to c00 at index 0, got %d", m.colCursor)
+	}
+	if m.colListOff != 0 {
+		t.Fatalf("expected colListOff to clamp to 0 after reconcile, got %d", m.colListOff)
+	}
+}
+
 func TestPreviewDoneMsgKeepsColumnActionsConsistentWhenCursorCannotSync(t *testing.T) {
 	m := newTestModel()
 	m.columns = []types.ColumnInfo{
