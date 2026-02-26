@@ -2178,6 +2178,82 @@ func TestFilePickerPathInputExpandsTilde(t *testing.T) {
 	}
 }
 
+func TestExpandTildePathSeparatorVariants(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("os.UserHomeDir: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "double forward slash",
+			in:   "~//foo",
+			want: filepath.Join(home, "foo"),
+		},
+	}
+
+	if filepath.Separator == '/' {
+		cases = append(cases,
+			struct {
+				name string
+				in   string
+				want string
+			}{
+				name: "windows separator on unix",
+				in:   "~\\foo",
+				want: "~\\foo",
+			},
+			struct {
+				name string
+				in   string
+				want string
+			}{
+				name: "mixed separators on unix",
+				in:   "~\\/foo",
+				want: "~\\/foo",
+			},
+		)
+	} else {
+		cases = append(cases,
+			struct {
+				name string
+				in   string
+				want string
+			}{
+				name: "double native separator",
+				in:   "~\\\\foo",
+				want: filepath.Join(home, "foo"),
+			},
+			struct {
+				name string
+				in   string
+				want string
+			}{
+				name: "mixed separators on windows",
+				in:   "~\\/foo",
+				want: filepath.Join(home, "foo"),
+			},
+		)
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := expandTildePath(tc.in)
+			if err != nil {
+				t.Fatalf("expandTildePath(%q) error: %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Fatalf("expandTildePath(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestFilePickerAllowsTypingQueryText(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "alpha.csv"), []byte("x"), 0o644); err != nil {
