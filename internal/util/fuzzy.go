@@ -31,7 +31,11 @@ func FuzzyMatch(s, query string) bool {
 }
 
 func matchTerm(term, sNorm, joined, acronym string) bool {
-	for _, token := range splitIdentifierParts(term) {
+	tokens := splitIdentifierParts(term)
+	if len(tokens) == 0 {
+		return false
+	}
+	for _, token := range tokens {
 		if !matchToken(token, sNorm, joined, acronym) {
 			return false
 		}
