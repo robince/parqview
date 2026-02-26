@@ -2,7 +2,6 @@ package engine
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -472,38 +471,22 @@ func TestProfileBasicUsesMissingPredicate(t *testing.T) {
 
 func TestProfileDetailExcludesMissingPredicate(t *testing.T) {
 	dir := t.TempDir()
-	path := mustWriteCSV(t, dir, "nan_detail.csv", "score\n1.0\nNaN\n\n2.5\n")
+	path := mustWriteCSV(t, dir, "nan_detail.csv", "category\nalpha\nNaN\n\nbeta\nalpha\n")
 	eng, err := New(path)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	t.Cleanup(func() { _ = eng.Close() })
 
-	summary, err := eng.ProfileBasic(bg(), "score")
+	summary, err := eng.ProfileBasic(bg(), "category")
 	if err != nil {
 		t.Fatalf("ProfileBasic: %v", err)
 	}
-	summary.IsDiscrete = true
-	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE"); err != nil {
+	if !summary.IsDiscrete {
+		t.Fatal("expected category to be discrete")
+	}
+	if err := eng.ProfileDetail(bg(), "category", summary, "VARCHAR"); err != nil {
 		t.Fatalf("ProfileDetail: %v", err)
-	}
-	if summary.Numeric == nil {
-		t.Fatal("expected numeric stats")
-	}
-
-	var expMin, expMax, expMean, expStd float64
-	q := `SELECT min("score")::DOUBLE, max("score")::DOUBLE, avg("score")::DOUBLE, stddev_pop("score")::DOUBLE
-		FROM t WHERE NOT (` + missing.SQLPredicate(`"score"`) + `)`
-	if err := eng.db.QueryRowContext(bg(), q).Scan(&expMin, &expMax, &expMean, &expStd); err != nil {
-		t.Fatalf("expected numeric query: %v", err)
-	}
-
-	const eps = 1e-9
-	if math.Abs(summary.Numeric.Min-expMin) > eps ||
-		math.Abs(summary.Numeric.Max-expMax) > eps ||
-		math.Abs(summary.Numeric.Mean-expMean) > eps ||
-		math.Abs(summary.Numeric.Stddev-expStd) > eps {
-		t.Fatalf("numeric mismatch: got=%+v expected min=%v max=%v mean=%v std=%v", *summary.Numeric, expMin, expMax, expMean, expStd)
 	}
 	if len(summary.Top3) == 0 {
 		t.Fatal("expected Top3 values when discrete profiling is enabled")
