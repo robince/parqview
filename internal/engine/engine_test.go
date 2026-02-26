@@ -423,6 +423,9 @@ func TestParseNullFilterColumnsWithNaNPredicate(t *testing.T) {
 func TestParseNullFilterColumnsQuotedIdentifierContainingIsNull(t *testing.T) {
 	col := "foo IS NULL bar"
 	filter := BuildNullFilter([]string{col})
+	if filter == "" || strings.Count(filter, "IS NULL") < 1 {
+		t.Fatalf("expected non-trivial filter containing IS NULL: %q", filter)
+	}
 	gotCols, err := parseNullFilterColumns(filter)
 	if err != nil {
 		t.Fatalf("parseNullFilterColumns: %v", err)

@@ -569,7 +569,7 @@ func parseNullFilterColumns(rowFilter string) ([]string, error) {
 		tail := remainder[len("IS NULL"):]
 		if tail != "" {
 			r, _ := utf8.DecodeRuneInString(tail)
-			if !unicode.IsSpace(r) {
+			if r == utf8.RuneError || !unicode.IsSpace(r) {
 				return nil, fmt.Errorf("unsupported null row filter term")
 			}
 		}
