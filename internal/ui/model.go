@@ -755,8 +755,8 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			m.searchInput.SetValue("")
 			m.searchQuery = ""
 			m.updateFilteredCols()
+			return m, nil
 		}
-		return m, nil
 	case "up", "k":
 		if m.colCursor > 0 {
 			m.colCursor--

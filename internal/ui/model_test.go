@@ -703,6 +703,7 @@ func TestViewColumnsSearchFocusShowsSingleSlash(t *testing.T) {
 	m.sel = selection.New([]string{"alpha"})
 	m.searchInput = textinput.New()
 	m.searchInput.Prompt = "/ "
+	m.searchInput.PromptStyle = searchPromptStyle
 	m.searchInput.SetValue("alpha")
 	m.searchFocused = true
 	m.updateFilteredCols()

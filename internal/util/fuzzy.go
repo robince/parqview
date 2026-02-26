@@ -20,6 +20,9 @@ func FuzzyMatch(s, query string) bool {
 	acronym := componentAcronym(parts)
 
 	for _, term := range strings.Fields(query) {
+		if len(splitIdentifierParts(term)) == 0 {
+			continue
+		}
 		if !matchTerm(term, sNorm, joined, acronym, parts) {
 			return false
 		}
@@ -29,13 +32,9 @@ func FuzzyMatch(s, query string) bool {
 
 func matchTerm(term, sNorm, joined, acronym string, parts []string) bool {
 	for _, token := range splitIdentifierParts(term) {
-		if token == "" {
-			continue
+		if !matchToken(token, sNorm, joined, acronym, parts) {
+			return false
 		}
-		if matchToken(token, sNorm, joined, acronym, parts) {
-			continue
-		}
-		return false
 	}
 	return true
 }
