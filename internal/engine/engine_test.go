@@ -420,6 +420,18 @@ func TestParseNullFilterColumnsWithNaNPredicate(t *testing.T) {
 	}
 }
 
+func TestParseNullFilterColumnsQuotedIdentifierContainingIsNull(t *testing.T) {
+	filter := BuildNullFilter([]string{"foo IS NULL bar"})
+	gotCols, err := parseNullFilterColumns(filter)
+	if err != nil {
+		t.Fatalf("parseNullFilterColumns: %v", err)
+	}
+	wantCols := []string{"foo IS NULL bar"}
+	if !slices.Equal(gotCols, wantCols) {
+		t.Fatalf("columns mismatch: got %v want %v", gotCols, wantCols)
+	}
+}
+
 func TestProfileBasicUsesMissingPredicate(t *testing.T) {
 	dir := t.TempDir()
 	path := mustWriteCSV(t, dir, "nan.csv", "score\n1.0\nNaN\n\n2.5\n")

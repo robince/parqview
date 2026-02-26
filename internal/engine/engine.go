@@ -556,17 +556,20 @@ func parseNullFilterColumns(rowFilter string) ([]string, error) {
 			return nil, fmt.Errorf("unsupported null row filter term")
 		}
 
-		idx := strings.Index(part, " IS NULL")
-		if idx <= 0 {
+		ident, remainder, ok := splitLeadingQuotedIdent(part)
+		if !ok {
+			return nil, fmt.Errorf("unsupported null row filter identifier")
+		}
+		remainder = strings.TrimSpace(remainder)
+		if !strings.HasPrefix(remainder, "IS NULL") {
 			return nil, fmt.Errorf("unsupported null row filter term")
 		}
+		remainder = strings.TrimSpace(remainder[len("IS NULL"):])
 
-		ident := strings.TrimSpace(part[:idx])
 		col, ok := unquoteIdent(ident)
 		if !ok {
 			return nil, fmt.Errorf("unsupported null row filter identifier")
 		}
-		remainder := strings.TrimSpace(part[idx+len(" IS NULL"):])
 		if remainder != "" {
 			expected := "OR " + missing.SQLNaNPredicate(ident)
 			if remainder != expected {
@@ -619,6 +622,23 @@ func splitByOrOutsideQuotedIdent(s string) ([]string, error) {
 	}
 	parts = append(parts, s[start:])
 	return parts, nil
+}
+
+func splitLeadingQuotedIdent(s string) (ident, remainder string, ok bool) {
+	if s == "" || s[0] != '"' {
+		return "", "", false
+	}
+	for i := 1; i < len(s); i++ {
+		if s[i] != '"' {
+			continue
+		}
+		if i+1 < len(s) && s[i+1] == '"' {
+			i++
+			continue
+		}
+		return s[:i+1], s[i+1:], true
+	}
+	return "", "", false
 }
 
 func stripOuterParens(s string) string {
