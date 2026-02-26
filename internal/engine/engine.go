@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/robince/parqview/internal/missing"
 	"github.com/robince/parqview/internal/types"
@@ -562,6 +563,9 @@ func parseNullFilterColumns(rowFilter string) ([]string, error) {
 		}
 		remainder = strings.TrimSpace(remainder)
 		if !strings.HasPrefix(remainder, "IS NULL") {
+			return nil, fmt.Errorf("unsupported null row filter term")
+		}
+		if len(remainder) > len("IS NULL") && !unicode.IsSpace(rune(remainder[len("IS NULL")])) {
 			return nil, fmt.Errorf("unsupported null row filter term")
 		}
 		remainder = strings.TrimSpace(remainder[len("IS NULL"):])
