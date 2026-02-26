@@ -1109,13 +1109,13 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 		t.Fatalf("expected at least 4 lines in table view, got %d", len(lines))
 	}
 
-	if strings.Count(lines[0], "•") != 1 {
+	if strings.Count(lines[0], nullDotChar) != 1 {
 		t.Fatalf("expected exactly one header null dot, got %q", lines[0])
 	}
-	if !strings.Contains(lines[1], "•") {
+	if !strings.Contains(lines[1], nullDotChar) {
 		t.Fatalf("expected null-dot row marker for row containing NULL, got %q", lines[1])
 	}
-	if strings.Contains(lines[2], "•") {
+	if strings.Contains(lines[2], nullDotChar) {
 		t.Fatalf("expected no row marker for row without NULL, got %q", lines[2])
 	}
 }
@@ -1170,7 +1170,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 				}
 
 				wantName := truncate("alpha", 40-12-inlineNullDotWidth())
-				wantPlain := fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, wantName+" •", truncate("BIGINT", 8), " M:0% D:0%")
+				wantPlain := fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, wantName+" "+nullDotChar, truncate("BIGINT", 8), " M:0% D:0%")
 				want := tc.style.Width(40).Render(wantPlain)
 				if lines[2] != want {
 					t.Fatalf("expected highlighted row render %q, got %q", want, lines[2])
