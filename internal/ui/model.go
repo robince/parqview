@@ -130,16 +130,16 @@ type Model struct {
 	selectedColName string
 
 	// Table state
-	tableData       [][]string
-	tableRowHasNull []bool
-	tableCols       []string // column names in current projection
-	tableOffset     int      // row offset for pagination
-	tableRowCursor  int      // row cursor position within visible page
-	tableColOffHint int      // preferred column offset; -1 = auto
-	showSelected    bool     // show only selected columns
-	rowFilter       string   // active SQL filter
-	totalRows       int64
-	filterRows      int64 // -1 means no filter active
+	tableData          [][]string
+	tableRowHasMissing []bool
+	tableCols          []string // column names in current projection
+	tableOffset        int      // row offset for pagination
+	tableRowCursor     int      // row cursor position within visible page
+	tableColOffHint    int      // preferred column offset; -1 = auto
+	showSelected       bool     // show only selected columns
+	rowFilter          string   // active SQL filter
+	totalRows          int64
+	filterRows         int64 // -1 means no filter active
 
 	// Profiling
 	summaries map[string]*types.ColumnSummary
@@ -236,7 +236,7 @@ func (m *Model) resetLoadedDataState() {
 	m.colCursor = 0
 	m.selectedColName = ""
 	m.tableData = nil
-	m.tableRowHasNull = nil
+	m.tableRowHasMissing = nil
 	m.tableCols = nil
 	m.tableOffset = 0
 	m.tableRowCursor = 0
@@ -660,7 +660,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
 		} else {
 			m.tableData = msg.rows
-			m.tableRowHasNull = rowHasNullFlags(msg.rows)
+			m.tableRowHasMissing = rowHasMissingFlags(msg.rows)
 			m.tableCols = msg.colNames
 			m.reconcileSelectedColNameWithTableCols()
 			m.totalRows = msg.totalRows
@@ -2215,19 +2215,19 @@ func (m Model) viewTable(w, h int) string {
 		colW := m.columnWidth()
 		name := truncate(m.tableCols[i], max(0, colW-2))
 		nameStr := fmt.Sprintf(" %-*s", max(0, colW-2), name)
-		// Check if column has nulls from profiling
-		hasNulls := false
+		// Check if column has missing values from profiling.
+		hasMissing := false
 		if s, ok := m.summaries[m.tableCols[i]]; ok && s.Loaded && s.MissingCount > 0 {
-			hasNulls = true
+			hasMissing = true
 		}
 		if i == cursorColIdx {
-			if hasNulls {
+			if hasMissing {
 				header += activeColHeaderStyle.Render(nameStr) + nullDotActiveHeader
 			} else {
 				header += activeColHeaderStyle.Render(nameStr + " ")
 			}
 		} else {
-			if hasNulls {
+			if hasMissing {
 				header += headerStyle.Render(nameStr) + nullDotHeader
 			} else {
 				header += headerStyle.Render(nameStr + " ")
@@ -2251,9 +2251,9 @@ func (m Model) viewTable(w, h int) string {
 		isSelectedRow := r == renderCursor
 		rowNum := m.tableOffset + r + 1
 
-		rowHasNull := m.rowHasNullAt(r)
+		rowHasMissing := m.rowHasMissingAt(r)
 		rowDot := " "
-		if rowHasNull {
+		if rowHasMissing {
 			rowDot = nullDot
 		}
 
@@ -2285,23 +2285,23 @@ func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, 
 		colW := m.columnWidth()
 		val := truncate(row[i], max(0, colW-1))
 		cell := fmt.Sprintf(" %-*s", max(0, colW-1), val)
-		isNull := missing.IsDisplayMissing(row[i])
+		isMissing := missing.IsDisplayMissing(row[i])
 		isSelectedCol := i == cursorColIdx
 
 		switch {
-		case isSelectedRow && isSelectedCol && isNull:
+		case isSelectedRow && isSelectedCol && isMissing:
 			b.WriteString(crosshairNullStyle.Render(cell))
 		case isSelectedRow && isSelectedCol:
 			b.WriteString(crosshairCellStyle.Render(cell))
-		case isSelectedRow && isNull:
+		case isSelectedRow && isMissing:
 			b.WriteString(activeRowNullStyle.Render(cell))
 		case isSelectedRow:
 			b.WriteString(activeRowCellStyle.Render(cell))
-		case isSelectedCol && isNull:
+		case isSelectedCol && isMissing:
 			b.WriteString(activeColNullStyle.Render(cell))
 		case isSelectedCol:
 			b.WriteString(activeColCellStyle.Render(cell))
-		case isNull:
+		case isMissing:
 			b.WriteString(nullStyle.Render(cell))
 		default:
 			b.WriteString(cellStyle.Render(cell))
@@ -2310,35 +2310,35 @@ func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, 
 	return b.String()
 }
 
-func rowHasNullFlags(rows [][]string) []bool {
+func rowHasMissingFlags(rows [][]string) []bool {
 	flags := make([]bool, len(rows))
 	for i, row := range rows {
-		flags[i] = rowHasNull(row)
+		flags[i] = rowHasMissing(row)
 	}
 	return flags
 }
 
-// rowHasNullAt reports whether the row at rowIdx contains a NULL value.
+// rowHasMissingAt reports whether the row at rowIdx contains a missing-like value.
 // Falls back to a full live scan when the cache is out of sync with tableData.
-func (m Model) rowHasNullAt(rowIdx int) bool {
+func (m Model) rowHasMissingAt(rowIdx int) bool {
 	if rowIdx < 0 {
 		return false
 	}
-	if len(m.tableRowHasNull) != len(m.tableData) {
+	if len(m.tableRowHasMissing) != len(m.tableData) {
 		if rowIdx < len(m.tableData) {
-			return rowHasNull(m.tableData[rowIdx])
+			return rowHasMissing(m.tableData[rowIdx])
 		}
 		return false
 	}
-	// When lengths match, len(tableRowHasNull) == len(tableData),
-	// so rowIdx >= len(tableRowHasNull) implies rowIdx >= len(tableData) — no live scan needed.
-	if rowIdx < len(m.tableRowHasNull) {
-		return m.tableRowHasNull[rowIdx]
+	// When lengths match, len(tableRowHasMissing) == len(tableData),
+	// so rowIdx >= len(tableRowHasMissing) implies rowIdx >= len(tableData) — no live scan needed.
+	if rowIdx < len(m.tableRowHasMissing) {
+		return m.tableRowHasMissing[rowIdx]
 	}
 	return false
 }
 
-func rowHasNull(row []string) bool {
+func rowHasMissing(row []string) bool {
 	for _, v := range row {
 		if missing.IsDisplayMissing(v) {
 			return true
@@ -2364,14 +2364,14 @@ func (m Model) viewTableFooter() string {
 		rowCursor = len(m.tableData) - 1
 	}
 	row := m.tableData[rowCursor]
-	nullCount := 0
+	missingCount := 0
 	for _, v := range row {
 		if missing.IsDisplayMissing(v) {
-			nullCount++
+			missingCount++
 		}
 	}
 	absRow := m.tableOffset + rowCursor + 1
-	parts = append(parts, fmt.Sprintf("Row %d: %d/%d missing (projected)", absRow, nullCount, len(row)))
+	parts = append(parts, fmt.Sprintf("Row %d: %d/%d missing (projected)", absRow, missingCount, len(row)))
 
 	// Column info from profiling
 	if m.selectedColName != "" {
@@ -2422,15 +2422,15 @@ func (m Model) viewColumns(w, h int) string {
 		isHighlighted := col.Name == activeCol
 
 		s, hasSum := m.summaries[col.Name]
-		hasNulls := hasSum && s.Loaded && s.MissingCount > 0
+		hasMissing := hasSum && s.Loaded && s.MissingCount > 0
 
 		nameWidth := max(0, w-12)
-		if hasNulls {
+		if hasMissing {
 			nameWidth = max(0, nameWidth-inlineNullDotWidth())
 		}
 		name := truncate(col.Name, nameWidth)
 		namePart := name
-		if hasNulls && nameWidth > 0 {
+		if hasMissing && nameWidth > 0 {
 			namePart += " " + nullDot
 		}
 		typeStr := truncate(col.DuckType, 8)
@@ -2448,7 +2448,7 @@ func (m Model) viewColumns(w, h int) string {
 			// Highlighted rows are rendered as one full-width styled string, so this
 			// branch assembles a plain text line first (mirrored by wantPlain in tests).
 			plainNamePart := name
-			if hasNulls && nameWidth > 0 {
+			if hasMissing && nameWidth > 0 {
 				plainNamePart += " •"
 			}
 			plain := fmt.Sprintf("%s %s %s%s", markChar, plainNamePart, typeStr, statsStr)

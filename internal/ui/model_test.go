@@ -1199,7 +1199,7 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 		{"NULL", "x"},
 		{"y", "z"},
 	}
-	m.tableRowHasNull = rowHasNullFlags(m.tableData)
+	m.tableRowHasMissing = rowHasMissingFlags(m.tableData)
 	m.summaries["a"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
 	m.summaries["b"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
 
@@ -1310,7 +1310,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 	})
 
 	t.Run("name truncated to make room for dot", func(t *testing.T) {
-		// With w=20: nameWidth = max(0, 20-12) = 8; with hasNulls: 8-inlineNullDotWidth = 6.
+		// With w=20: nameWidth = max(0, 20-12) = 8; with hasMissing: 8-inlineNullDotWidth = 6.
 		// truncate("verylongcolumnname", 6) = "veryl…" (5 chars + ellipsis).
 		// Without the -inlineNullDotWidth adjustment nameWidth stays 8, giving "verylo…",
 		// and the line would be 2 cells wider than w (hidden by clampLineWidth).
@@ -1337,7 +1337,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 	})
 
 	t.Run("nameWidth zero suppresses dot and does not panic", func(t *testing.T) {
-		// w=14: nameWidth = max(0, 14-12) = 2; with hasNulls: max(0, 2-2) = 0.
+		// w=14: nameWidth = max(0, 14-12) = 2; with hasMissing: max(0, 2-2) = 0.
 		// dot must be suppressed, name truncated to "", line must not exceed w.
 		m := newTestModel()
 		m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
@@ -1368,36 +1368,36 @@ func TestRowHasNullAtFallbackPath(t *testing.T) {
 	t.Run("mismatched cache triggers live scan", func(t *testing.T) {
 		m := newTestModel()
 		m.tableData = data
-		m.tableRowHasNull = nil // length mismatch
+		m.tableRowHasMissing = nil // length mismatch
 
-		if !m.rowHasNullAt(0) {
-			t.Error("expected rowHasNullAt(0) to return true via fallback scan")
+		if !m.rowHasMissingAt(0) {
+			t.Error("expected rowHasMissingAt(0) to return true via fallback scan")
 		}
-		if m.rowHasNullAt(1) {
-			t.Error("expected rowHasNullAt(1) to return false via fallback scan")
+		if m.rowHasMissingAt(1) {
+			t.Error("expected rowHasMissingAt(1) to return false via fallback scan")
 		}
-		if m.rowHasNullAt(-1) {
-			t.Error("expected rowHasNullAt(-1) to return false")
+		if m.rowHasMissingAt(-1) {
+			t.Error("expected rowHasMissingAt(-1) to return false")
 		}
-		if m.rowHasNullAt(99) {
-			t.Error("expected rowHasNullAt(99) to return false for out-of-range index")
+		if m.rowHasMissingAt(99) {
+			t.Error("expected rowHasMissingAt(99) to return false for out-of-range index")
 		}
 	})
 
 	t.Run("synced cache is consulted directly", func(t *testing.T) {
 		m := newTestModel()
 		m.tableData = data
-		m.tableRowHasNull = rowHasNullFlags(m.tableData)
+		m.tableRowHasMissing = rowHasMissingFlags(m.tableData)
 
-		if !m.rowHasNullAt(0) {
-			t.Error("expected rowHasNullAt(0) to return true from cache")
+		if !m.rowHasMissingAt(0) {
+			t.Error("expected rowHasMissingAt(0) to return true from cache")
 		}
-		if m.rowHasNullAt(1) {
-			t.Error("expected rowHasNullAt(1) to return false from cache")
+		if m.rowHasMissingAt(1) {
+			t.Error("expected rowHasMissingAt(1) to return false from cache")
 		}
 		// Out-of-range with synced cache: no live scan, just false.
-		if m.rowHasNullAt(99) {
-			t.Error("expected rowHasNullAt(99) to return false for out-of-range with synced cache")
+		if m.rowHasMissingAt(99) {
+			t.Error("expected rowHasMissingAt(99) to return false for out-of-range with synced cache")
 		}
 	})
 }
@@ -1849,7 +1849,7 @@ func TestPreviewDoneMsgIgnoresStaleSequence(t *testing.T) {
 	m.latestPreviewSeq = 5
 	m.tableCols = []string{"new_col"}
 	m.tableData = [][]string{{"new"}}
-	m.tableRowHasNull = []bool{false}
+	m.tableRowHasMissing = []bool{false}
 	m.totalRows = 10
 
 	stale := previewDoneMsg{

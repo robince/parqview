@@ -213,12 +213,13 @@ func (e *Engine) ProfileBasic(ctx context.Context, colName string) (*types.Colum
 // ProfileDetail computes top values and/or numeric stats for a column.
 func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *types.ColumnSummary, colType string) error {
 	col := quoteIdent(colName)
+	nonMissingExpr := "NOT (" + missing.SQLPredicate(col) + ")"
 
 	// Top values for discrete-like columns
 	if summary.IsDiscrete {
 		q := fmt.Sprintf(`SELECT %s::VARCHAR AS value, count(*) AS cnt
-			FROM t WHERE %s IS NOT NULL
-			GROUP BY %s ORDER BY cnt DESC LIMIT 3`, col, col, col)
+			FROM t WHERE %s
+			GROUP BY %s ORDER BY cnt DESC LIMIT 3`, col, nonMissingExpr, col)
 		rows, err := e.db.QueryContext(ctx, q)
 		if err != nil {
 			return err
@@ -246,7 +247,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 	// Numeric stats
 	if isNumericType(colType) {
 		q := fmt.Sprintf(`SELECT min(%s)::DOUBLE, max(%s)::DOUBLE, avg(%s)::DOUBLE, stddev_pop(%s)::DOUBLE
-			FROM t WHERE %s IS NOT NULL`, col, col, col, col, col)
+			FROM t WHERE %s`, col, col, col, col, nonMissingExpr)
 		var ns types.NumericStats
 		if err := e.db.QueryRowContext(ctx, q).Scan(&ns.Min, &ns.Max, &ns.Mean, &ns.Stddev); err != nil {
 			return err
@@ -260,8 +261,8 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 				col,
 			)
 			hq := fmt.Sprintf(`SELECT %s AS b, count(*) AS cnt
-				FROM t WHERE %s IS NOT NULL
-				GROUP BY b ORDER BY b`, binExpr, col)
+				FROM t WHERE %s
+				GROUP BY b ORDER BY b`, binExpr, nonMissingExpr)
 			hrows, err := e.db.QueryContext(ctx, hq, ns.Min, ns.Max-ns.Min)
 			if err != nil {
 				return err
