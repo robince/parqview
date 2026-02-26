@@ -649,14 +649,13 @@ func TestHandleTableKeyHorizontalNoOpWhenZeroVisibleCols(t *testing.T) {
 
 	// left/h: already at left edge, cursor stays; right/l: cursor advances but hint must not be corrupted.
 	leftRightCases := []struct {
-		key            string
-		wantColName    string
-		wantHintChange bool
+		key         string
+		wantColName string
 	}{
-		{"left", "a", false},
-		{"h", "a", false},
-		{"right", "b", false},
-		{"l", "b", false},
+		{"left", "a"},
+		{"h", "a"},
+		{"right", "b"},
+		{"l", "b"},
 	}
 	for _, tc := range leftRightCases {
 		updated, cmd := m.handleTableKey(tc.key)
@@ -666,6 +665,9 @@ func TestHandleTableKeyHorizontalNoOpWhenZeroVisibleCols(t *testing.T) {
 		um := updated.(Model)
 		if um.selectedColName != tc.wantColName {
 			t.Errorf("key %q: expected selectedColName %q, got %q", tc.key, tc.wantColName, um.selectedColName)
+		}
+		if um.tableColOffHint != m.tableColOffHint {
+			t.Errorf("key %q: tableColOffHint changed from %d to %d", tc.key, m.tableColOffHint, um.tableColOffHint)
 		}
 		if h := um.tableColOffHint; h != -1 && (h < 0 || h >= len(m.tableCols)) {
 			t.Errorf("key %q: tableColOffHint %d out of bounds for %d columns", tc.key, h, len(m.tableCols))
