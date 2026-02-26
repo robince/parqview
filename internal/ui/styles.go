@@ -106,6 +106,7 @@ var (
 
 	// Null indicator dots (pre-rendered strings, not reusable styles)
 	nullDot             = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("•")
+	nullDotW            = lipgloss.Width(" " + nullDot)
 	nullDotHeader       = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("62")).Render("•")
 	nullDotActiveHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("69")).Render("•")
 
@@ -157,5 +158,5 @@ var (
 )
 
 func nullDotWidth() int {
-	return lipgloss.Width(" " + nullDot)
+	return nullDotW
 }
