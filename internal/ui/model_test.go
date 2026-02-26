@@ -1018,6 +1018,39 @@ func TestHandleColumnsKeyGlobalAndViewportJumps(t *testing.T) {
 	}
 }
 
+func TestHandleColumnsKeyMSmallList(t *testing.T) {
+	// When the list has fewer items than the viewport, M should land at the
+	// midpoint of the actual content, not the midpoint of the viewport slot.
+	m := newTestModel()
+	m.width = 120
+	m.height = 18
+	m.focus = FocusColumns
+	m.columns = make([]types.ColumnInfo, 5)
+	for i := range m.columns {
+		m.columns[i] = types.ColumnInfo{Name: fmt.Sprintf("c%02d", i), DuckType: "VARCHAR"}
+	}
+	m.sel = selection.New(nil)
+	m.updateFilteredCols()
+	m.colCursor = 0
+	m.colListOff = 0
+	m.syncSelectedColFromCursor()
+
+	updated, _ := m.handleColumnsKey("M")
+	m = updated.(Model)
+	// visibleCount = min(listHeight, 5-0) = 5; midpoint = (5-1)/2 = 2
+	wantMid := 2
+	if m.colCursor != wantMid {
+		t.Fatalf("expected M with small list to land at index %d, got %d", wantMid, m.colCursor)
+	}
+
+	// L should land at last item (index 4); M must not equal L
+	updated, _ = m.handleColumnsKey("L")
+	mL := updated.(Model)
+	if mL.colCursor == m.colCursor {
+		t.Fatalf("expected M (%d) and L (%d) to land on different rows for small list", m.colCursor, mL.colCursor)
+	}
+}
+
 func TestHandleColumnsKeyHLNoOp(t *testing.T) {
 	m := newTestModel()
 	m.width = 120
