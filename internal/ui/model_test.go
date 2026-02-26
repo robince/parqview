@@ -209,7 +209,7 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	t.Run("table focus uses selected column", func(t *testing.T) {
 		m := newCmdTestModel()
 		m.focus = FocusTable
-		m.columns = []types.ColumnInfo{{Name: "alpha"}}
+		m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "DOUBLE"}}
 		m.selectedColName = "alpha"
 		m.updateFilteredCols()
 
@@ -224,12 +224,18 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 		if m.overlay != OverlayDetail {
 			t.Fatalf("expected detail overlay, got %v", m.overlay)
 		}
+		if m.detailTab != 1 {
+			t.Fatalf("expected stats tab (1) for DOUBLE column, got %d", m.detailTab)
+		}
 	})
 
 	t.Run("columns focus uses active column", func(t *testing.T) {
 		m := newCmdTestModel()
 		m.focus = FocusColumns
-		m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
+		m.columns = []types.ColumnInfo{
+			{Name: "alpha", DuckType: "INTEGER"},
+			{Name: "beta", DuckType: "VARCHAR"},
+		}
 		m.selectedColName = "alpha"
 		m.colCursor = 1
 		m.updateFilteredCols()
@@ -244,6 +250,9 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 		}
 		if m.overlay != OverlayDetail {
 			t.Fatalf("expected detail overlay, got %v", m.overlay)
+		}
+		if m.detailTab != 0 {
+			t.Fatalf("expected top-values tab (0) for INTEGER column, got %d", m.detailTab)
 		}
 	})
 }

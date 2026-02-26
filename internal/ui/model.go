@@ -813,7 +813,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if targetCol != "" {
 			m.detailCol = targetCol
-			m.detailTab = 0
+			m.detailTab = defaultDetailTab(m.columnType(m.detailCol))
 			m.overlay = OverlayDetail
 			if s, ok := m.summaries[m.detailCol]; !ok || !s.DetailLoaded {
 				var existing *types.ColumnSummary
@@ -2612,6 +2612,27 @@ func (m Model) columnType(colName string) string {
 		}
 	}
 	return ""
+}
+
+func defaultDetailTab(colType string) int {
+	switch duckTypeBase(colType) {
+	case "FLOAT", "REAL", "DOUBLE", "DECIMAL", "NUMERIC":
+		return 1 // Stats
+	default:
+		return 0 // Top Values
+	}
+}
+
+func duckTypeBase(colType string) string {
+	t := strings.TrimSpace(strings.ToUpper(colType))
+	if t == "" {
+		return ""
+	}
+	base := strings.Fields(t)[0]
+	if idx := strings.Index(base, "("); idx >= 0 {
+		base = base[:idx]
+	}
+	return base
 }
 
 func (m Model) activeRowCount() int64 {
