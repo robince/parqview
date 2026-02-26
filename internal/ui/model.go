@@ -327,6 +327,7 @@ func (m *Model) syncSelectedColFromCursor() {
 	if m.colCursor >= 0 && m.colCursor < len(m.filteredCols) {
 		m.selectedColName = m.filteredCols[m.colCursor].Name
 	}
+	m.clampColumnsListState()
 }
 
 // syncCursorFromSelectedColName finds selectedColName in filteredCols and sets colCursor.
@@ -817,7 +818,6 @@ func (m *Model) reconcileSelectedColNameWithTableCols() {
 	}
 	m.selectedColName = m.tableCols[0]
 	m.syncCursorFromSelectedColName()
-	m.clampColumnsListState()
 }
 
 func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {

@@ -1377,6 +1377,50 @@ func TestMouseWheelRoutesToFocusedColumnsOnly(t *testing.T) {
 	}
 }
 
+func TestMouseWheelColumnsUpdatesColListOff(t *testing.T) {
+	m := newTestModel()
+	m.focus = FocusColumns
+	m.width = 120
+	m.height = 18
+	m.columns = make([]types.ColumnInfo, 30)
+	for i := range m.columns {
+		m.columns[i] = types.ColumnInfo{Name: fmt.Sprintf("c%02d", i), DuckType: "VARCHAR"}
+	}
+	m.sel = selection.New(nil)
+	m.updateFilteredCols()
+
+	// Place cursor at last visible row so the next scroll down must advance colListOff.
+	listHeight := m.currentColumnsListHeight()
+	m.colCursor = listHeight - 1
+	m.colListOff = 0
+	m.syncSelectedColFromCursor()
+
+	updated, _ := m.Update(tea.MouseMsg{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelDown,
+	})
+	m = updated.(Model)
+	if m.colCursor != listHeight {
+		t.Fatalf("expected mouse wheel down to advance cursor to %d, got %d", listHeight, m.colCursor)
+	}
+	if m.colListOff != 1 {
+		t.Fatalf("expected mouse wheel down to advance colListOff to 1, got %d", m.colListOff)
+	}
+
+	// Wheel up from top should clamp at 0.
+	m.colCursor = 0
+	m.colListOff = 0
+	m.syncSelectedColFromCursor()
+	updated, _ = m.Update(tea.MouseMsg{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelUp,
+	})
+	m = updated.(Model)
+	if m.colCursor != 0 || m.colListOff != 0 {
+		t.Fatalf("expected mouse wheel up at top to be a no-op, got cursor=%d off=%d", m.colCursor, m.colListOff)
+	}
+}
+
 func TestViewColumnsLongContentClampedToPaneWidth(t *testing.T) {
 	m := newTestModel()
 	m.columns = []types.ColumnInfo{
