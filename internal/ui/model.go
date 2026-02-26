@@ -80,6 +80,7 @@ type Model struct {
 	// Column list state
 	filteredCols []types.ColumnInfo // columns matching search
 	colCursor    int                // cursor in filteredCols
+	colListOff   int                // first visible row in filteredCols
 
 	// Unified column cursor — single source of truth across both panes
 	selectedColName string
@@ -333,10 +334,81 @@ func (m *Model) syncCursorFromSelectedColName() {
 	for i, c := range m.filteredCols {
 		if c.Name == m.selectedColName {
 			m.colCursor = i
+			m.clampColumnsListState()
 			return
 		}
 	}
 	// Not found — keep colCursor as-is
+}
+
+func (m Model) currentColumnsListHeight() int {
+	_, h := m.columnsPaneDimensions()
+	return m.columnsListHeight(h)
+}
+
+func (m *Model) clampColumnsListState() {
+	n := len(m.filteredCols)
+	if n == 0 {
+		m.colCursor = 0
+		m.colListOff = 0
+		return
+	}
+	if m.colCursor < 0 {
+		m.colCursor = 0
+	}
+	if m.colCursor >= n {
+		m.colCursor = n - 1
+	}
+
+	listHeight := m.currentColumnsListHeight()
+	maxOff := max(0, n-listHeight)
+	if m.colListOff < 0 {
+		m.colListOff = 0
+	}
+	if m.colListOff > maxOff {
+		m.colListOff = maxOff
+	}
+	if m.colCursor < m.colListOff {
+		m.colListOff = m.colCursor
+	}
+	if m.colCursor >= m.colListOff+listHeight {
+		m.colListOff = m.colCursor - listHeight + 1
+	}
+	if m.colListOff > maxOff {
+		m.colListOff = maxOff
+	}
+}
+
+func (m *Model) applyColumnsStep(step int) {
+	if len(m.filteredCols) == 0 {
+		return
+	}
+	m.colCursor += step
+	m.colListOff += step
+	m.clampColumnsListState()
+	m.syncSelectedColFromCursor()
+}
+
+func (m *Model) pageColumns(direction int) {
+	step := m.currentColumnsListHeight()
+	if step < 1 {
+		step = 1
+	}
+	if direction < 0 {
+		step = -step
+	}
+	m.applyColumnsStep(step)
+}
+
+func (m *Model) halfPageColumns(direction int) {
+	step := m.currentColumnsListHeight() / 2
+	if step < 1 {
+		step = 1
+	}
+	if direction < 0 {
+		step = -step
+	}
+	m.applyColumnsStep(step)
 }
 
 func (m Model) columnsCursorColName() string {
@@ -396,6 +468,7 @@ func (m *Model) updateFilteredCols() {
 			m.selectedColName = ""
 		}
 	}
+	m.clampColumnsListState()
 }
 
 func (m Model) Init() tea.Cmd {
@@ -412,6 +485,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 		m.clampSplitPct()
+		m.clampColumnsListState()
 		prevOffset := m.tableOffset
 		m.clampTableOffset()
 		m.clampTableRowCursor()
@@ -644,18 +718,22 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleColumnsPaging() (tea.Model, tea.Cmd) {
-	// Page down in column list
-	_, h := m.columnsPaneDimensions()
-	listHeight := m.columnsListHeight(h)
-	newCursor := m.colCursor + listHeight
-	if newCursor >= len(m.filteredCols) {
-		newCursor = len(m.filteredCols) - 1
-	}
-	if newCursor < 0 {
-		newCursor = 0
-	}
-	m.colCursor = newCursor
-	m.syncSelectedColFromCursor()
+	m.pageColumns(1)
+	return m, nil
+}
+
+func (m Model) handleColumnsPageUp() (tea.Model, tea.Cmd) {
+	m.pageColumns(-1)
+	return m, nil
+}
+
+func (m Model) handleColumnsHalfPageDown() (tea.Model, tea.Cmd) {
+	m.halfPageColumns(1)
+	return m, nil
+}
+
+func (m Model) handleColumnsHalfPageUp() (tea.Model, tea.Cmd) {
+	m.halfPageColumns(-1)
 	return m, nil
 }
 
@@ -728,16 +806,19 @@ func (m *Model) clampTableRowCursor() {
 func (m *Model) reconcileSelectedColNameWithTableCols() {
 	if len(m.tableCols) == 0 {
 		m.selectedColName = ""
+		m.clampColumnsListState()
 		return
 	}
 	for _, name := range m.tableCols {
 		if name == m.selectedColName {
 			m.syncCursorFromSelectedColName()
+			m.clampColumnsListState()
 			return
 		}
 	}
 	m.selectedColName = m.tableCols[0]
 	m.syncCursorFromSelectedColName()
+	m.clampColumnsListState()
 }
 
 func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
@@ -746,14 +827,64 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		m.searchFocused = true
 		m.searchInput.Focus()
 		return m, textinput.Blink
-	case "up", "k":
+	case "up", "k", "h":
 		if m.colCursor > 0 {
 			m.colCursor--
+			m.clampColumnsListState()
 			m.syncSelectedColFromCursor()
 		}
-	case "down", "j":
+	case "down", "j", "l":
 		if m.colCursor < len(m.filteredCols)-1 {
 			m.colCursor++
+			m.clampColumnsListState()
+			m.syncSelectedColFromCursor()
+		}
+	case " ":
+		return m.handleColumnsPaging()
+	case "ctrl+f":
+		return m.handleColumnsPaging()
+	case "ctrl+b":
+		return m.handleColumnsPageUp()
+	case "ctrl+d":
+		return m.handleColumnsHalfPageDown()
+	case "ctrl+u":
+		return m.handleColumnsHalfPageUp()
+	case "g", "home":
+		if len(m.filteredCols) > 0 {
+			m.colCursor = 0
+			m.colListOff = 0
+			m.syncSelectedColFromCursor()
+		}
+	case "G", "end":
+		if len(m.filteredCols) > 0 {
+			m.colCursor = len(m.filteredCols) - 1
+			m.colListOff = max(0, len(m.filteredCols)-m.currentColumnsListHeight())
+			m.syncSelectedColFromCursor()
+		}
+	case "H":
+		if len(m.filteredCols) > 0 {
+			m.clampColumnsListState()
+			m.colCursor = m.colListOff
+			m.syncSelectedColFromCursor()
+		}
+	case "M":
+		if len(m.filteredCols) > 0 {
+			m.clampColumnsListState()
+			target := m.colListOff + (m.currentColumnsListHeight()-1)/2
+			if target >= len(m.filteredCols) {
+				target = len(m.filteredCols) - 1
+			}
+			m.colCursor = target
+			m.syncSelectedColFromCursor()
+		}
+	case "L":
+		if len(m.filteredCols) > 0 {
+			m.clampColumnsListState()
+			target := m.colListOff + m.currentColumnsListHeight() - 1
+			if target >= len(m.filteredCols) {
+				target = len(m.filteredCols) - 1
+			}
+			m.colCursor = target
 			m.syncSelectedColFromCursor()
 		}
 	case "x":
@@ -1210,7 +1341,7 @@ func (m Model) viewBottomBar() string {
 	selCount := m.sel.Count()
 	var hints string
 	if m.focus == FocusColumns {
-		hints = "/:search  x:toggle  a:add  d:rm  y:copy  Enter:detail  wheel:cursor"
+		hints = "hjkl:move  Space/C-f/C-b:page  C-d/u:half  gG:ends  HML:view  /:search  x:toggle"
 	} else {
 		hints = "hjkl:move  space:pgdn  []:col-page  f:null-filter  drag:divider  Ctrl+L:redraw"
 	}
@@ -1462,9 +1593,13 @@ func (m Model) viewColumns(w, h int) string {
 
 	// Column list
 	listHeight := m.columnsListHeight(h)
-	startIdx := 0
-	if m.colCursor >= listHeight {
-		startIdx = m.colCursor - listHeight + 1
+	startIdx := m.colListOff
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	maxStart := max(0, len(m.filteredCols)-listHeight)
+	if startIdx > maxStart {
+		startIdx = maxStart
 	}
 	activeCol := m.columnsActiveColName()
 
@@ -1614,7 +1749,7 @@ func (m Model) viewHelp() string {
 		{"q / Ctrl+C", "Quit"},
 		{"Ctrl+L", "Redraw screen"},
 		{"?", "Toggle help"},
-		{"s", "Toggle show selected columns only"},
+		{"s / S", "Toggle show selected columns only"},
 		{"Space", "Page down (rows or columns list)"},
 		{"Enter", "Open column detail"},
 		{"Mouse wheel", "Scroll cursor in focused pane"},
@@ -1623,7 +1758,12 @@ func (m Model) viewHelp() string {
 		{"/", "Focus search"},
 		{"Esc", "Unfocus search"},
 		{"Ctrl+U", "Clear search"},
-		{"↑/↓ or j/k", "Move cursor"},
+		{"↑/↓ or h/j/k/l", "Move cursor"},
+		{"Space / Ctrl+F", "Page down"},
+		{"Ctrl+B", "Page up"},
+		{"Ctrl+D / Ctrl+U", "Half page down / up"},
+		{"g / G or Home / End", "Top / bottom of list"},
+		{"H / M / L", "Top / middle / bottom of visible list"},
 		{"x", "Toggle selection (crosshair col)"},
 		{"a", "Add all filtered to selection"},
 		{"d", "Remove all filtered from selection"},

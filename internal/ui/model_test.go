@@ -840,6 +840,177 @@ func TestHandleColumnsPagingAdvancesByRenderedListHeight(t *testing.T) {
 	if m.colCursor != renderedListHeight {
 		t.Fatalf("expected cursor to advance by rendered list height %d, got %d", renderedListHeight, m.colCursor)
 	}
+	wantOff := min(renderedListHeight, max(0, len(m.filteredCols)-renderedListHeight))
+	if m.colListOff != wantOff {
+		t.Fatalf("expected list offset to advance to %d, got %d", wantOff, m.colListOff)
+	}
+}
+
+func TestHandleColumnsKeyCtrlPagingAndBounds(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 18
+	m.focus = FocusColumns
+	m.columns = make([]types.ColumnInfo, 20)
+	for i := range m.columns {
+		m.columns[i] = types.ColumnInfo{Name: fmt.Sprintf("c%02d", i), DuckType: "VARCHAR"}
+	}
+	m.sel = selection.New(nil)
+	m.updateFilteredCols()
+	m.colCursor = 0
+	m.colListOff = 0
+	m.syncSelectedColFromCursor()
+
+	listHeight := m.currentColumnsListHeight()
+
+	updated, _ := m.handleColumnsKey("ctrl+f")
+	m = updated.(Model)
+	if m.colCursor != listHeight {
+		t.Fatalf("expected ctrl+f to move cursor to %d, got %d", listHeight, m.colCursor)
+	}
+	wantOff := min(listHeight, max(0, len(m.filteredCols)-listHeight))
+	if m.colListOff != wantOff {
+		t.Fatalf("expected ctrl+f to move list offset to %d, got %d", wantOff, m.colListOff)
+	}
+
+	updated, _ = m.handleColumnsKey("ctrl+b")
+	m = updated.(Model)
+	if m.colCursor != 0 {
+		t.Fatalf("expected ctrl+b to return cursor to top, got %d", m.colCursor)
+	}
+	if m.colListOff != 0 {
+		t.Fatalf("expected ctrl+b to return list offset to top, got %d", m.colListOff)
+	}
+}
+
+func TestHandleColumnsKeyHalfPagingAndBounds(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 18
+	m.focus = FocusColumns
+	m.columns = make([]types.ColumnInfo, 30)
+	for i := range m.columns {
+		m.columns[i] = types.ColumnInfo{Name: fmt.Sprintf("c%02d", i), DuckType: "VARCHAR"}
+	}
+	m.sel = selection.New(nil)
+	m.updateFilteredCols()
+	m.colCursor = 0
+	m.colListOff = 0
+	m.syncSelectedColFromCursor()
+
+	half := m.currentColumnsListHeight() / 2
+	if half < 1 {
+		half = 1
+	}
+
+	updated, _ := m.handleColumnsKey("ctrl+d")
+	m = updated.(Model)
+	if m.colCursor != half {
+		t.Fatalf("expected ctrl+d to move cursor to %d, got %d", half, m.colCursor)
+	}
+	wantOff := min(half, max(0, len(m.filteredCols)-m.currentColumnsListHeight()))
+	if m.colListOff != wantOff {
+		t.Fatalf("expected ctrl+d to move list offset to %d, got %d", wantOff, m.colListOff)
+	}
+
+	updated, _ = m.handleColumnsKey("ctrl+u")
+	m = updated.(Model)
+	if m.colCursor != 0 {
+		t.Fatalf("expected ctrl+u to return cursor to top, got %d", m.colCursor)
+	}
+	if m.colListOff != 0 {
+		t.Fatalf("expected ctrl+u to return list offset to top, got %d", m.colListOff)
+	}
+}
+
+func TestHandleColumnsKeyGlobalAndViewportJumps(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 18
+	m.focus = FocusColumns
+	m.columns = make([]types.ColumnInfo, 30)
+	for i := range m.columns {
+		m.columns[i] = types.ColumnInfo{Name: fmt.Sprintf("c%02d", i), DuckType: "VARCHAR"}
+	}
+	m.sel = selection.New(nil)
+	m.updateFilteredCols()
+	m.colCursor = 10
+	m.colListOff = 7
+	m.syncSelectedColFromCursor()
+
+	listHeight := m.currentColumnsListHeight()
+
+	updated, _ := m.handleColumnsKey("H")
+	m = updated.(Model)
+	if m.colListOff != 7 {
+		t.Fatalf("expected H not to scroll list, got offset %d", m.colListOff)
+	}
+	if m.colCursor != 7 {
+		t.Fatalf("expected H to jump cursor to visible top 7, got %d", m.colCursor)
+	}
+
+	updated, _ = m.handleColumnsKey("M")
+	m = updated.(Model)
+	wantMid := 7 + (listHeight-1)/2
+	if m.colListOff != 7 {
+		t.Fatalf("expected M not to scroll list, got offset %d", m.colListOff)
+	}
+	if m.colCursor != wantMid {
+		t.Fatalf("expected M to jump cursor to visible middle %d, got %d", wantMid, m.colCursor)
+	}
+
+	updated, _ = m.handleColumnsKey("L")
+	m = updated.(Model)
+	wantBottom := 7 + listHeight - 1
+	if wantBottom >= len(m.filteredCols) {
+		wantBottom = len(m.filteredCols) - 1
+	}
+	if m.colListOff != 7 {
+		t.Fatalf("expected L not to scroll list, got offset %d", m.colListOff)
+	}
+	if m.colCursor != wantBottom {
+		t.Fatalf("expected L to jump cursor to visible bottom %d, got %d", wantBottom, m.colCursor)
+	}
+
+	updated, _ = m.handleColumnsKey("G")
+	m = updated.(Model)
+	wantOffBottom := max(0, len(m.filteredCols)-listHeight)
+	if m.colCursor != len(m.filteredCols)-1 {
+		t.Fatalf("expected G to jump to absolute bottom %d, got %d", len(m.filteredCols)-1, m.colCursor)
+	}
+	if m.colListOff != wantOffBottom {
+		t.Fatalf("expected G to scroll offset to %d, got %d", wantOffBottom, m.colListOff)
+	}
+
+	updated, _ = m.handleColumnsKey("g")
+	m = updated.(Model)
+	if m.colCursor != 0 || m.colListOff != 0 {
+		t.Fatalf("expected g to jump to absolute top, got cursor=%d offset=%d", m.colCursor, m.colListOff)
+	}
+}
+
+func TestHandleColumnsKeyHLMovesVertically(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 18
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+	m.sel = selection.New(nil)
+	m.updateFilteredCols()
+	m.colCursor = 1
+	m.syncSelectedColFromCursor()
+
+	updated, _ := m.handleColumnsKey("h")
+	m = updated.(Model)
+	if m.colCursor != 0 {
+		t.Fatalf("expected h to move cursor up to 0, got %d", m.colCursor)
+	}
+
+	updated, _ = m.handleColumnsKey("l")
+	m = updated.(Model)
+	if m.colCursor != 1 {
+		t.Fatalf("expected l to move cursor down to 1, got %d", m.colCursor)
+	}
 }
 
 func TestViewColumnsHighlightedRowUsesFullWidthHighlightFocusedAndUnfocused(t *testing.T) {
@@ -1182,6 +1353,9 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 	if !strings.Contains(help, "Mouse drag divider") {
 		t.Fatalf("expected help to include mouse divider drag, got %q", help)
 	}
+	if !strings.Contains(help, "H / M / L") {
+		t.Fatalf("expected help to include H/M/L bindings, got %q", help)
+	}
 
 	m.focus = FocusTable
 	bottom := m.viewBottomBar()
@@ -1190,5 +1364,14 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 	}
 	if !strings.Contains(bottom, "Ctrl+L:redraw") {
 		t.Fatalf("expected bottom bar to include ctrl+l hint, got %q", bottom)
+	}
+
+	m.focus = FocusColumns
+	bottom = m.viewBottomBar()
+	if !strings.Contains(bottom, "HML:view") {
+		t.Fatalf("expected columns bottom bar to include HML hint, got %q", bottom)
+	}
+	if !strings.Contains(bottom, "C-d/u:half") {
+		t.Fatalf("expected columns bottom bar to include ctrl+d/u hint, got %q", bottom)
 	}
 }
