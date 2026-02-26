@@ -25,11 +25,6 @@ const (
 	tableRowNumW       = 6 // row number column width
 	tableRowPrefixW    = 1 // prefix space for null dot alignment
 	tableFooterPrefixW = 2 // leading spaces in footer row (for alignment with row-number gutter)
-
-	// nullDotWidth is the number of terminal cells consumed by the " •" decoration
-	// appended to column names with nulls (" " separator + 1-cell glyph = 2).
-	// Must stay in sync with the " " + nullDot rendering in viewColumns.
-	nullDotWidth = 2
 )
 
 var (
@@ -111,6 +106,9 @@ var (
 
 	// Null indicator dots (pre-rendered strings, not reusable styles)
 	nullDot             = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("•")
+	// nullDotWidth is derived from the actual rendered " •" string so it stays
+	// correct if nullDot ever changes to a different glyph.
+	nullDotWidth = lipgloss.Width(" " + nullDot)
 	nullDotHeader       = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("62")).Render("•")
 	nullDotActiveHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("69")).Render("•")
 
