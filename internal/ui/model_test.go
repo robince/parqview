@@ -130,6 +130,27 @@ func TestHandleTableKeyRNoMissingSetsStatus(t *testing.T) {
 	}
 }
 
+func TestHandleTableKeyRDoesNotTreatCurrentCellAsNextMissing(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a", "b", "c"}
+	m.filteredCols = []types.ColumnInfo{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+	m.selectedColName = "b"
+	m.tableData = [][]string{{"1", "NULL", "2"}}
+	m.tableRowCursor = 0
+
+	updated, cmd := m.handleTableKey("r")
+	if cmd != nil {
+		t.Fatalf("expected no command when no other row-missing exists, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.selectedColName != "b" {
+		t.Fatalf("expected selected column to stay on b, got %q", m.selectedColName)
+	}
+	if m.statusMsg != "No missing values in this row" {
+		t.Fatalf("unexpected status: %q", m.statusMsg)
+	}
+}
+
 func TestHandleTableKeyCReturnsCommandWhenColumnSelected(t *testing.T) {
 	m := newCmdTestModel()
 	m.selectedColName = "alpha"

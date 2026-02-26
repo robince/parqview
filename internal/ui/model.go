@@ -747,7 +747,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.wrapped {
 				m.statusMsg = fmt.Sprintf("Wrapped to %s missing in %q", dir, msg.colName)
 			} else {
-				m.statusMsg = fmt.Sprintf("%s missing in %q at row %d", dirTitle, msg.colName, msg.rowID)
+				m.statusMsg = fmt.Sprintf("%s missing in %q at row %d", dirTitle, msg.colName, msg.offset+1)
 			}
 			return m, m.nextPreviewCmd()
 		}
@@ -2040,7 +2040,7 @@ func (m *Model) jumpToNextMissingInRow(reverse bool) bool {
 	if start < 0 {
 		start = 0
 	}
-	for step := 1; step <= len(row); step++ {
+	for step := 1; step < len(row); step++ {
 		var idx int
 		if reverse {
 			idx = (start - step) % len(row)

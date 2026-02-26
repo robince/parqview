@@ -385,7 +385,8 @@ func (e *Engine) NextNullRow(ctx context.Context, colName, rowFilter string, row
 	}
 
 	baseWhere := strings.Join(conds, " AND ")
-	q := fmt.Sprintf("SELECT min(%s) FROM t_base WHERE %s", quoteIdent(e.internalRowIDCol), baseWhere)
+	baseQuery := fmt.Sprintf("SELECT min(%s) FROM t_base WHERE %s", quoteIdent(e.internalRowIDCol), baseWhere)
+	q := baseQuery
 	if rowID > 0 {
 		q += fmt.Sprintf(" AND %s > %d", quoteIdent(e.internalRowIDCol), rowID)
 	}
@@ -401,11 +402,11 @@ func (e *Engine) NextNullRow(ctx context.Context, colName, rowFilter string, row
 		return 0, false, nil
 	}
 
-	qWrap := fmt.Sprintf("SELECT min(%s) FROM t_base WHERE %s", quoteIdent(e.internalRowIDCol), baseWhere)
+	qWrap := baseQuery
 	if err := e.db.QueryRowContext(ctx, qWrap).Scan(&rn); err != nil {
 		return 0, false, err
 	}
-	if !rn.Valid {
+	if !rn.Valid || rn.Int64 == rowID {
 		return 0, false, nil
 	}
 	return rn.Int64, true, nil
@@ -426,7 +427,8 @@ func (e *Engine) PrevNullRow(ctx context.Context, colName, rowFilter string, row
 	}
 
 	baseWhere := strings.Join(conds, " AND ")
-	q := fmt.Sprintf("SELECT max(%s) FROM t_base WHERE %s", quoteIdent(e.internalRowIDCol), baseWhere)
+	baseQuery := fmt.Sprintf("SELECT max(%s) FROM t_base WHERE %s", quoteIdent(e.internalRowIDCol), baseWhere)
+	q := baseQuery
 	if rowID > 0 {
 		q += fmt.Sprintf(" AND %s < %d", quoteIdent(e.internalRowIDCol), rowID)
 	}
@@ -442,11 +444,11 @@ func (e *Engine) PrevNullRow(ctx context.Context, colName, rowFilter string, row
 		return 0, false, nil
 	}
 
-	qWrap := fmt.Sprintf("SELECT max(%s) FROM t_base WHERE %s", quoteIdent(e.internalRowIDCol), baseWhere)
+	qWrap := baseQuery
 	if err := e.db.QueryRowContext(ctx, qWrap).Scan(&rn); err != nil {
 		return 0, false, err
 	}
-	if !rn.Valid {
+	if !rn.Valid || rn.Int64 == rowID {
 		return 0, false, nil
 	}
 	return rn.Int64, true, nil

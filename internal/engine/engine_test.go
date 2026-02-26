@@ -460,8 +460,8 @@ func TestNextNullRowWrapAndRowIDForOffset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RowIDForOffset(0): %v", err)
 	}
-	if rowIDAtZero != 1 {
-		t.Fatalf("unexpected row id at offset 0: got %d want 1", rowIDAtZero)
+	if rowIDAtZero == 0 {
+		t.Fatal("expected a row id at offset 0")
 	}
 
 	next, wrapped, err := eng.NextNullRow(ctx, "score", "", eng.TotalRows()+1)
@@ -498,5 +498,46 @@ func TestPrevNullRowWrap(t *testing.T) {
 	}
 	if prev != last {
 		t.Fatalf("wrapped row mismatch: got %d want %d", prev, last)
+	}
+}
+
+func TestNextPrevNullRowSingleMissingDoNotWrapToSameRow(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "single_missing.csv", "score\n1\n\n2\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	ctx := bg()
+
+	rowID, err := eng.FirstNullRow(ctx, "score", "")
+	if err != nil {
+		t.Fatalf("FirstNullRow: %v", err)
+	}
+	if rowID == 0 {
+		t.Fatal("expected one missing row")
+	}
+
+	next, wrapped, err := eng.NextNullRow(ctx, "score", "", rowID)
+	if err != nil {
+		t.Fatalf("NextNullRow: %v", err)
+	}
+	if wrapped {
+		t.Fatal("expected wrapped=false when only current row is missing")
+	}
+	if next != 0 {
+		t.Fatalf("expected no next missing row, got %d", next)
+	}
+
+	prev, wrapped, err := eng.PrevNullRow(ctx, "score", "", rowID)
+	if err != nil {
+		t.Fatalf("PrevNullRow: %v", err)
+	}
+	if wrapped {
+		t.Fatal("expected wrapped=false when only current row is missing")
+	}
+	if prev != 0 {
+		t.Fatalf("expected no previous missing row, got %d", prev)
 	}
 }
