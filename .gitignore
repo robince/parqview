@@ -1,5 +1,6 @@
 # Binary
 /parqview
+/large_sample.parquet
 *.test
 
 # Test data (generated)

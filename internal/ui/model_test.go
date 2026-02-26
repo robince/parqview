@@ -2,18 +2,24 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	_ "github.com/marcboeker/go-duckdb"
 
+	"github.com/robince/parqview/internal/engine"
 	"github.com/robince/parqview/internal/selection"
 	"github.com/robince/parqview/internal/types"
 )
 
 func TestHandleTableKeyDownKeepsCursorWithinVisibleRowsAndScrolls(t *testing.T) {
-	m := newTestModel()
+	m := newCmdTestModel()
 	m.width = 120
 	m.height = 10
 	m.pageSize = 50
@@ -71,7 +77,7 @@ func TestHandleTableKeyDownCanReachFinalRowWithSmallViewport(t *testing.T) {
 }
 
 func TestWindowSizeMsgClampsOffsetAndKeepsPageDownMonotonic(t *testing.T) {
-	m := newTestModel()
+	m := newCmdTestModel()
 	m.width = 120
 	m.height = 10
 	m.pageSize = 50
@@ -104,7 +110,7 @@ func TestWindowSizeMsgClampsOffsetAndKeepsPageDownMonotonic(t *testing.T) {
 }
 
 func TestHandleTableKeyCtrlPagingLoadsOnlyWhenOffsetChanges(t *testing.T) {
-	base := newTestModel()
+	base := newCmdTestModel()
 	base.width = 120
 	base.height = 20
 	base.pageSize = 20
@@ -165,7 +171,7 @@ func TestHandleKeyToggleShowSelectedGlobalLoadsPreview(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newTestModel()
+			m := newCmdTestModel()
 			m.focus = tc.focus
 			m.columns = []types.ColumnInfo{{Name: "alpha"}}
 			m.sel = selection.New(nil)
@@ -201,7 +207,7 @@ func TestHandleKeyToggleShowSelectedGlobalLoadsPreview(t *testing.T) {
 
 func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	t.Run("table focus uses selected column", func(t *testing.T) {
-		m := newTestModel()
+		m := newCmdTestModel()
 		m.focus = FocusTable
 		m.columns = []types.ColumnInfo{{Name: "alpha"}}
 		m.selectedColName = "alpha"
@@ -221,7 +227,7 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	})
 
 	t.Run("columns focus uses active column", func(t *testing.T) {
-		m := newTestModel()
+		m := newCmdTestModel()
 		m.focus = FocusColumns
 		m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
 		m.selectedColName = "alpha"
@@ -334,8 +340,242 @@ func TestHandleTableKeyHorizontalNavigationPagingBoundaries(t *testing.T) {
 	})
 }
 
-func TestHandleTableKeyGPositionsCursorAtFinalRow(t *testing.T) {
+func TestHandleTableKeyHorizontalLeftKeepsViewportUntilLeftEdge(t *testing.T) {
 	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c6"
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
+	}
+	if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 3 {
+		t.Fatalf("expected initial start col 3 for selected c6, got %d", startCol)
+	}
+
+	cases := []struct {
+		key              string
+		expectedSelected string
+		expectedStartCol int
+	}{
+		{key: "left", expectedSelected: "c5", expectedStartCol: 3},
+		{key: "left", expectedSelected: "c4", expectedStartCol: 3},
+		{key: "left", expectedSelected: "c3", expectedStartCol: 3},
+		{key: "left", expectedSelected: "c2", expectedStartCol: 2},
+	}
+
+	for _, tc := range cases {
+		updated, cmd := m.handleTableKey(tc.key)
+		if cmd != nil {
+			t.Fatalf("expected no load command for horizontal key %q", tc.key)
+		}
+		m = updated.(Model)
+
+		if m.selectedColName != tc.expectedSelected {
+			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
+		}
+		startCol := m.computeTableColOff(m.visibleColCount())
+		if startCol != tc.expectedStartCol {
+			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
+		}
+	}
+}
+
+func TestHandleTableKeyHorizontalRightKeepsViewportUntilRightEdge(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c0"
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
+	}
+	if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 0 {
+		t.Fatalf("expected initial start col 0 for selected c0, got %d", startCol)
+	}
+
+	cases := []struct {
+		key              string
+		expectedSelected string
+		expectedStartCol int
+	}{
+		{key: "right", expectedSelected: "c1", expectedStartCol: 0},
+		{key: "right", expectedSelected: "c2", expectedStartCol: 0},
+		{key: "right", expectedSelected: "c3", expectedStartCol: 0},
+		{key: "right", expectedSelected: "c4", expectedStartCol: 1},
+	}
+
+	for _, tc := range cases {
+		updated, cmd := m.handleTableKey(tc.key)
+		if cmd != nil {
+			t.Fatalf("expected no load command for horizontal key %q", tc.key)
+		}
+		m = updated.(Model)
+
+		if m.selectedColName != tc.expectedSelected {
+			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
+		}
+		startCol := m.computeTableColOff(m.visibleColCount())
+		if startCol != tc.expectedStartCol {
+			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
+		}
+	}
+}
+
+func TestHandleTableKeyHorizontalLeftClampAtLeftBoundary(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c2"
+	// Pin viewport so c2 is visible at startCol=2 initially.
+	m.tableColOffHint = 2
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
+	}
+
+	// Navigate left from c2 to c0, exercising the max(0, startCol-1) clamp.
+	cases := []struct {
+		key              string
+		expectedSelected string
+		expectedStartCol int
+	}{
+		{key: "left", expectedSelected: "c1", expectedStartCol: 1},
+		{key: "left", expectedSelected: "c0", expectedStartCol: 0},
+	}
+
+	for _, tc := range cases {
+		updated, cmd := m.handleTableKey(tc.key)
+		if cmd != nil {
+			t.Fatalf("expected no load command for horizontal key %q", tc.key)
+		}
+		m = updated.(Model)
+
+		if m.selectedColName != tc.expectedSelected {
+			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
+		}
+		startCol := m.computeTableColOff(m.visibleColCount())
+		if startCol != tc.expectedStartCol {
+			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
+		}
+	}
+
+	// One more left press at c0 should be a no-op (idx == 0, not idx > 0).
+	updated, cmd := m.handleTableKey("left")
+	if cmd != nil {
+		t.Fatalf("expected no load command pressing left at c0")
+	}
+	m = updated.(Model)
+	if m.selectedColName != "c0" {
+		t.Fatalf("expected selectedColName to remain c0, got %q", m.selectedColName)
+	}
+	startCol := m.computeTableColOff(m.visibleColCount())
+	if startCol != 0 {
+		t.Fatalf("expected startCol to remain 0, got %d", startCol)
+	}
+}
+
+func TestHandleTableKeyHorizontalRightClampAtRightBoundary(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c4"
+	// Pin viewport so c4..c7 are visible at startCol=4.
+	m.tableColOffHint = 4
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
+	}
+
+	// Navigate right from c4 to c9, exercising the min(maxStart, startCol+1) clamp.
+	cases := []struct {
+		key              string
+		expectedSelected string
+		expectedStartCol int
+	}{
+		{key: "right", expectedSelected: "c5", expectedStartCol: 4},
+		{key: "right", expectedSelected: "c6", expectedStartCol: 4},
+		{key: "right", expectedSelected: "c7", expectedStartCol: 4},
+		{key: "right", expectedSelected: "c8", expectedStartCol: 5},
+		{key: "right", expectedSelected: "c9", expectedStartCol: 6},
+	}
+
+	for _, tc := range cases {
+		updated, cmd := m.handleTableKey(tc.key)
+		if cmd != nil {
+			t.Fatalf("expected no load command for horizontal key %q", tc.key)
+		}
+		m = updated.(Model)
+
+		if m.selectedColName != tc.expectedSelected {
+			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
+		}
+		startCol := m.computeTableColOff(m.visibleColCount())
+		if startCol != tc.expectedStartCol {
+			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
+		}
+	}
+
+	// One more right press at c9 should be a no-op (idx == len-1).
+	updated, cmd := m.handleTableKey("right")
+	if cmd != nil {
+		t.Fatalf("expected no load command pressing right at c9")
+	}
+	m = updated.(Model)
+	if m.selectedColName != "c9" {
+		t.Fatalf("expected selectedColName to remain c9, got %q", m.selectedColName)
+	}
+	startCol := m.computeTableColOff(m.visibleColCount())
+	if startCol != 6 {
+		t.Fatalf("expected startCol to remain 6, got %d", startCol)
+	}
+}
+
+func TestHandleTableKeyHorizontalRoundTrip(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c0"
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
+	}
+
+	// Navigate right from c0 to c9.
+	for i := 0; i < 9; i++ {
+		updated, cmd := m.handleTableKey("right")
+		if cmd != nil {
+			t.Fatalf("right step %d: expected no load command", i+1)
+		}
+		m = updated.(Model)
+	}
+	if m.selectedColName != "c9" {
+		t.Fatalf("expected c9 after full right traversal, got %q", m.selectedColName)
+	}
+	startCol := m.computeTableColOff(m.visibleColCount())
+	if startCol != 6 {
+		t.Fatalf("expected startCol=6 at c9, got %d", startCol)
+	}
+
+	// Navigate left from c9 back to c0.
+	for i := 0; i < 9; i++ {
+		updated, cmd := m.handleTableKey("left")
+		if cmd != nil {
+			t.Fatalf("left step %d: expected no load command", i+1)
+		}
+		m = updated.(Model)
+	}
+	if m.selectedColName != "c0" {
+		t.Fatalf("expected c0 after full left traversal, got %q", m.selectedColName)
+	}
+	startCol = m.computeTableColOff(m.visibleColCount())
+	if startCol != 0 {
+		t.Fatalf("expected startCol=0 at c0, got %d", startCol)
+	}
+}
+
+func TestHandleTableKeyGPositionsCursorAtFinalRow(t *testing.T) {
+	m := newCmdTestModel()
 	m.width = 120
 	m.height = 10
 	m.pageSize = 50
@@ -372,7 +612,7 @@ func TestHandleTableKeyGPositionsCursorAtFinalRow(t *testing.T) {
 }
 
 func TestHandleTableKeyGWithZeroVisibleRowsStaysWithinBounds(t *testing.T) {
-	m := newTestModel()
+	m := newCmdTestModel()
 	m.width = 120
 	m.height = 6
 	m.pageSize = 50
@@ -413,17 +653,46 @@ func TestHandleTableKeyHorizontalNoOpWhenZeroVisibleCols(t *testing.T) {
 		t.Fatalf("expected zero visible columns at width %d, got %d", m.width, got)
 	}
 
-	for _, key := range []string{"left", "h", "right", "l"} {
-		updated, cmd := m.handleTableKey(key)
+	// left/h: already at left edge, cursor stays; right/l: cursor advances but hint must not be corrupted.
+	leftRightCases := []struct {
+		key         string
+		wantColName string
+	}{
+		{"left", "a"},
+		{"h", "a"},
+		{"right", "b"},
+		{"l", "b"},
+	}
+	for _, tc := range leftRightCases {
+		updated, cmd := m.handleTableKey(tc.key)
 		if cmd != nil {
-			t.Errorf("key %q: expected no command, got %v", key, cmd)
+			t.Errorf("key %q: expected no command, got %v", tc.key, cmd)
 		}
 		um := updated.(Model)
-		if um.selectedColName != m.selectedColName {
-			t.Errorf("key %q: expected selectedColName %q, got %q", key, m.selectedColName, um.selectedColName)
+		if um.selectedColName != tc.wantColName {
+			t.Errorf("key %q: expected selectedColName %q, got %q", tc.key, tc.wantColName, um.selectedColName)
 		}
 		if um.tableColOffHint != m.tableColOffHint {
-			t.Errorf("key %q: expected tableColOffHint %d, got %d", key, m.tableColOffHint, um.tableColOffHint)
+			t.Errorf("key %q: tableColOffHint changed from %d to %d", tc.key, m.tableColOffHint, um.tableColOffHint)
+		}
+		if h := um.tableColOffHint; h != -1 && (h < 0 || h >= len(m.tableCols)) {
+			t.Errorf("key %q: tableColOffHint %d out of bounds for %d columns", tc.key, h, len(m.tableCols))
+		}
+	}
+
+	m.selectedColName = "b"
+	m.tableColOffHint = -1
+	for _, key := range []string{"left", "h"} {
+		updated, cmd := m.handleTableKey(key)
+		if cmd != nil {
+			t.Errorf("key %q from b: expected no command, got %v", key, cmd)
+		}
+		um := updated.(Model)
+		if um.selectedColName != "a" {
+			t.Errorf("key %q from b: expected selectedColName %q, got %q", key, "a", um.selectedColName)
+		}
+		if um.tableColOffHint != -1 {
+			t.Errorf("key %q from b: expected tableColOffHint to remain -1, got %d", key, um.tableColOffHint)
 		}
 	}
 }
@@ -640,6 +909,122 @@ func TestUpdateFilteredColsResyncsSelectedColumn(t *testing.T) {
 	})
 }
 
+func TestHandleKeyEscClearsFocusedSearch(t *testing.T) {
+	m := newTestModel()
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{
+		{Name: "alpha"},
+		{Name: "beta"},
+	}
+	m.searchInput = textinput.New()
+	m.searchInput.Prompt = "/ "
+	m.searchInput.PromptStyle = searchPromptStyle
+	m.searchInput.SetValue("alpha")
+	m.searchQuery = "alpha"
+	m.searchFocused = true
+	m.updateFilteredCols()
+	// filteredCols has 1 entry; set cursor out-of-bounds to verify clamping on Esc
+	m.colCursor = 1
+
+	updated, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(Model)
+
+	if m.searchFocused {
+		t.Fatal("expected esc to unfocus search")
+	}
+	if m.searchInput.Value() != "" {
+		t.Fatalf("expected esc to clear search input, got %q", m.searchInput.Value())
+	}
+	if m.searchQuery != "" {
+		t.Fatalf("expected esc to clear search query, got %q", m.searchQuery)
+	}
+	if len(m.filteredCols) != 2 {
+		t.Fatalf("expected esc clear to restore all columns, got %d", len(m.filteredCols))
+	}
+	if m.colCursor >= len(m.filteredCols) {
+		t.Fatalf("expected colCursor clamped within filteredCols, got %d (len %d)", m.colCursor, len(m.filteredCols))
+	}
+}
+
+func TestHandleColumnsKeyEscClearsSearchWhenUnfocused(t *testing.T) {
+	m := newTestModel()
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{
+		{Name: "alpha"},
+		{Name: "beta"},
+	}
+	m.searchInput = textinput.New()
+	m.searchInput.Prompt = "/ "
+	m.searchInput.SetValue("alpha")
+	m.searchQuery = "alpha"
+	m.updateFilteredCols()
+	// filteredCols has 1 entry; set cursor out-of-bounds to verify clamping on Esc
+	m.colCursor = 1
+
+	updated, _ := m.handleColumnsKey("esc")
+	m = updated.(Model)
+
+	if m.searchInput.Value() != "" {
+		t.Fatalf("expected esc to clear search input, got %q", m.searchInput.Value())
+	}
+	if m.searchQuery != "" {
+		t.Fatalf("expected esc to clear search query, got %q", m.searchQuery)
+	}
+	if len(m.filteredCols) != 2 {
+		t.Fatalf("expected esc clear to restore all columns, got %d", len(m.filteredCols))
+	}
+	if m.colCursor >= len(m.filteredCols) {
+		t.Fatalf("expected colCursor clamped within filteredCols, got %d (len %d)", m.colCursor, len(m.filteredCols))
+	}
+}
+
+func TestHandleKeySearchFocusedAllowsSpaces(t *testing.T) {
+	m := newTestModel()
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{
+		{Name: "customer_account_identifier"},
+		{Name: "status"},
+	}
+	m.searchInput = textinput.New()
+	m.searchInput.PromptStyle = searchPromptStyle
+	m.searchInput.Prompt = "/ "
+	m.searchInput.Focus()
+	m.searchFocused = true
+	m.updateFilteredCols()
+
+	for _, r := range "customer id" {
+		updated, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(Model)
+	}
+
+	if m.searchQuery != "customer id" {
+		t.Fatalf("expected search query with space, got %q", m.searchQuery)
+	}
+	if len(m.filteredCols) != 1 || m.filteredCols[0].Name != "customer_account_identifier" {
+		t.Fatalf("expected multi-term search to match underscore column, got %#v", m.filteredCols)
+	}
+}
+
+func TestViewColumnsSearchFocusShowsSingleSlash(t *testing.T) {
+	m := newTestModel()
+	m.columns = []types.ColumnInfo{
+		{Name: "alpha"},
+	}
+	m.sel = selection.New([]string{"alpha"})
+	m.searchInput = textinput.New()
+	m.searchInput.Prompt = "/ "
+	m.searchInput.PromptStyle = searchPromptStyle
+	m.searchInput.SetValue("alpha")
+	m.searchFocused = true
+	m.updateFilteredCols()
+
+	out := m.viewColumns(40, 8)
+	line := strings.Split(out, "\n")[0]
+	if strings.Count(line, "/") != 1 {
+		t.Fatalf("expected a single slash in focused search line, got %q", line)
+	}
+}
+
 func TestProfileSummaryOrderingPreservesDetail(t *testing.T) {
 	colName := "score"
 
@@ -733,6 +1118,145 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 	if strings.Contains(lines[2], "•") {
 		t.Fatalf("expected no row marker for row without NULL, got %q", lines[2])
 	}
+}
+
+func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
+	t.Run("unhighlighted row", func(t *testing.T) {
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{
+			{Name: "alpha", DuckType: "BIGINT"},
+			{Name: "beta", DuckType: "VARCHAR"},
+		}
+		m.sel = selection.New(nil)
+		m.selectedColName = "beta"
+		m.focus = FocusTable
+		m.updateFilteredCols()
+		m.summaries["alpha"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+		m.summaries["beta"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
+
+		out := m.viewColumns(40, 8)
+		if !strings.Contains(out, "alpha "+nullDot) {
+			t.Fatalf("expected null dot directly after alpha in column list, got %q", out)
+		}
+		if strings.Contains(out, "beta "+nullDot) {
+			t.Fatalf("expected no null dot for beta without nulls, got %q", out)
+		}
+	})
+
+	t.Run("highlighted row", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			focus Focus
+			style lipgloss.Style
+		}{
+			{name: "focused columns", focus: FocusColumns, style: highlightStyle},
+			{name: "unfocused columns pane", focus: FocusTable, style: dimHighlightStyle},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				m := newTestModel()
+				m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
+				m.sel = selection.New(nil)
+				m.selectedColName = "alpha"
+				m.focus = tc.focus
+				m.updateFilteredCols()
+				m.summaries["alpha"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+
+				out := m.viewColumns(40, 6)
+				lines := strings.Split(out, "\n")
+				if len(lines) < 3 {
+					t.Fatalf("expected at least 3 lines from columns view, got %d", len(lines))
+				}
+
+				wantName := truncate("alpha", 40-12-inlineNullDotWidth())
+				wantPlain := fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, wantName+" "+nullDot, truncate("BIGINT", 8), " M:0% D:0%")
+				want := tc.style.Width(40).Render(wantPlain)
+				if lines[2] != want {
+					t.Fatalf("expected highlighted row render %q, got %q", want, lines[2])
+				}
+			})
+		}
+	})
+
+	t.Run("not loaded suppresses dot", func(t *testing.T) {
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
+		m.sel = selection.New(nil)
+		m.selectedColName = "alpha"
+		m.focus = FocusTable
+		m.updateFilteredCols()
+		m.summaries["alpha"] = &types.ColumnSummary{Loaded: false, MissingCount: 5}
+
+		out := m.viewColumns(40, 6)
+		if strings.Contains(out, nullDot) {
+			t.Fatalf("expected no null dot when summary not loaded, got %q", out)
+		}
+	})
+
+	t.Run("no summary entry suppresses dot", func(t *testing.T) {
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
+		m.sel = selection.New(nil)
+		m.selectedColName = "alpha"
+		m.focus = FocusTable
+		m.updateFilteredCols()
+		// no entry in m.summaries
+
+		out := m.viewColumns(40, 6)
+		if strings.Contains(out, nullDot) {
+			t.Fatalf("expected no null dot when column has no summary entry, got %q", out)
+		}
+	})
+
+	t.Run("name truncated to make room for dot", func(t *testing.T) {
+		// With w=20: nameWidth = max(0, 20-12) = 8; with hasNulls: 8-inlineNullDotWidth = 6.
+		// truncate("verylongcolumnname", 6) = "veryl…" (5 chars + ellipsis).
+		// Without the -inlineNullDotWidth adjustment nameWidth stays 8, giving "verylo…",
+		// and the line would be 2 cells wider than w (hidden by clampLineWidth).
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{{Name: "verylongcolumnname", DuckType: "BIGINT"}}
+		m.sel = selection.New(nil)
+		m.selectedColName = ""
+		m.focus = FocusTable
+		m.updateFilteredCols()
+		m.summaries["verylongcolumnname"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+
+		out := m.viewColumns(20, 6)
+		if !strings.Contains(out, nullDot) {
+			t.Fatalf("expected null dot in output, got %q", out)
+		}
+		// "veryl…" is the 6-char truncation; "verylo…" would indicate the 8-char
+		// (un-adjusted) truncation that the -inlineNullDotWidth fix is meant to prevent.
+		if strings.Contains(out, "verylo…") {
+			t.Fatalf("name not shortened for null dot: found 8-char truncation, got %q", out)
+		}
+		if !strings.Contains(out, "veryl…") {
+			t.Fatalf("expected 6-char truncation 'veryl…' in output, got %q", out)
+		}
+	})
+
+	t.Run("nameWidth zero suppresses dot and does not panic", func(t *testing.T) {
+		// w=14: nameWidth = max(0, 14-12) = 2; with hasNulls: max(0, 2-2) = 0.
+		// dot must be suppressed, name truncated to "", line must not exceed w.
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
+		m.sel = selection.New(nil)
+		m.selectedColName = ""
+		m.focus = FocusTable
+		m.updateFilteredCols()
+		m.summaries["alpha"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+
+		out := m.viewColumns(14, 6)
+		if strings.Contains(out, nullDot) {
+			t.Fatalf("expected dot suppressed when nameWidth==0, got %q", out)
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if lipgloss.Width(line) > 14 {
+				t.Fatalf("line exceeds width 14: %q", line)
+			}
+		}
+	})
 }
 
 func TestRowHasNullAtFallbackPath(t *testing.T) {
@@ -1199,7 +1723,7 @@ func TestMaxTableOffsetUsesVisibleRowsNotPageSize(t *testing.T) {
 }
 
 func TestWindowSizeMsgReloadsWhenViewportGrowsBeyondLoadedRows(t *testing.T) {
-	m := newTestModel()
+	m := newCmdTestModel()
 	m.width = 120
 	m.height = 10
 	m.pageSize = 50
@@ -1512,5 +2036,298 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 	}
 	if !strings.Contains(bottom, "a/d/y:sel") {
 		t.Fatalf("expected columns bottom bar to include a/d/y:sel hint, got %q", bottom)
+	}
+}
+
+func TestNewModelWithoutFileStartsEmpty(t *testing.T) {
+	root := t.TempDir()
+	m := NewModel(nil, "", root)
+
+	if m.engine != nil {
+		t.Fatal("expected no engine when starting without a file")
+	}
+	if m.fileName != "" {
+		t.Fatalf("expected empty file name, got %q", m.fileName)
+	}
+	if len(m.columns) != 0 {
+		t.Fatalf("expected no columns, got %d", len(m.columns))
+	}
+	if m.statusMsg == "" || !strings.Contains(m.statusMsg, "Ctrl+O") {
+		t.Fatalf("expected startup status to mention Ctrl+O, got %q", m.statusMsg)
+	}
+}
+
+func TestFilePickerListsOnlyDirectoriesAndSupportedFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "nested"), 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	for _, name := range []string{"a.parquet", "b.csv", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("x"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	m := NewModel(nil, "", root)
+	m.openFilePicker()
+
+	if m.overlay != OverlayFilePicker {
+		t.Fatalf("expected file picker overlay, got %v", m.overlay)
+	}
+
+	var got []string
+	for _, item := range m.pickerItems {
+		got = append(got, item.name)
+	}
+
+	for _, want := range []string{"nested", "a.parquet", "b.csv"} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("expected picker to include %q, got %v", want, got)
+		}
+	}
+	if slices.Contains(got, "c.txt") {
+		t.Fatalf("expected picker to exclude unsupported file c.txt, got %v", got)
+	}
+}
+
+func TestFilePickerSupportsNavigationAndFuzzyFilter(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested")
+	if err := os.Mkdir(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	for _, path := range []string{
+		filepath.Join(root, "alpha_data.parquet"),
+		filepath.Join(nested, "inside.csv"),
+	} {
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	m := NewModel(nil, "", root)
+	m.openFilePicker()
+
+	m.pickerQuery = "adpq"
+	m.refreshPickerItems()
+	if len(m.pickerItems) == 0 || m.pickerItems[0].name != "alpha_data.parquet" {
+		t.Fatalf("expected fuzzy query to match alpha_data.parquet first, got %+v", m.pickerItems)
+	}
+
+	m.pickerQuery = ""
+	m.refreshPickerItems()
+	for i, item := range m.pickerItems {
+		if item.isDir && item.name == "nested" {
+			m.pickerCursor = i
+		}
+	}
+
+	updated, cmd := m.handleFilePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd != nil {
+		t.Fatal("expected no file-open command when entering a directory")
+	}
+	if m.pickerDir != nested {
+		t.Fatalf("expected picker to navigate to %q, got %q", nested, m.pickerDir)
+	}
+
+	foundFile := false
+	for i, item := range m.pickerItems {
+		if !item.isDir && item.name == "inside.csv" {
+			m.pickerCursor = i
+			foundFile = true
+			break
+		}
+	}
+	if !foundFile {
+		t.Fatalf("expected nested picker entries to include inside.csv, got %+v", m.pickerItems)
+	}
+
+	updated, cmd = m.handleFilePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected file-open command when selecting a file")
+	}
+	if m.overlay != OverlayNone {
+		t.Fatalf("expected picker overlay to close after file selection, got %v", m.overlay)
+	}
+}
+
+func TestFilePickerPathInputExpandsTilde(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	target := filepath.Join(home, "from_go_home.csv")
+	if err := os.WriteFile(target, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+
+	m := NewModel(nil, "", root)
+	m.openFilePicker()
+	m.pickerInput.SetValue("~/from_go_home.csv")
+	m.pickerQuery = "~/from_go_home.csv"
+
+	updated, cmd := m.handleFilePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected file-open command for ~/ path")
+	}
+	if m.overlay != OverlayNone {
+		t.Fatalf("expected overlay to close after opening by path input, got %v", m.overlay)
+	}
+}
+
+func TestFilePickerAllowsTypingQueryText(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "alpha.csv"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write alpha: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "gamma.csv"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write gamma: %v", err)
+	}
+
+	m := NewModel(nil, "", root)
+	m.openFilePicker()
+
+	for _, r := range []rune{'g', 'q'} {
+		updated, _ := m.handleFilePickerKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(Model)
+	}
+	if got := m.pickerInput.Value(); got != "gq" {
+		t.Fatalf("expected picker input to accept typed runes, got %q", got)
+	}
+}
+
+func TestHandleKeyCtrlOOpensFilePickerAndReturnsInputInitCmd(t *testing.T) {
+	m := NewModel(nil, "", t.TempDir())
+	m.overlay = OverlayNone
+
+	updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m = updated.(Model)
+
+	if m.overlay != OverlayFilePicker {
+		t.Fatalf("expected overlay %v after ctrl+o, got %v", OverlayFilePicker, m.overlay)
+	}
+	if cmd == nil {
+		t.Fatal("expected non-nil picker input init command after ctrl+o")
+	}
+}
+
+func TestFilePickerCtrlCQuits(t *testing.T) {
+	m := NewModel(nil, "", t.TempDir())
+	m.openFilePicker()
+
+	_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("expected quit command for ctrl+c in file picker")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("expected tea.QuitMsg, got %T", cmd())
+	}
+}
+
+func TestOpenFileDoneIgnoresStaleRequest(t *testing.T) {
+	m := NewModel(nil, "", t.TempDir())
+	m.openReqID = 2
+
+	currentPath := filepath.Join(t.TempDir(), "new.csv")
+	if err := os.WriteFile(currentPath, []byte("a\n1\n"), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+
+	currentEngine, err := engine.New(currentPath)
+	if err != nil {
+		t.Fatalf("engine.New(%q): %v", currentPath, err)
+	}
+	t.Cleanup(func() { _ = currentEngine.Close() })
+
+	updated, _ := m.Update(openFileDoneMsg{
+		path:  currentPath,
+		eng:   currentEngine,
+		reqID: 2,
+	})
+	m = updated.(Model)
+
+	if m.engine != currentEngine {
+		t.Fatal("expected current request engine to be applied")
+	}
+	if m.fileName != "new.csv" {
+		t.Fatalf("expected current request file name to be applied, got %q", m.fileName)
+	}
+	if got := m.statusMsg; got != "Opened new.csv" {
+		t.Fatalf("expected open status for current request, got %q", got)
+	}
+
+	updated, _ = m.Update(openFileDoneMsg{
+		path:  "/tmp/old.csv",
+		reqID: 1,
+	})
+	m = updated.(Model)
+
+	if m.engine != currentEngine {
+		t.Fatal("expected stale request to be ignored")
+	}
+	if m.fileName != "new.csv" {
+		t.Fatalf("expected stale request to keep file name new.csv, got %q", m.fileName)
+	}
+	if got := m.statusMsg; got != "Opened new.csv" {
+		t.Fatalf("expected stale request to keep status, got %q", got)
+	}
+}
+
+func TestFilePickerPathQueryShowsHomeAutocomplete(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := os.Mkdir(filepath.Join(home, "datasets"), 0o755); err != nil {
+		t.Fatalf("mkdir datasets: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "from_home.csv"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write from_home.csv: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "ignored.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write ignored.txt: %v", err)
+	}
+
+	m := NewModel(nil, "", root)
+	m.openFilePicker()
+	m.pickerInput.SetValue("~/")
+	m.pickerQuery = "~/"
+	m.refreshPickerItems()
+
+	var got []string
+	for _, item := range m.pickerItems {
+		got = append(got, item.name)
+	}
+	if !slices.Contains(got, "datasets") {
+		t.Fatalf("expected ~/ autocomplete to include datasets directory, got %v", got)
+	}
+	if !slices.Contains(got, "from_home.csv") {
+		t.Fatalf("expected ~/ autocomplete to include csv file, got %v", got)
+	}
+	if slices.Contains(got, "ignored.txt") {
+		t.Fatalf("expected ~/ autocomplete to exclude unsupported files, got %v", got)
+	}
+}
+
+func TestFilePickerBackspaceCanMoveAboveLaunchDir(t *testing.T) {
+	outer := t.TempDir()
+	launchDir := filepath.Join(outer, "project", "sub")
+	if err := os.MkdirAll(launchDir, 0o755); err != nil {
+		t.Fatalf("mkdir launchDir: %v", err)
+	}
+
+	m := NewModel(nil, "", launchDir)
+	m.openFilePicker()
+	if m.pickerDir != launchDir {
+		t.Fatalf("expected initial picker dir %q, got %q", launchDir, m.pickerDir)
+	}
+
+	updated, _ := m.handleFilePickerKey(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updated.(Model)
+	if m.pickerDir != filepath.Dir(launchDir) {
+		t.Fatalf("expected picker dir to move to parent %q, got %q", filepath.Dir(launchDir), m.pickerDir)
 	}
 }
