@@ -729,25 +729,38 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 	})
 
 	t.Run("highlighted row", func(t *testing.T) {
-		m := newTestModel()
-		m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
-		m.sel = selection.New(nil)
-		m.selectedColName = "alpha"
-		m.focus = FocusColumns
-		m.updateFilteredCols()
-		m.summaries["alpha"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
-
-		out := m.viewColumns(40, 6)
-		lines := strings.Split(out, "\n")
-		if len(lines) < 3 {
-			t.Fatalf("expected at least 3 lines from columns view, got %d", len(lines))
+		cases := []struct {
+			name  string
+			focus Focus
+			style lipgloss.Style
+		}{
+			{name: "focused columns", focus: FocusColumns, style: highlightStyle},
+			{name: "unfocused columns pane", focus: FocusTable, style: dimHighlightStyle},
 		}
 
-		wantName := truncate("alpha", 40-12-nullDotWidth())
-		wantPlain := fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, wantName+" •", truncate("BIGINT", 8), " M:0% D:0%")
-		want := highlightStyle.Width(40).Render(wantPlain)
-		if lines[2] != want {
-			t.Fatalf("expected highlighted row render %q, got %q", want, lines[2])
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				m := newTestModel()
+				m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
+				m.sel = selection.New(nil)
+				m.selectedColName = "alpha"
+				m.focus = tc.focus
+				m.updateFilteredCols()
+				m.summaries["alpha"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+
+				out := m.viewColumns(40, 6)
+				lines := strings.Split(out, "\n")
+				if len(lines) < 3 {
+					t.Fatalf("expected at least 3 lines from columns view, got %d", len(lines))
+				}
+
+				wantName := truncate("alpha", 40-12-nullDotWidth())
+				wantPlain := fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, wantName+" •", truncate("BIGINT", 8), " M:0% D:0%")
+				want := tc.style.Width(40).Render(wantPlain)
+				if lines[2] != want {
+					t.Fatalf("expected highlighted row render %q, got %q", want, lines[2])
+				}
+			})
 		}
 	})
 
