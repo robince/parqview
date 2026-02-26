@@ -799,6 +799,23 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 			t.Fatalf("expected 6-char truncation 'veryl…' in output, got %q", out)
 		}
 	})
+
+	t.Run("nameWidth zero suppresses dot and does not panic", func(t *testing.T) {
+		// w=14: nameWidth = max(0, 14-12) = 2; with hasNulls: max(0, 2-2) = 0.
+		// dot must be suppressed, name truncated to "", line must not exceed w.
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
+		m.sel = selection.New(nil)
+		m.selectedColName = ""
+		m.focus = FocusTable
+		m.updateFilteredCols()
+		m.summaries["alpha"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+
+		out := m.viewColumns(14, 6)
+		if strings.Contains(out, nullDot) {
+			t.Fatalf("expected dot suppressed when nameWidth==0, got %q", out)
+		}
+	})
 }
 
 func TestRowHasNullAtFallbackPath(t *testing.T) {
