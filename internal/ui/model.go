@@ -918,6 +918,9 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			startCol := m.computeTableColOff(visibleCols)
 			nextIdx := idx + 1
 			endCol := startCol + visibleCols - 1
+			if endCol < 0 {
+				endCol = 0
+			}
 			if endCol >= len(m.tableCols) {
 				endCol = len(m.tableCols) - 1
 			}
