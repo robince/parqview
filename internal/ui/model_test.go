@@ -375,6 +375,47 @@ func TestHandleTableKeyHorizontalLeftKeepsViewportUntilLeftEdge(t *testing.T) {
 	}
 }
 
+func TestHandleTableKeyHorizontalRightKeepsViewportUntilRightEdge(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c0"
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
+	}
+	if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 0 {
+		t.Fatalf("expected initial start col 0 for selected c0, got %d", startCol)
+	}
+
+	cases := []struct {
+		key              string
+		expectedSelected string
+		expectedStartCol int
+	}{
+		{key: "right", expectedSelected: "c1", expectedStartCol: 0},
+		{key: "right", expectedSelected: "c2", expectedStartCol: 0},
+		{key: "right", expectedSelected: "c3", expectedStartCol: 0},
+		{key: "right", expectedSelected: "c4", expectedStartCol: 1},
+	}
+
+	for _, tc := range cases {
+		updated, cmd := m.handleTableKey(tc.key)
+		if cmd != nil {
+			t.Fatalf("expected no load command for horizontal key %q", tc.key)
+		}
+		m = updated.(Model)
+
+		if m.selectedColName != tc.expectedSelected {
+			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
+		}
+		startCol := m.computeTableColOff(m.visibleColCount())
+		if startCol != tc.expectedStartCol {
+			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
+		}
+	}
+}
+
 func TestHandleTableKeyGPositionsCursorAtFinalRow(t *testing.T) {
 	m := newTestModel()
 	m.width = 120
@@ -465,6 +506,9 @@ func TestHandleTableKeyHorizontalNoOpWhenZeroVisibleCols(t *testing.T) {
 		}
 		if um.tableColOffHint != m.tableColOffHint {
 			t.Errorf("key %q: expected tableColOffHint %d, got %d", key, m.tableColOffHint, um.tableColOffHint)
+		}
+		if h := um.tableColOffHint; h != -1 && (h < 0 || h >= len(m.tableCols)) {
+			t.Errorf("key %q: tableColOffHint %d out of bounds for %d columns", key, h, len(m.tableCols))
 		}
 	}
 }
