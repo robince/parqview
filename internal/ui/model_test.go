@@ -14,6 +14,7 @@ import (
 	_ "github.com/marcboeker/go-duckdb"
 
 	"github.com/robince/parqview/internal/engine"
+	"github.com/robince/parqview/internal/missing"
 	"github.com/robince/parqview/internal/selection"
 	"github.com/robince/parqview/internal/types"
 )
@@ -131,6 +132,10 @@ func TestHandleTableKeyRNoMissingSetsStatus(t *testing.T) {
 }
 
 func TestHandleTableKeyRDoesNotTreatCurrentCellAsNextMissing(t *testing.T) {
+	if !missing.IsDisplayMissing("NULL") {
+		t.Fatal(`test setup invalid: expected "NULL" to be treated as missing`)
+	}
+
 	m := newTestModel()
 	m.tableCols = []string{"a", "b", "c"}
 	m.filteredCols = []types.ColumnInfo{{Name: "a"}, {Name: "b"}, {Name: "c"}}
