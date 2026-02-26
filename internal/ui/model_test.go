@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -608,6 +609,109 @@ func TestUpdateFilteredColsResyncsSelectedColumn(t *testing.T) {
 			t.Fatalf("expected selectedColName to be cleared, got %q", m.selectedColName)
 		}
 	})
+}
+
+func TestHandleKeyEscClearsFocusedSearch(t *testing.T) {
+	m := newTestModel()
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{
+		{Name: "alpha"},
+		{Name: "beta"},
+	}
+	m.searchInput = textinput.New()
+	m.searchInput.Prompt = "/ "
+	m.searchInput.SetValue("alpha")
+	m.searchQuery = "alpha"
+	m.searchFocused = true
+	m.updateFilteredCols()
+
+	updated, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(Model)
+
+	if m.searchFocused {
+		t.Fatal("expected esc to unfocus search")
+	}
+	if m.searchInput.Value() != "" {
+		t.Fatalf("expected esc to clear search input, got %q", m.searchInput.Value())
+	}
+	if m.searchQuery != "" {
+		t.Fatalf("expected esc to clear search query, got %q", m.searchQuery)
+	}
+	if len(m.filteredCols) != 2 {
+		t.Fatalf("expected esc clear to restore all columns, got %d", len(m.filteredCols))
+	}
+}
+
+func TestHandleColumnsKeyEscClearsSearchWhenUnfocused(t *testing.T) {
+	m := newTestModel()
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{
+		{Name: "alpha"},
+		{Name: "beta"},
+	}
+	m.searchInput = textinput.New()
+	m.searchInput.Prompt = "/ "
+	m.searchInput.SetValue("alpha")
+	m.searchQuery = "alpha"
+	m.updateFilteredCols()
+
+	updated, _ := m.handleColumnsKey("esc")
+	m = updated.(Model)
+
+	if m.searchInput.Value() != "" {
+		t.Fatalf("expected esc to clear search input, got %q", m.searchInput.Value())
+	}
+	if m.searchQuery != "" {
+		t.Fatalf("expected esc to clear search query, got %q", m.searchQuery)
+	}
+	if len(m.filteredCols) != 2 {
+		t.Fatalf("expected esc clear to restore all columns, got %d", len(m.filteredCols))
+	}
+}
+
+func TestHandleKeySearchFocusedAllowsSpaces(t *testing.T) {
+	m := newTestModel()
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{
+		{Name: "customer_account_identifier"},
+		{Name: "status"},
+	}
+	m.searchInput = textinput.New()
+	m.searchInput.Prompt = "/ "
+	m.searchInput.Focus()
+	m.searchFocused = true
+	m.updateFilteredCols()
+
+	for _, r := range "customer id" {
+		updated, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(Model)
+	}
+
+	if m.searchQuery != "customer id" {
+		t.Fatalf("expected search query with space, got %q", m.searchQuery)
+	}
+	if len(m.filteredCols) != 1 || m.filteredCols[0].Name != "customer_account_identifier" {
+		t.Fatalf("expected multi-term search to match underscore column, got %#v", m.filteredCols)
+	}
+}
+
+func TestViewColumnsSearchFocusShowsSingleSlash(t *testing.T) {
+	m := newTestModel()
+	m.columns = []types.ColumnInfo{
+		{Name: "alpha"},
+	}
+	m.sel = selection.New([]string{"alpha"})
+	m.searchInput = textinput.New()
+	m.searchInput.Prompt = "/ "
+	m.searchInput.SetValue("alpha")
+	m.searchFocused = true
+	m.updateFilteredCols()
+
+	out := m.viewColumns(40, 8)
+	line := strings.Split(out, "\n")[0]
+	if strings.Count(line, "/") != 1 {
+		t.Fatalf("expected a single slash in focused search line, got %q", line)
+	}
 }
 
 func TestProfileSummaryOrderingPreservesDetail(t *testing.T) {

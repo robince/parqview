@@ -125,6 +125,7 @@ func NewModel(eng *engine.Engine, fileName string) Model {
 
 	ti := textinput.New()
 	ti.Prompt = "/ "
+	ti.PromptStyle = searchPromptStyle
 	ti.CharLimit = 256
 
 	var firstCol string
@@ -505,6 +506,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.searchFocused {
 		switch key {
 		case "esc":
+			m.searchInput.SetValue("")
+			m.searchQuery = ""
+			m.updateFilteredCols()
 			m.searchFocused = false
 			return m, nil
 		case "ctrl+u":
@@ -746,6 +750,13 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		m.searchFocused = true
 		m.searchInput.Focus()
 		return m, textinput.Blink
+	case "esc":
+		if m.searchQuery != "" {
+			m.searchInput.SetValue("")
+			m.searchQuery = ""
+			m.updateFilteredCols()
+		}
+		return m, nil
 	case "up", "k":
 		if m.colCursor > 0 {
 			m.colCursor--
@@ -1452,7 +1463,7 @@ func (m Model) viewColumns(w, h int) string {
 	// Search bar
 	switch {
 	case m.searchFocused:
-		lines = append(lines, searchPromptStyle.Render("/")+m.searchInput.View())
+		lines = append(lines, m.searchInput.View())
 	case m.searchQuery != "":
 		lines = append(lines, searchPromptStyle.Render("/ ")+m.searchQuery)
 	default:
@@ -1621,7 +1632,7 @@ func (m Model) viewHelp() string {
 		{"", ""},
 		{"── Columns Pane ──", ""},
 		{"/", "Focus search"},
-		{"Esc", "Unfocus search"},
+		{"Esc", "Clear search"},
 		{"Ctrl+U", "Clear search"},
 		{"↑/↓ or j/k", "Move cursor"},
 		{"x", "Toggle selection (crosshair col)"},
