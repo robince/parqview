@@ -499,6 +499,36 @@ func TestProfileDetailExcludesMissingPredicate(t *testing.T) {
 	}
 }
 
+func TestProfileDetailNumericExcludesMissingPredicate(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "nan_detail_numeric.csv", "score\n1.0\nNaN\n\n2.5\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "score")
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE"); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if summary.Numeric == nil {
+		t.Fatal("expected numeric stats")
+	}
+	if summary.Numeric.Min != summary.Numeric.Min || summary.Numeric.Max != summary.Numeric.Max {
+		t.Fatalf("expected finite min/max, got min=%v max=%v", summary.Numeric.Min, summary.Numeric.Max)
+	}
+	if summary.Numeric.Min < 0.99 || summary.Numeric.Min > 1.01 {
+		t.Fatalf("unexpected min: got %v", summary.Numeric.Min)
+	}
+	if summary.Numeric.Max < 2.49 || summary.Numeric.Max > 2.51 {
+		t.Fatalf("unexpected max: got %v", summary.Numeric.Max)
+	}
+}
+
 func TestNextNullRowWrapAndRowIDForOffset(t *testing.T) {
 	eng := openSampleParquet(t)
 	ctx := bg()
