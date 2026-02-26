@@ -1472,10 +1472,8 @@ func (m Model) viewColumns(w, h int) string {
 		col := m.filteredCols[i]
 		isHighlighted := col.Name == activeCol
 
-		hasNulls := false
-		if s, ok := m.summaries[col.Name]; ok && s.Loaded && s.MissingCount > 0 {
-			hasNulls = true
-		}
+		s, hasSum := m.summaries[col.Name]
+		hasNulls := hasSum && s.Loaded && s.MissingCount > 0
 
 		nameWidth := max(0, w-12)
 		if hasNulls {
@@ -1488,7 +1486,7 @@ func (m Model) viewColumns(w, h int) string {
 		}
 		typeStr := truncate(col.DuckType, 8)
 		statsStr := ""
-		if s, ok := m.summaries[col.Name]; ok && s.Loaded {
+		if hasSum && s.Loaded {
 			statsStr = fmt.Sprintf(" M:%.0f%% D:%.0f%%", s.MissingPct, s.DistinctPct)
 		}
 
