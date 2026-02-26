@@ -2299,7 +2299,7 @@ func (m Model) viewColumns(w, h int) string {
 			// branch assembles a plain text line first (mirrored by wantPlain in tests).
 			plainNamePart := name
 			if hasNulls && nameWidth > 0 {
-				plainNamePart += " " + nullDot
+				plainNamePart += " •"
 			}
 			plain := fmt.Sprintf("%s %s %s%s", markChar, plainNamePart, typeStr, statsStr)
 			if m.focus == FocusColumns {

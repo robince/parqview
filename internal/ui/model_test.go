@@ -1170,7 +1170,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 				}
 
 				wantName := truncate("alpha", 40-12-inlineNullDotWidth())
-				wantPlain := fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, wantName+" "+nullDot, truncate("BIGINT", 8), " M:0% D:0%")
+				wantPlain := fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, wantName+" •", truncate("BIGINT", 8), " M:0% D:0%")
 				want := tc.style.Width(40).Render(wantPlain)
 				if lines[2] != want {
 					t.Fatalf("expected highlighted row render %q, got %q", want, lines[2])
