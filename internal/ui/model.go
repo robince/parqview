@@ -817,7 +817,6 @@ func (m *Model) reconcileSelectedColNameWithTableCols() {
 	}
 	m.selectedColName = m.tableCols[0]
 	m.syncCursorFromSelectedColName()
-	m.clampColumnsListState()
 }
 
 func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
@@ -870,6 +869,9 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		if len(m.filteredCols) > 0 {
 			m.clampColumnsListState()
 			h := m.currentColumnsListHeight()
+			if h < 1 {
+				break
+			}
 			visibleCount := min(h, len(m.filteredCols)-m.colListOff)
 			target := m.colListOff + (visibleCount-1)/2
 			m.colCursor = target
