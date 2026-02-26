@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	_ "github.com/marcboeker/go-duckdb"
 
 	"github.com/robince/parqview/internal/engine"
 	"github.com/robince/parqview/internal/selection"
@@ -1389,9 +1390,19 @@ func TestOpenFileDoneIgnoresStaleRequest(t *testing.T) {
 	m := NewModel(nil, "", t.TempDir())
 	m.openReqID = 2
 
-	currentEngine := &engine.Engine{}
+	currentPath := filepath.Join(t.TempDir(), "new.csv")
+	if err := os.WriteFile(currentPath, []byte("a\n1\n"), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+
+	currentEngine, err := engine.New(currentPath)
+	if err != nil {
+		t.Fatalf("engine.New(%q): %v", currentPath, err)
+	}
+	t.Cleanup(func() { _ = currentEngine.Close() })
+
 	updated, _ := m.Update(openFileDoneMsg{
-		path:  "/tmp/new.csv",
+		path:  currentPath,
 		eng:   currentEngine,
 		reqID: 2,
 	})
