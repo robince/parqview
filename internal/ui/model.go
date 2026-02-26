@@ -757,7 +757,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			m.updateFilteredCols()
 			return m, nil
 		}
-		// searchQuery already empty — fall through to let other Esc handling proceed
+		// searchQuery already empty — return no-op to preserve default end-of-switch handling
 	case "up", "k":
 		if m.colCursor > 0 {
 			m.colCursor--

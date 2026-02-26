@@ -23,14 +23,14 @@ func FuzzyMatch(s, query string) bool {
 		if len(splitIdentifierParts(term)) == 0 {
 			continue
 		}
-		if !matchTerm(term, sNorm, joined, acronym, parts) {
+		if !matchTerm(term, sNorm, joined, acronym) {
 			return false
 		}
 	}
 	return true
 }
 
-func matchTerm(term, sNorm, joined, acronym string, parts []string) bool {
+func matchTerm(term, sNorm, joined, acronym string) bool {
 	for _, token := range splitIdentifierParts(term) {
 		if !matchToken(token, sNorm, joined, acronym) {
 			return false
