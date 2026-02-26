@@ -881,6 +881,20 @@ func TestHandleColumnsKeyCtrlPagingAndBounds(t *testing.T) {
 	if m.colListOff != 0 {
 		t.Fatalf("expected ctrl+b to return list offset to top, got %d", m.colListOff)
 	}
+
+	// Test end-boundary clamping: two ctrl+f from top should clamp to last row.
+	updated, _ = m.handleColumnsKey("ctrl+f")
+	m = updated.(Model)
+	updated, _ = m.handleColumnsKey("ctrl+f")
+	m = updated.(Model)
+	wantEndCursor := len(m.filteredCols) - 1
+	wantEndOff := max(0, len(m.filteredCols)-listHeight)
+	if m.colCursor != wantEndCursor {
+		t.Fatalf("expected second ctrl+f to clamp cursor to %d, got %d", wantEndCursor, m.colCursor)
+	}
+	if m.colListOff != wantEndOff {
+		t.Fatalf("expected second ctrl+f to clamp offset to %d, got %d", wantEndOff, m.colListOff)
+	}
 }
 
 func TestHandleColumnsKeyHalfPagingAndBounds(t *testing.T) {
@@ -920,6 +934,21 @@ func TestHandleColumnsKeyHalfPagingAndBounds(t *testing.T) {
 	}
 	if m.colListOff != 0 {
 		t.Fatalf("expected ctrl+u to return list offset to top, got %d", m.colListOff)
+	}
+
+	// Test end-boundary clamping: place cursor near end and ctrl+d should clamp.
+	listHeight := m.currentColumnsListHeight()
+	m.colCursor = len(m.filteredCols) - half - 1
+	m.colListOff = max(0, m.colCursor-listHeight+1)
+	updated, _ = m.handleColumnsKey("ctrl+d")
+	m = updated.(Model)
+	wantEndCursor := len(m.filteredCols) - 1
+	wantEndOff := max(0, len(m.filteredCols)-listHeight)
+	if m.colCursor != wantEndCursor {
+		t.Fatalf("expected ctrl+d at end to clamp cursor to %d, got %d", wantEndCursor, m.colCursor)
+	}
+	if m.colListOff != wantEndOff {
+		t.Fatalf("expected ctrl+d at end to clamp offset to %d, got %d", wantEndOff, m.colListOff)
 	}
 }
 
