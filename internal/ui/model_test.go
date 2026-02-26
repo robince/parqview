@@ -989,7 +989,7 @@ func TestHandleColumnsKeyGlobalAndViewportJumps(t *testing.T) {
 	}
 }
 
-func TestHandleColumnsKeyHLMovesVertically(t *testing.T) {
+func TestHandleColumnsKeyHLNoOp(t *testing.T) {
 	m := newTestModel()
 	m.width = 120
 	m.height = 18
@@ -1002,14 +1002,14 @@ func TestHandleColumnsKeyHLMovesVertically(t *testing.T) {
 
 	updated, _ := m.handleColumnsKey("h")
 	m = updated.(Model)
-	if m.colCursor != 0 {
-		t.Fatalf("expected h to move cursor up to 0, got %d", m.colCursor)
+	if m.colCursor != 1 {
+		t.Fatalf("expected h to be no-op in columns pane, got cursor=%d", m.colCursor)
 	}
 
 	updated, _ = m.handleColumnsKey("l")
 	m = updated.(Model)
 	if m.colCursor != 1 {
-		t.Fatalf("expected l to move cursor down to 1, got %d", m.colCursor)
+		t.Fatalf("expected l to be no-op in columns pane, got cursor=%d", m.colCursor)
 	}
 }
 

@@ -29,8 +29,8 @@ Shortcuts below describe app-specific behavior. When the column search input is 
 | Key | Action |
 | --- | --- |
 | `/` | Focus column search input |
-| `Up`, `k`, `h` | Move cursor up 1 row |
-| `Down`, `j`, `l` | Move cursor down 1 row |
+| `Up`, `k` | Move cursor up 1 row |
+| `Down`, `j` | Move cursor down 1 row |
 | `Space`, `Ctrl+F` | Page down |
 | `Ctrl+B` | Page up |
 | `Ctrl+D` | Half-page down |
@@ -98,4 +98,3 @@ Shortcuts below describe app-specific behavior. When the column search input is 
 | --- | --- |
 | Mouse wheel | Scroll cursor in focused pane |
 | Left-drag divider | Resize table/columns split |
-

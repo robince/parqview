@@ -827,13 +827,13 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		m.searchFocused = true
 		m.searchInput.Focus()
 		return m, textinput.Blink
-	case "up", "k", "h":
+	case "up", "k":
 		if m.colCursor > 0 {
 			m.colCursor--
 			m.clampColumnsListState()
 			m.syncSelectedColFromCursor()
 		}
-	case "down", "j", "l":
+	case "down", "j":
 		if m.colCursor < len(m.filteredCols)-1 {
 			m.colCursor++
 			m.clampColumnsListState()
@@ -1341,7 +1341,7 @@ func (m Model) viewBottomBar() string {
 	selCount := m.sel.Count()
 	var hints string
 	if m.focus == FocusColumns {
-		hints = "hjkl:move  Space/C-f/C-b:page  C-d/u:half  gG:ends  HML:view  /:search  x:toggle"
+		hints = "jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG:ends  HML:view  /:search  x:toggle"
 	} else {
 		hints = "hjkl:move  space:pgdn  []:col-page  f:null-filter  drag:divider  Ctrl+L:redraw"
 	}
@@ -1758,7 +1758,7 @@ func (m Model) viewHelp() string {
 		{"/", "Focus search"},
 		{"Esc", "Unfocus search"},
 		{"Ctrl+U", "Clear search"},
-		{"↑/↓ or h/j/k/l", "Move cursor"},
+		{"↑/↓ or j/k", "Move cursor"},
 		{"Space / Ctrl+F", "Page down"},
 		{"Ctrl+B", "Page up"},
 		{"Ctrl+D / Ctrl+U", "Half page down / up"},
