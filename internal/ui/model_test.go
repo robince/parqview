@@ -688,6 +688,7 @@ func TestHandleKeySearchFocusedAllowsSpaces(t *testing.T) {
 		{Name: "status"},
 	}
 	m.searchInput = textinput.New()
+	m.searchInput.PromptStyle = searchPromptStyle
 	m.searchInput.Prompt = "/ "
 	m.searchInput.Focus()
 	m.searchFocused = true
