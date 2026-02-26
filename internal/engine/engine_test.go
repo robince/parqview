@@ -483,6 +483,7 @@ func TestProfileDetailExcludesMissingPredicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProfileBasic: %v", err)
 	}
+	summary.IsDiscrete = true
 	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE"); err != nil {
 		t.Fatalf("ProfileDetail: %v", err)
 	}
@@ -503,6 +504,9 @@ func TestProfileDetailExcludesMissingPredicate(t *testing.T) {
 		math.Abs(summary.Numeric.Mean-expMean) > eps ||
 		math.Abs(summary.Numeric.Stddev-expStd) > eps {
 		t.Fatalf("numeric mismatch: got=%+v expected min=%v max=%v mean=%v std=%v", *summary.Numeric, expMin, expMax, expMean, expStd)
+	}
+	if len(summary.Top3) == 0 {
+		t.Fatal("expected Top3 values when discrete profiling is enabled")
 	}
 
 	for _, tv := range summary.Top3 {
