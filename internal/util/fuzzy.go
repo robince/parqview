@@ -20,9 +20,6 @@ func FuzzyMatch(s, query string) bool {
 	acronym := componentAcronym(parts)
 
 	for _, term := range strings.Fields(query) {
-		if len(splitIdentifierParts(term)) == 0 {
-			continue
-		}
 		if !matchTerm(term, sNorm, joined, acronym) {
 			return false
 		}
@@ -32,9 +29,6 @@ func FuzzyMatch(s, query string) bool {
 
 func matchTerm(term, sNorm, joined, acronym string) bool {
 	tokens := splitIdentifierParts(term)
-	if len(tokens) == 0 {
-		return false
-	}
 	for _, token := range tokens {
 		if !matchToken(token, sNorm, joined, acronym) {
 			return false
@@ -66,9 +60,11 @@ func componentAcronym(parts []string) string {
 }
 
 func splitIdentifierParts(s string) []string {
+	runes := []rune(s)
+	n := len(runes)
 	var normalized strings.Builder
 	var prev rune
-	for _, r := range s {
+	for i, r := range runes {
 		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
 			normalized.WriteRune(' ')
 			prev = 0
@@ -77,9 +73,11 @@ func splitIdentifierParts(s string) []string {
 
 		if prev != 0 {
 			camelBoundary := unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsDigit(prev))
+			// Consecutive uppercase followed by lowercase: HTMLParser → html + parser
+			uppersToLower := unicode.IsUpper(r) && unicode.IsUpper(prev) && i+1 < n && unicode.IsLower(runes[i+1])
 			digitBoundary := unicode.IsDigit(r) && unicode.IsLetter(prev)
 			letterBoundary := unicode.IsLetter(r) && unicode.IsDigit(prev)
-			if camelBoundary || digitBoundary || letterBoundary {
+			if camelBoundary || uppersToLower || digitBoundary || letterBoundary {
 				normalized.WriteRune(' ')
 			}
 		}

@@ -26,6 +26,9 @@ func TestFuzzyMatch(t *testing.T) {
 		{name: "all-underscore query shows all", s: "hello_world", query: "___", want: true},
 		{name: "all-dash query shows all", s: "hello_world", query: "---", want: true},
 		{name: "whitespace-only query shows all", s: "hello_world", query: "   ", want: true},
+		{name: "consecutive uppercase split: search word part", s: "HTMLParser", query: "parser", want: true},
+		{name: "consecutive uppercase split: search acronym part", s: "HTMLParser", query: "html", want: true},
+		{name: "consecutive uppercase: customerID split", s: "customerID", query: "id", want: true},
 	}
 	for _, tt := range tests {
 		got := FuzzyMatch(tt.s, tt.query)

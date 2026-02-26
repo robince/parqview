@@ -624,6 +624,8 @@ func TestHandleKeyEscClearsFocusedSearch(t *testing.T) {
 	m.searchQuery = "alpha"
 	m.searchFocused = true
 	m.updateFilteredCols()
+	// filteredCols has 1 entry; set cursor out-of-bounds to verify clamping on Esc
+	m.colCursor = 1
 
 	updated, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	m = updated.(Model)
@@ -657,6 +659,8 @@ func TestHandleColumnsKeyEscClearsSearchWhenUnfocused(t *testing.T) {
 	m.searchInput.SetValue("alpha")
 	m.searchQuery = "alpha"
 	m.updateFilteredCols()
+	// filteredCols has 1 entry; set cursor out-of-bounds to verify clamping on Esc
+	m.colCursor = 1
 
 	updated, _ := m.handleColumnsKey("esc")
 	m = updated.(Model)
