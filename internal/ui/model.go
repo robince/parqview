@@ -1487,7 +1487,7 @@ func (m Model) viewColumns(w, h int) string {
 	case m.searchQuery != "":
 		lines = append(lines, searchPromptStyle.Render("/ ")+m.searchQuery)
 	default:
-		lines = append(lines, searchPromptStyle.Render("/ (type / to search)"))
+		lines = append(lines, clampLineWidth(searchPromptStyle.Render("/ (type / to search)"), w))
 	}
 	lines = append(lines, "")
 
@@ -1503,10 +1503,21 @@ func (m Model) viewColumns(w, h int) string {
 		col := m.filteredCols[i]
 		isHighlighted := col.Name == activeCol
 
-		name := truncate(col.Name, max(0, w-12))
+		s, hasSum := m.summaries[col.Name]
+		hasNulls := hasSum && s.Loaded && s.MissingCount > 0
+
+		nameWidth := max(0, w-12)
+		if hasNulls {
+			nameWidth = max(0, nameWidth-inlineNullDotWidth())
+		}
+		name := truncate(col.Name, nameWidth)
+		namePart := name
+		if hasNulls && nameWidth > 0 {
+			namePart += " " + nullDot
+		}
 		typeStr := truncate(col.DuckType, 8)
 		statsStr := ""
-		if s, ok := m.summaries[col.Name]; ok && s.Loaded {
+		if hasSum && s.Loaded {
 			statsStr = fmt.Sprintf(" M:%.0f%% D:%.0f%%", s.MissingPct, s.DistinctPct)
 		}
 
@@ -1516,7 +1527,13 @@ func (m Model) viewColumns(w, h int) string {
 			if m.sel.IsSelected(col.Name) {
 				markChar = selectedMarkGlyph
 			}
-			plain := fmt.Sprintf("%s %s %s%s", markChar, name, typeStr, statsStr)
+			// Highlighted rows are rendered as one full-width styled string, so this
+			// branch assembles a plain text line first (mirrored by wantPlain in tests).
+			plainNamePart := name
+			if hasNulls && nameWidth > 0 {
+				plainNamePart += " " + nullDot
+			}
+			plain := fmt.Sprintf("%s %s %s%s", markChar, plainNamePart, typeStr, statsStr)
 			if m.focus == FocusColumns {
 				lines = append(lines, clampLineWidth(highlightStyle.Width(w).Render(plain), w))
 			} else {
@@ -1529,7 +1546,7 @@ func (m Model) viewColumns(w, h int) string {
 			}
 			typeBadge := typeBadgeStyle.Render(typeStr)
 			stats := statStyle.Render(statsStr)
-			lines = append(lines, clampLineWidth(fmt.Sprintf("%s %s %s%s", mark, name, typeBadge, stats), w))
+			lines = append(lines, clampLineWidth(fmt.Sprintf("%s %s %s%s", mark, namePart, typeBadge, stats), w))
 		}
 	}
 

@@ -968,6 +968,145 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 	}
 }
 
+func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
+	t.Run("unhighlighted row", func(t *testing.T) {
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{
+			{Name: "alpha", DuckType: "BIGINT"},
+			{Name: "beta", DuckType: "VARCHAR"},
+		}
+		m.sel = selection.New(nil)
+		m.selectedColName = "beta"
+		m.focus = FocusTable
+		m.updateFilteredCols()
+		m.summaries["alpha"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+		m.summaries["beta"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
+
+		out := m.viewColumns(40, 8)
+		if !strings.Contains(out, "alpha "+nullDot) {
+			t.Fatalf("expected null dot directly after alpha in column list, got %q", out)
+		}
+		if strings.Contains(out, "beta "+nullDot) {
+			t.Fatalf("expected no null dot for beta without nulls, got %q", out)
+		}
+	})
+
+	t.Run("highlighted row", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			focus Focus
+			style lipgloss.Style
+		}{
+			{name: "focused columns", focus: FocusColumns, style: highlightStyle},
+			{name: "unfocused columns pane", focus: FocusTable, style: dimHighlightStyle},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				m := newTestModel()
+				m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
+				m.sel = selection.New(nil)
+				m.selectedColName = "alpha"
+				m.focus = tc.focus
+				m.updateFilteredCols()
+				m.summaries["alpha"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+
+				out := m.viewColumns(40, 6)
+				lines := strings.Split(out, "\n")
+				if len(lines) < 3 {
+					t.Fatalf("expected at least 3 lines from columns view, got %d", len(lines))
+				}
+
+				wantName := truncate("alpha", 40-12-inlineNullDotWidth())
+				wantPlain := fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, wantName+" "+nullDot, truncate("BIGINT", 8), " M:0% D:0%")
+				want := tc.style.Width(40).Render(wantPlain)
+				if lines[2] != want {
+					t.Fatalf("expected highlighted row render %q, got %q", want, lines[2])
+				}
+			})
+		}
+	})
+
+	t.Run("not loaded suppresses dot", func(t *testing.T) {
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
+		m.sel = selection.New(nil)
+		m.selectedColName = "alpha"
+		m.focus = FocusTable
+		m.updateFilteredCols()
+		m.summaries["alpha"] = &types.ColumnSummary{Loaded: false, MissingCount: 5}
+
+		out := m.viewColumns(40, 6)
+		if strings.Contains(out, nullDot) {
+			t.Fatalf("expected no null dot when summary not loaded, got %q", out)
+		}
+	})
+
+	t.Run("no summary entry suppresses dot", func(t *testing.T) {
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
+		m.sel = selection.New(nil)
+		m.selectedColName = "alpha"
+		m.focus = FocusTable
+		m.updateFilteredCols()
+		// no entry in m.summaries
+
+		out := m.viewColumns(40, 6)
+		if strings.Contains(out, nullDot) {
+			t.Fatalf("expected no null dot when column has no summary entry, got %q", out)
+		}
+	})
+
+	t.Run("name truncated to make room for dot", func(t *testing.T) {
+		// With w=20: nameWidth = max(0, 20-12) = 8; with hasNulls: 8-inlineNullDotWidth = 6.
+		// truncate("verylongcolumnname", 6) = "veryl…" (5 chars + ellipsis).
+		// Without the -inlineNullDotWidth adjustment nameWidth stays 8, giving "verylo…",
+		// and the line would be 2 cells wider than w (hidden by clampLineWidth).
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{{Name: "verylongcolumnname", DuckType: "BIGINT"}}
+		m.sel = selection.New(nil)
+		m.selectedColName = ""
+		m.focus = FocusTable
+		m.updateFilteredCols()
+		m.summaries["verylongcolumnname"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+
+		out := m.viewColumns(20, 6)
+		if !strings.Contains(out, nullDot) {
+			t.Fatalf("expected null dot in output, got %q", out)
+		}
+		// "veryl…" is the 6-char truncation; "verylo…" would indicate the 8-char
+		// (un-adjusted) truncation that the -inlineNullDotWidth fix is meant to prevent.
+		if strings.Contains(out, "verylo…") {
+			t.Fatalf("name not shortened for null dot: found 8-char truncation, got %q", out)
+		}
+		if !strings.Contains(out, "veryl…") {
+			t.Fatalf("expected 6-char truncation 'veryl…' in output, got %q", out)
+		}
+	})
+
+	t.Run("nameWidth zero suppresses dot and does not panic", func(t *testing.T) {
+		// w=14: nameWidth = max(0, 14-12) = 2; with hasNulls: max(0, 2-2) = 0.
+		// dot must be suppressed, name truncated to "", line must not exceed w.
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
+		m.sel = selection.New(nil)
+		m.selectedColName = ""
+		m.focus = FocusTable
+		m.updateFilteredCols()
+		m.summaries["alpha"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+
+		out := m.viewColumns(14, 6)
+		if strings.Contains(out, nullDot) {
+			t.Fatalf("expected dot suppressed when nameWidth==0, got %q", out)
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if lipgloss.Width(line) > 14 {
+				t.Fatalf("line exceeds width 14: %q", line)
+			}
+		}
+	})
+}
+
 func TestRowHasNullAtFallbackPath(t *testing.T) {
 	data := [][]string{
 		{"NULL", "x"},
