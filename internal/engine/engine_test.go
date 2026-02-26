@@ -423,9 +423,6 @@ func TestParseNullFilterColumnsWithNaNPredicate(t *testing.T) {
 func TestParseNullFilterColumnsQuotedIdentifierContainingIsNull(t *testing.T) {
 	col := "foo IS NULL bar"
 	filter := BuildNullFilter([]string{col})
-	if !strings.Contains(filter, "OR "+missing.SQLNaNPredicate(quoteIdent(col))) {
-		t.Fatalf("expected NaN predicate in filter: %q", filter)
-	}
 	gotCols, err := parseNullFilterColumns(filter)
 	if err != nil {
 		t.Fatalf("parseNullFilterColumns: %v", err)
@@ -437,7 +434,9 @@ func TestParseNullFilterColumnsQuotedIdentifierContainingIsNull(t *testing.T) {
 }
 
 func TestParseNullFilterColumnsRejectsIsNullable(t *testing.T) {
-	_, err := parseNullFilterColumns(`("foo" IS NULLABLE)`)
+	filter := BuildNullFilter([]string{"foo"})
+	filter = strings.Replace(filter, " IS NULL", " IS NULLABLE", 1)
+	_, err := parseNullFilterColumns(filter)
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
