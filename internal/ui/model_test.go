@@ -2184,34 +2184,30 @@ func TestExpandTildePathSeparatorVariants(t *testing.T) {
 		t.Fatalf("os.UserHomeDir: %v", err)
 	}
 
-	cases := []struct {
+	type tcase struct {
 		name string
 		in   string
 		want string
-	}{
+	}
+
+	cases := []tcase{
 		{
 			name: "double forward slash",
 			in:   "~//foo",
+			// Cross-platform: after trimming one separator, filepath.Join normalizes "/foo" as a child of home.
 			want: filepath.Join(home, "foo"),
 		},
 	}
 
 	if filepath.Separator == '/' {
+		// On Unix, '\' is not a path separator, so these inputs are not tilde-expanded.
 		cases = append(cases,
-			struct {
-				name string
-				in   string
-				want string
-			}{
+			tcase{
 				name: "windows separator on unix",
 				in:   "~\\foo",
 				want: "~\\foo",
 			},
-			struct {
-				name string
-				in   string
-				want string
-			}{
+			tcase{
 				name: "mixed separators on unix",
 				in:   "~\\/foo",
 				want: "~\\/foo",
@@ -2219,20 +2215,12 @@ func TestExpandTildePathSeparatorVariants(t *testing.T) {
 		)
 	} else {
 		cases = append(cases,
-			struct {
-				name string
-				in   string
-				want string
-			}{
+			tcase{
 				name: "double native separator",
 				in:   "~\\\\foo",
 				want: filepath.Join(home, "foo"),
 			},
-			struct {
-				name string
-				in   string
-				want string
-			}{
+			tcase{
 				name: "mixed separators on windows",
 				in:   "~\\/foo",
 				want: filepath.Join(home, "foo"),
@@ -2241,7 +2229,6 @@ func TestExpandTildePathSeparatorVariants(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := expandTildePath(tc.in)
 			if err != nil {
