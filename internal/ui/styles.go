@@ -25,6 +25,11 @@ const (
 	tableRowNumW       = 6 // row number column width
 	tableRowPrefixW    = 1 // prefix space for null dot alignment
 	tableFooterPrefixW = 2 // leading spaces in footer row (for alignment with row-number gutter)
+
+	// nullDotWidth is the number of terminal cells consumed by the " •" decoration
+	// appended to column names with nulls (" " separator + 1-cell glyph = 2).
+	// Must stay in sync with the " " + nullDot rendering in viewColumns.
+	nullDotWidth = 2
 )
 
 var (

@@ -772,6 +772,33 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 			t.Fatalf("expected no null dot when column has no summary entry, got %q", out)
 		}
 	})
+
+	t.Run("name truncated to make room for dot", func(t *testing.T) {
+		// With w=20: nameWidth = max(0, 20-12) = 8; with hasNulls: 8-nullDotWidth = 6.
+		// truncate("verylongcolumnname", 6) = "veryl…" (5 chars + ellipsis).
+		// Without the -nullDotWidth adjustment nameWidth stays 8, giving "verylo…",
+		// and the line would be 2 cells wider than w (hidden by clampLineWidth).
+		m := newTestModel()
+		m.columns = []types.ColumnInfo{{Name: "verylongcolumnname", DuckType: "BIGINT"}}
+		m.sel = selection.New(nil)
+		m.selectedColName = ""
+		m.focus = FocusTable
+		m.updateFilteredCols()
+		m.summaries["verylongcolumnname"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+
+		out := m.viewColumns(20, 6)
+		if !strings.Contains(out, nullDot) {
+			t.Fatalf("expected null dot in output, got %q", out)
+		}
+		// "veryl…" is the 6-char truncation; "verylo…" would indicate the 8-char
+		// (un-adjusted) truncation that the -nullDotWidth fix is meant to prevent.
+		if strings.Contains(out, "verylo…") {
+			t.Fatalf("name not shortened for null dot: found 8-char truncation, got %q", out)
+		}
+		if !strings.Contains(out, "veryl…") {
+			t.Fatalf("expected 6-char truncation 'veryl…' in output, got %q", out)
+		}
+	})
 }
 
 func TestRowHasNullAtFallbackPath(t *testing.T) {
