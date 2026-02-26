@@ -334,6 +334,47 @@ func TestHandleTableKeyHorizontalNavigationPagingBoundaries(t *testing.T) {
 	})
 }
 
+func TestHandleTableKeyHorizontalLeftKeepsViewportUntilLeftEdge(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c6"
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
+	}
+	if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 3 {
+		t.Fatalf("expected initial start col 3 for selected c6, got %d", startCol)
+	}
+
+	cases := []struct {
+		key              string
+		expectedSelected string
+		expectedStartCol int
+	}{
+		{key: "left", expectedSelected: "c5", expectedStartCol: 3},
+		{key: "left", expectedSelected: "c4", expectedStartCol: 3},
+		{key: "left", expectedSelected: "c3", expectedStartCol: 3},
+		{key: "left", expectedSelected: "c2", expectedStartCol: 2},
+	}
+
+	for _, tc := range cases {
+		updated, cmd := m.handleTableKey(tc.key)
+		if cmd != nil {
+			t.Fatalf("expected no load command for horizontal key %q", tc.key)
+		}
+		m = updated.(Model)
+
+		if m.selectedColName != tc.expectedSelected {
+			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
+		}
+		startCol := m.computeTableColOff(m.visibleColCount())
+		if startCol != tc.expectedStartCol {
+			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
+		}
+	}
+}
+
 func TestHandleTableKeyGPositionsCursorAtFinalRow(t *testing.T) {
 	m := newTestModel()
 	m.width = 120
