@@ -3,7 +3,12 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,18 +36,21 @@ const (
 	OverlayNone Overlay = iota
 	OverlayHelp
 	OverlayDetail
+	OverlayFilePicker
 )
 
 // Messages
 type profileBasicDoneMsg struct {
 	colName string
 	summary *types.ColumnSummary
+	token   uint64
 	err     error
 }
 
 type profileDetailDoneMsg struct {
 	colName string
 	summary *types.ColumnSummary
+	token   uint64
 	err     error
 }
 
@@ -52,21 +60,37 @@ type previewDoneMsg struct {
 	totalRows  int64
 	filterRows int64
 	seq        uint64
+	token      uint64
 	err        error
 }
 
 type firstNullMsg struct {
 	rowID  int64
 	offset int64
+	token  uint64
 	err    error
+}
+
+type openFileDoneMsg struct {
+	path string
+	eng  *engine.Engine
+	err  error
+}
+
+type filePickerItem struct {
+	name     string
+	path     string
+	isDir    bool
+	isParent bool
 }
 
 type statusMsg string
 
 // Model is the root Bubble Tea model.
 type Model struct {
-	engine   *engine.Engine
-	fileName string
+	engine    *engine.Engine
+	fileName  string
+	launchDir string
 
 	// Schema
 	columns []types.ColumnInfo
@@ -76,6 +100,13 @@ type Model struct {
 	searchInput   textinput.Model
 	searchFocused bool
 	searchQuery   string
+
+	// File picker
+	pickerInput  textinput.Model
+	pickerDir    string
+	pickerItems  []filePickerItem
+	pickerCursor int
+	pickerQuery  string
 
 	// Column list state
 	filteredCols []types.ColumnInfo // columns matching search
@@ -113,43 +144,129 @@ type Model struct {
 
 	pageSize         int // rows per page
 	latestPreviewSeq uint64
+	dataToken        uint64
 }
 
 // NewModel creates the initial model.
-func NewModel(eng *engine.Engine, fileName string) Model {
-	cols := eng.Columns()
-	names := make([]string, len(cols))
-	for i, c := range cols {
-		names[i] = c.Name
-	}
-
+func NewModel(eng *engine.Engine, fileName, launchDir string) Model {
 	ti := textinput.New()
 	ti.Prompt = "/ "
 	ti.CharLimit = 256
 
-	var firstCol string
-	if len(cols) > 0 {
-		firstCol = cols[0].Name
-	}
+	pickerTI := textinput.New()
+	pickerTI.Prompt = "find> "
+	pickerTI.CharLimit = 256
+	pickerTI.Focus()
 
 	m := Model{
-		engine:           eng,
-		fileName:         fileName,
-		columns:          cols,
-		sel:              selection.New(names),
+		engine:           nil,
+		fileName:         "",
+		columns:          nil,
+		sel:              selection.New(nil),
 		searchInput:      ti,
+		pickerInput:      pickerTI,
 		summaries:        make(map[string]*types.ColumnSummary),
 		filterRows:       -1,
 		tableColOffHint:  -1,
-		totalRows:        eng.TotalRows(),
+		totalRows:        0,
 		pageSize:         50,
 		focus:            FocusTable,
-		selectedColName:  firstCol,
+		selectedColName:  "",
 		tableSplitPct:    tableSplitPct,
 		latestPreviewSeq: 1,
 	}
-	m.updateFilteredCols()
+	m.setPickerRoot(launchDir)
+	if eng != nil {
+		m.applyEngine(eng, fileName)
+	} else {
+		m.updateFilteredCols()
+		m.statusMsg = "No file loaded (Ctrl+O to open .parquet/.csv)"
+	}
 	return m
+}
+
+func (m *Model) Close() error {
+	if m.engine == nil {
+		return nil
+	}
+	err := m.engine.Close()
+	m.engine = nil
+	return err
+}
+
+func (m *Model) setPickerRoot(launchDir string) {
+	root := launchDir
+	if root == "" {
+		root = "."
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	m.launchDir = root
+	m.pickerDir = root
+	m.pickerInput.SetValue("")
+	m.pickerQuery = ""
+	m.pickerCursor = 0
+	m.refreshPickerItems()
+}
+
+func (m *Model) resetLoadedDataState() {
+	m.columns = nil
+	m.sel = selection.New(nil)
+	m.searchInput.SetValue("")
+	m.searchFocused = false
+	m.searchQuery = ""
+	m.filteredCols = nil
+	m.colCursor = 0
+	m.selectedColName = ""
+	m.tableData = nil
+	m.tableRowHasNull = nil
+	m.tableCols = nil
+	m.tableOffset = 0
+	m.tableRowCursor = 0
+	m.tableColOffHint = -1
+	m.showSelected = false
+	m.rowFilter = ""
+	m.totalRows = 0
+	m.filterRows = -1
+	m.summaries = make(map[string]*types.ColumnSummary)
+	m.detailCol = ""
+	m.detailTab = 0
+	m.updateFilteredCols()
+}
+
+func (m *Model) applyEngine(eng *engine.Engine, fileName string) {
+	m.dataToken++
+	m.latestPreviewSeq++
+	m.engine = eng
+	m.fileName = fileName
+	m.resetLoadedDataState()
+
+	cols := eng.Columns()
+	m.columns = cols
+	names := make([]string, len(cols))
+	for i, c := range cols {
+		names[i] = c.Name
+	}
+	m.sel = selection.New(names)
+	m.totalRows = eng.TotalRows()
+	if len(cols) > 0 {
+		m.selectedColName = cols[0].Name
+	}
+	m.updateFilteredCols()
+	m.statusMsg = fmt.Sprintf("Opened %s", fileName)
+}
+
+func (m *Model) clearLoadedFile() {
+	m.dataToken++
+	m.latestPreviewSeq++
+	if m.engine != nil {
+		_ = m.engine.Close()
+	}
+	m.engine = nil
+	m.fileName = ""
+	m.resetLoadedDataState()
+	m.statusMsg = "No file loaded (Ctrl+O to open .parquet/.csv)"
 }
 
 // tableColCursor returns the index of selectedColName in tableCols, or -1.
@@ -399,6 +516,9 @@ func (m *Model) updateFilteredCols() {
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.engine == nil {
+		return nil
+	}
 	return tea.Batch(
 		m.loadPreviewCmd(m.latestPreviewSeq),
 		m.profileNext(),
@@ -429,7 +549,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
+	case openFileDoneMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Error opening file: %v", msg.err)
+			return m, nil
+		}
+		if msg.eng == nil {
+			m.statusMsg = "Error opening file: unknown error"
+			return m, nil
+		}
+		old := m.engine
+		m.applyEngine(msg.eng, filepath.Base(msg.path))
+		if old != nil && old != msg.eng {
+			_ = old.Close()
+		}
+		return m, tea.Batch(m.nextPreviewCmd(), m.profileNext())
+
 	case previewDoneMsg:
+		if msg.token != m.dataToken {
+			return m, nil
+		}
 		if msg.seq < m.latestPreviewSeq {
 			return m, nil
 		}
@@ -458,6 +597,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case profileBasicDoneMsg:
+		if msg.token != m.dataToken {
+			return m, nil
+		}
 		if msg.err == nil && msg.summary != nil {
 			existing, exists := m.summaries[msg.colName]
 			if !exists || existing == nil || !existing.DetailLoaded {
@@ -468,12 +610,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.profileNext()
 
 	case profileDetailDoneMsg:
+		if msg.token != m.dataToken {
+			return m, nil
+		}
 		if msg.err == nil && msg.summary != nil {
 			m.summaries[msg.colName] = msg.summary
 		}
 		return m, nil
 
 	case firstNullMsg:
+		if msg.token != m.dataToken {
+			return m, nil
+		}
 		switch {
 		case msg.err != nil:
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
@@ -500,6 +648,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+
+	if key == "ctrl+o" {
+		if m.overlay == OverlayFilePicker {
+			m.overlay = OverlayNone
+			return m, nil
+		}
+		m.openFilePicker()
+		return m, nil
+	}
+
+	if m.overlay == OverlayFilePicker {
+		return m.handleFilePickerKey(msg)
+	}
 
 	// Search input captures keys when focused
 	if m.searchFocused {
@@ -641,6 +802,434 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *Model) openFilePicker() {
+	m.searchFocused = false
+	m.overlay = OverlayFilePicker
+	m.pickerDir = m.launchDir
+	m.pickerInput.SetValue("")
+	m.pickerQuery = ""
+	m.pickerCursor = 0
+	m.refreshPickerItems()
+}
+
+func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "esc", "q":
+		m.overlay = OverlayNone
+		return m, nil
+	case "up", "k":
+		if m.pickerCursor > 0 {
+			m.pickerCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.pickerCursor < len(m.pickerItems)-1 {
+			m.pickerCursor++
+		}
+		return m, nil
+	case "home":
+		if len(m.pickerItems) > 0 {
+			m.pickerCursor = 0
+		}
+		return m, nil
+	case "end":
+		if len(m.pickerItems) > 0 {
+			m.pickerCursor = len(m.pickerItems) - 1
+		}
+		return m, nil
+	case "pgup", "ctrl+b":
+		m.pickerCursor -= m.pickerPageStep()
+		if m.pickerCursor < 0 {
+			m.pickerCursor = 0
+		}
+		return m, nil
+	case "pgdown", "ctrl+f", " ":
+		m.pickerCursor += m.pickerPageStep()
+		if m.pickerCursor >= len(m.pickerItems) {
+			m.pickerCursor = max(0, len(m.pickerItems)-1)
+		}
+		return m, nil
+	case "ctrl+u":
+		m.pickerInput.SetValue("")
+		m.pickerQuery = ""
+		m.refreshPickerItems()
+		return m, nil
+	case "backspace":
+		if m.pickerQuery == "" {
+			m.pickerGoUp()
+			return m, nil
+		}
+	case "enter":
+		typed := strings.TrimSpace(m.pickerInput.Value())
+		if typed != "" && (looksLikePathInput(typed) || isSupportedDataFile(typed)) {
+			targetPath, targetIsDir, err := m.resolvePickerInputTarget(typed)
+			if err == nil {
+				if targetIsDir {
+					m.pickerDir = targetPath
+					m.pickerInput.SetValue("")
+					m.pickerQuery = ""
+					m.pickerCursor = 0
+					m.refreshPickerItems()
+					return m, nil
+				}
+				m.overlay = OverlayNone
+				m.statusMsg = fmt.Sprintf("Opening %s...", filepath.Base(targetPath))
+				return m, m.openFileCmd(targetPath)
+			}
+			if len(m.pickerItems) == 0 {
+				m.statusMsg = fmt.Sprintf("Open path error: %v", err)
+				return m, nil
+			}
+		}
+
+		if len(m.pickerItems) == 0 {
+			return m, nil
+		}
+		item := m.pickerItems[m.pickerCursor]
+		if item.isDir {
+			m.pickerDir = item.path
+			m.pickerInput.SetValue("")
+			m.pickerQuery = ""
+			m.pickerCursor = 0
+			m.refreshPickerItems()
+			return m, nil
+		}
+		m.overlay = OverlayNone
+		m.statusMsg = fmt.Sprintf("Opening %s...", filepath.Base(item.path))
+		return m, m.openFileCmd(item.path)
+	}
+
+	var cmd tea.Cmd
+	m.pickerInput, cmd = m.pickerInput.Update(msg)
+	m.pickerQuery = strings.TrimSpace(m.pickerInput.Value())
+	m.refreshPickerItems()
+	return m, cmd
+}
+
+func (m Model) resolvePickerInputTarget(input string) (path string, isDir bool, err error) {
+	candidate := strings.TrimSpace(input)
+	if candidate == "" {
+		return "", false, fmt.Errorf("empty path")
+	}
+
+	candidate, err = expandTildePath(candidate)
+	if err != nil {
+		return "", false, err
+	}
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(m.pickerDir, candidate)
+	}
+	candidate = filepath.Clean(candidate)
+
+	info, err := os.Stat(candidate)
+	if err != nil {
+		return "", false, err
+	}
+	if info.IsDir() {
+		return candidate, true, nil
+	}
+	if !isSupportedDataFile(candidate) {
+		return "", false, fmt.Errorf("unsupported file type: %s", filepath.Ext(candidate))
+	}
+	return candidate, false, nil
+}
+
+func looksLikePathInput(s string) bool {
+	return strings.HasPrefix(s, "~") ||
+		strings.HasPrefix(s, ".") ||
+		strings.HasPrefix(s, string(filepath.Separator)) ||
+		strings.Contains(s, "/") ||
+		strings.Contains(s, string(filepath.Separator))
+}
+
+func expandTildePath(path string) (string, error) {
+	if path == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return home, nil
+	}
+	prefix := "~" + string(filepath.Separator)
+	if strings.HasPrefix(path, prefix) || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		rest := strings.TrimPrefix(path, "~")
+		rest = strings.TrimPrefix(rest, string(filepath.Separator))
+		rest = strings.TrimPrefix(rest, "/")
+		return filepath.Join(home, rest), nil
+	}
+	return path, nil
+}
+
+func (m Model) pickerPageStep() int {
+	step := m.height - 10
+	if step < 5 {
+		step = 5
+	}
+	return step
+}
+
+func (m *Model) pickerGoUp() {
+	if !m.pickerCanGoUp() {
+		return
+	}
+	parent := filepath.Dir(m.pickerDir)
+	m.pickerDir = parent
+	m.pickerCursor = 0
+	m.refreshPickerItems()
+}
+
+func (m Model) pickerCanGoUp() bool {
+	dir := filepath.Clean(m.pickerDir)
+	return filepath.Dir(dir) != dir
+}
+
+func (m *Model) refreshPickerItems() {
+	query := strings.TrimSpace(m.pickerQuery)
+	if query != "" && looksLikePathInput(query) {
+		items, err := m.pathQueryItems(query)
+		if err != nil {
+			m.pickerItems = nil
+			m.pickerCursor = 0
+			return
+		}
+		m.pickerItems = items
+	} else {
+		entries, err := os.ReadDir(m.pickerDir)
+		if err != nil {
+			m.pickerItems = nil
+			m.pickerCursor = 0
+			m.statusMsg = fmt.Sprintf("Picker error: %v", err)
+			return
+		}
+
+		dirs := make([]filePickerItem, 0, len(entries))
+		files := make([]filePickerItem, 0, len(entries))
+		for _, entry := range entries {
+			name := entry.Name()
+			fullPath := filepath.Join(m.pickerDir, name)
+			if entry.IsDir() {
+				dirs = append(dirs, filePickerItem{name: name, path: fullPath, isDir: true})
+				continue
+			}
+			if isSupportedDataFile(name) {
+				files = append(files, filePickerItem{name: name, path: fullPath})
+			}
+		}
+
+		slices.SortFunc(dirs, func(a, b filePickerItem) int {
+			return strings.Compare(strings.ToLower(a.name), strings.ToLower(b.name))
+		})
+		slices.SortFunc(files, func(a, b filePickerItem) int {
+			return strings.Compare(strings.ToLower(a.name), strings.ToLower(b.name))
+		})
+
+		items := make([]filePickerItem, 0, len(dirs)+len(files)+1)
+		if m.pickerCanGoUp() {
+			items = append(items, filePickerItem{name: "..", path: filepath.Dir(m.pickerDir), isDir: true, isParent: true})
+		}
+		items = append(items, dirs...)
+		items = append(items, files...)
+		m.pickerItems = m.filterPickerItems(items, m.pickerQuery)
+	}
+
+	if len(m.pickerItems) == 0 {
+		m.pickerCursor = 0
+		return
+	}
+	if m.pickerCursor >= len(m.pickerItems) {
+		m.pickerCursor = len(m.pickerItems) - 1
+	}
+	if m.pickerCursor < 0 {
+		m.pickerCursor = 0
+	}
+}
+
+func (m Model) pathQueryItems(query string) ([]filePickerItem, error) {
+	baseDir, prefix, err := m.resolvePathQueryBase(query)
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		return nil, err
+	}
+
+	dirs := make([]filePickerItem, 0, len(entries))
+	files := make([]filePickerItem, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(strings.ToLower(name), strings.ToLower(prefix)) {
+			continue
+		}
+		fullPath := filepath.Join(baseDir, name)
+		if entry.IsDir() {
+			dirs = append(dirs, filePickerItem{name: name, path: fullPath, isDir: true})
+			continue
+		}
+		if isSupportedDataFile(name) {
+			files = append(files, filePickerItem{name: name, path: fullPath})
+		}
+	}
+
+	slices.SortFunc(dirs, func(a, b filePickerItem) int {
+		return strings.Compare(strings.ToLower(a.name), strings.ToLower(b.name))
+	})
+	slices.SortFunc(files, func(a, b filePickerItem) int {
+		return strings.Compare(strings.ToLower(a.name), strings.ToLower(b.name))
+	})
+
+	items := make([]filePickerItem, 0, len(dirs)+len(files))
+	items = append(items, dirs...)
+	items = append(items, files...)
+	return items, nil
+}
+
+func (m Model) resolvePathQueryBase(query string) (baseDir, prefix string, err error) {
+	raw := strings.TrimSpace(query)
+	if raw == "" {
+		return m.pickerDir, "", nil
+	}
+
+	expanded, err := expandTildePath(raw)
+	if err != nil {
+		return "", "", err
+	}
+	if !filepath.IsAbs(expanded) {
+		expanded = filepath.Join(m.pickerDir, expanded)
+	}
+
+	sep := string(filepath.Separator)
+	hasTrailingSep := strings.HasSuffix(raw, sep) || strings.HasSuffix(raw, "/")
+	if raw == "~" {
+		hasTrailingSep = true
+	}
+
+	expanded = filepath.Clean(expanded)
+	if hasTrailingSep {
+		return expanded, "", nil
+	}
+	return filepath.Dir(expanded), filepath.Base(expanded), nil
+}
+
+func (m Model) filterPickerItems(items []filePickerItem, query string) []filePickerItem {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return items
+	}
+
+	type scoredItem struct {
+		item  filePickerItem
+		score int
+	}
+	scored := make([]scoredItem, 0, len(items))
+	for _, item := range items {
+		if item.isParent {
+			continue
+		}
+		if score, ok := fuzzyFileScore(item.name, q); ok {
+			scored = append(scored, scoredItem{item: item, score: score})
+		}
+	}
+
+	slices.SortFunc(scored, func(a, b scoredItem) int {
+		if a.score != b.score {
+			return b.score - a.score
+		}
+		if a.item.isDir != b.item.isDir {
+			if a.item.isDir {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(strings.ToLower(a.item.name), strings.ToLower(b.item.name))
+	})
+
+	filtered := make([]filePickerItem, 0, len(scored))
+	for _, s := range scored {
+		filtered = append(filtered, s.item)
+	}
+	return filtered
+}
+
+func isSupportedDataFile(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".parquet", ".csv":
+		return true
+	default:
+		return false
+	}
+}
+
+func fuzzyFileScore(candidate, query string) (int, bool) {
+	c := strings.ToLower(candidate)
+	q := strings.ToLower(query)
+	if q == "" {
+		return 0, true
+	}
+
+	last := -1
+	score := 0
+	for len(q) > 0 {
+		r, size := utf8.DecodeRuneInString(q)
+		if r == utf8.RuneError && size == 1 {
+			return 0, false
+		}
+		found := -1
+		for i := last + 1; i < len(c); {
+			cr, csize := utf8.DecodeRuneInString(c[i:])
+			if cr == r {
+				found = i
+				break
+			}
+			i += csize
+		}
+		if found < 0 {
+			return 0, false
+		}
+
+		score += 10
+		if last >= 0 && found == last+1 {
+			score += 8
+		}
+		if found == 0 || isWordBoundary(c, found-1) {
+			score += 6
+		}
+		if found > last+1 {
+			score -= found - (last + 1)
+		}
+		last = found
+		q = q[size:]
+	}
+
+	score -= len(candidate) / 3
+	return score, true
+}
+
+func isWordBoundary(s string, i int) bool {
+	if i < 0 || i >= len(s) {
+		return true
+	}
+	r, _ := utf8.DecodeLastRuneInString(s[:i+1])
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+}
+
+func (m Model) openFileCmd(path string) tea.Cmd {
+	absPath := path
+	if abs, err := filepath.Abs(path); err == nil {
+		absPath = abs
+	}
+	return func() tea.Msg {
+		eng, err := engine.New(absPath)
+		return openFileDoneMsg{path: absPath, eng: eng, err: err}
+	}
 }
 
 func (m Model) handleColumnsPaging() (tea.Model, tea.Cmd) {
@@ -1026,6 +1615,9 @@ func (m Model) pageColumnsHorizontal(direction int) (tea.Model, tea.Cmd) {
 
 func (m Model) loadPreviewCmd(seq uint64) tea.Cmd {
 	eng := m.engine
+	if eng == nil {
+		return nil
+	}
 	colNames := m.projectionCols()
 	rowFilter := m.rowFilter
 	limit := m.previewLimit()
@@ -1042,7 +1634,7 @@ func (m Model) loadPreviewCmd(seq uint64) tea.Cmd {
 		ctx := context.Background()
 		rows, err := eng.Preview(ctx, colNames, rowFilter, limit, offset)
 		if err != nil {
-			return previewDoneMsg{seq: seq, err: err}
+			return previewDoneMsg{seq: seq, token: m.dataToken, err: err}
 		}
 		totalRows := eng.TotalRows()
 		var filterRows int64 = -1
@@ -1055,6 +1647,7 @@ func (m Model) loadPreviewCmd(seq uint64) tea.Cmd {
 			totalRows:  totalRows,
 			filterRows: filterRows,
 			seq:        seq,
+			token:      m.dataToken,
 		}
 	}
 }
@@ -1076,6 +1669,9 @@ func (m Model) projectionCols() []string {
 
 func (m Model) profileNext() tea.Cmd {
 	eng := m.engine
+	if eng == nil {
+		return nil
+	}
 	cols := m.columns
 	summaries := m.summaries
 
@@ -1094,12 +1690,15 @@ func (m Model) profileNext() tea.Cmd {
 	colName := target
 	return func() tea.Msg {
 		summary, err := eng.ProfileBasic(context.Background(), colName)
-		return profileBasicDoneMsg{colName: colName, summary: summary, err: err}
+		return profileBasicDoneMsg{colName: colName, summary: summary, token: m.dataToken, err: err}
 	}
 }
 
 func (m Model) loadDetail(colName string, existing *types.ColumnSummary, colType string) tea.Cmd {
 	eng := m.engine
+	if eng == nil {
+		return nil
+	}
 
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -1108,27 +1707,30 @@ func (m Model) loadDetail(colName string, existing *types.ColumnSummary, colType
 			var err error
 			summary, err = eng.ProfileBasic(ctx, colName)
 			if err != nil {
-				return profileDetailDoneMsg{colName: colName, err: err}
+				return profileDetailDoneMsg{colName: colName, token: m.dataToken, err: err}
 			}
 		}
 
 		if err := eng.ProfileDetail(ctx, colName, summary, colType); err != nil {
-			return profileDetailDoneMsg{colName: colName, err: err}
+			return profileDetailDoneMsg{colName: colName, token: m.dataToken, err: err}
 		}
-		return profileDetailDoneMsg{colName: colName, summary: summary}
+		return profileDetailDoneMsg{colName: colName, summary: summary, token: m.dataToken}
 	}
 }
 
 func (m Model) jumpToFirstNull(colName, rowFilter string) tea.Cmd {
 	eng := m.engine
+	if eng == nil {
+		return nil
+	}
 	return func() tea.Msg {
 		ctx := context.Background()
 		rowID, err := eng.FirstNullRow(ctx, colName, rowFilter)
 		if err != nil || rowID == 0 {
-			return firstNullMsg{rowID: rowID, err: err}
+			return firstNullMsg{rowID: rowID, token: m.dataToken, err: err}
 		}
 		offset, err := eng.OffsetForRowID(ctx, rowID, rowFilter)
-		return firstNullMsg{rowID: rowID, offset: offset, err: err}
+		return firstNullMsg{rowID: rowID, offset: offset, token: m.dataToken, err: err}
 	}
 }
 
@@ -1137,6 +1739,10 @@ func (m Model) jumpToFirstNull(colName, rowFilter string) tea.Cmd {
 func (m Model) View() string {
 	if !m.ready {
 		return "Loading..."
+	}
+
+	if m.overlay == OverlayFilePicker {
+		return m.viewFilePicker()
 	}
 
 	if m.overlay == OverlayHelp {
@@ -1180,7 +1786,11 @@ func (m Model) View() string {
 }
 
 func (m Model) viewTopBar() string {
-	left := fmt.Sprintf(" %s  %d rows × %d cols", m.fileName, m.totalRows, len(m.columns))
+	fileLabel := m.fileName
+	if fileLabel == "" {
+		fileLabel = "(no file)"
+	}
+	left := fmt.Sprintf(" %s  %d rows × %d cols", fileLabel, m.totalRows, len(m.columns))
 	rightPlain := ""
 	if m.rowFilter != "" {
 		filterInfo := "Filter: rows with nulls"
@@ -1210,9 +1820,9 @@ func (m Model) viewBottomBar() string {
 	selCount := m.sel.Count()
 	var hints string
 	if m.focus == FocusColumns {
-		hints = "/:search  x:toggle  a:add  d:rm  y:copy  Enter:detail  wheel:cursor"
+		hints = "Ctrl+O:open  /:search  x:toggle  a:add  d:rm  y:copy  Enter:detail  wheel:cursor"
 	} else {
-		hints = "hjkl:move  space:pgdn  []:col-page  f:null-filter  drag:divider  Ctrl+L:redraw"
+		hints = "Ctrl+O:open  hjkl:move  space:pgdn  []:col-page  f:null-filter  drag:divider  Ctrl+L:redraw"
 	}
 	status := fmt.Sprintf("  Sel: %d/%d", selCount, len(m.columns))
 	if m.showSelected {
@@ -1236,6 +1846,9 @@ func (m Model) viewBottomBar() string {
 
 func (m Model) viewTable(w, h int) string {
 	if len(m.tableCols) == 0 {
+		if m.engine == nil {
+			return "No file loaded. Press Ctrl+O to open .parquet/.csv"
+		}
 		return "No data loaded"
 	}
 	if h <= 0 {
@@ -1608,10 +2221,61 @@ func (m Model) viewDetail(w int) string {
 	return strings.Join(lines, "\n")
 }
 
+func (m Model) viewFilePicker() string {
+	panelW := max(24, m.width-4)
+	panelH := max(10, m.height-2)
+
+	var lines []string
+	lines = append(lines, detailTitleStyle.Render("Open data file"))
+	lines = append(lines, detailLabelStyle.Render("Current directory: ")+truncateDisplay(m.pickerDir, panelW-4))
+	lines = append(lines, searchPromptStyle.Render("find> ")+m.pickerInput.View())
+	lines = append(lines, "")
+
+	listHeight := max(1, panelH-8)
+	start := 0
+	if m.pickerCursor >= listHeight {
+		start = m.pickerCursor - listHeight + 1
+	}
+	if len(m.pickerItems) == 0 {
+		lines = append(lines, detailLabelStyle.Render("No matching folders or .parquet/.csv files"))
+	} else {
+		for i := start; i < len(m.pickerItems) && i < start+listHeight; i++ {
+			item := m.pickerItems[i]
+			label := item.name
+			if item.isParent {
+				label = "../"
+			} else if item.isDir {
+				label += "/"
+			}
+			label = truncateDisplay(label, panelW-8)
+			line := "  " + label
+			if i == m.pickerCursor {
+				lines = append(lines, clampLineWidth(highlightStyle.Width(panelW-4).Render(line), panelW-4))
+			} else {
+				lines = append(lines, clampLineWidth(line, panelW-4))
+			}
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, detailLabelStyle.Render("Enter: open/enter folder  Backspace: parent  Ctrl+U: clear  Esc: close"))
+
+	content := strings.Join(lines, "\n")
+	style := lipgloss.NewStyle().
+		Width(panelW).
+		Height(panelH).
+		Padding(1, 2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62"))
+
+	return style.Render(content)
+}
+
 func (m Model) viewHelp() string {
 	help := []struct{ key, desc string }{
 		{"Tab", "Switch focus (Table ↔ Columns)"},
 		{"q / Ctrl+C", "Quit"},
+		{"Ctrl+O", "Open file picker (.parquet/.csv)"},
 		{"Ctrl+L", "Redraw screen"},
 		{"?", "Toggle help"},
 		{"s", "Toggle show selected columns only"},
@@ -1642,6 +2306,12 @@ func (m Model) viewHelp() string {
 		{"Ctrl+D / Ctrl+U", "Half page down / up"},
 		{"f", "Toggle null-row filter"},
 		{"Mouse drag divider", "Resize table/columns split"},
+		{"", ""},
+		{"── File Picker ──", ""},
+		{"Enter", "Open selected file/folder"},
+		{"Backspace", "Go to parent folder"},
+		{"Ctrl+U", "Clear picker query"},
+		{"Esc", "Close picker"},
 		{"", ""},
 		{"── Detail Panel ──", ""},
 		{"t", "Cycle tabs (Top Values / Stats / Histogram)"},
