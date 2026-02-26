@@ -34,6 +34,8 @@ func matchTerm(term, sNorm, joined, acronym string) bool {
 			return false
 		}
 	}
+	// An empty token list means the term had no alphanumeric content;
+	// treat as "matches everything" (does not restrict the result).
 	return true
 }
 
@@ -73,7 +75,9 @@ func splitIdentifierParts(s string) []string {
 
 		if prev != 0 {
 			camelBoundary := unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsDigit(prev))
-			// Consecutive uppercase followed by lowercase: HTMLParser → html + parser
+			// Consecutive uppercase followed by lowercase: HTMLParser → html + parser.
+			// Single-character lookahead means short all-caps prefixes split one rune early,
+			// e.g. ABCdef → ["ab", "cdef"] rather than ["abc", "def"].
 			uppersToLower := unicode.IsUpper(r) && unicode.IsUpper(prev) && i+1 < n && unicode.IsLower(runes[i+1])
 			digitBoundary := unicode.IsDigit(r) && unicode.IsLetter(prev)
 			letterBoundary := unicode.IsLetter(r) && unicode.IsDigit(prev)
