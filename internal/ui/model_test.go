@@ -2297,6 +2297,7 @@ func TestOpenFileDoneCurrentRequestErrorPreservesLoadedFile(t *testing.T) {
 		reqID: 3,
 	})
 	m = updated.(Model)
+	// openReqID stays at 3 after a successful open; only user-initiated opens advance it.
 
 	openErr := fmt.Errorf("boom")
 	updated, _ = m.Update(openFileDoneMsg{

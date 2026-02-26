@@ -1021,6 +1021,7 @@ func looksLikePathInput(s string) bool {
 	sep := string(filepath.Separator)
 	return strings.HasPrefix(s, "~") ||
 		strings.HasPrefix(s, ".") ||
+		// Contains also covers absolute paths like "/foo", so HasPrefix("/", ...) is redundant.
 		strings.Contains(s, "/") ||
 		// filepath.Separator is "/" on Unix, so this is only distinct on Windows.
 		(sep != "/" && strings.Contains(s, sep))
@@ -1041,7 +1042,7 @@ func expandTildePath(path string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		// Drop "~" plus a single path separator ("~/foo" or "~\\foo").
+		// Drop "~" plus one separator ("~/foo" or "~\\foo"); filepath.Join normalizes any remaining leading separators.
 		rest := strings.TrimPrefix(path, "~")
 		if strings.HasPrefix(rest, "/") || strings.HasPrefix(rest, "\\") {
 			rest = rest[1:]
