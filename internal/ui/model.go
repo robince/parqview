@@ -2616,7 +2616,7 @@ func (m Model) columnType(colName string) string {
 
 func defaultDetailTab(colType string) int {
 	switch duckTypeBase(colType) {
-	case "FLOAT", "REAL", "DOUBLE", "DECIMAL", "NUMERIC":
+	case "FLOAT", "REAL", "DOUBLE", "DECIMAL", "NUMERIC", "FLOAT4", "FLOAT8":
 		return 1 // Stats
 	default:
 		return 0 // Top Values

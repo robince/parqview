@@ -257,6 +257,52 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	})
 }
 
+func TestDuckTypeBase(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+	}{
+		{name: "bare type", in: "INTEGER", want: "INTEGER"},
+		{name: "parameterized type", in: "DECIMAL(10,2)", want: "DECIMAL"},
+		{name: "multi word type", in: "DOUBLE PRECISION", want: "DOUBLE"},
+		{name: "empty", in: "", want: ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := duckTypeBase(tc.in); got != tc.want {
+				t.Fatalf("duckTypeBase(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDefaultDetailTab(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    int
+	}{
+		{name: "double", in: "DOUBLE", want: 1},
+		{name: "decimal parameterized", in: "DECIMAL(10,2)", want: 1},
+		{name: "numeric parameterized", in: "NUMERIC(12,4)", want: 1},
+		{name: "float4 alias", in: "FLOAT4", want: 1},
+		{name: "float8 alias", in: "FLOAT8", want: 1},
+		{name: "integer", in: "INTEGER", want: 0},
+		{name: "varchar", in: "VARCHAR", want: 0},
+		{name: "empty", in: "", want: 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := defaultDetailTab(tc.in); got != tc.want {
+				t.Fatalf("defaultDetailTab(%q) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestHandleTableKeyHorizontalNavigationTracksViewportPaging(t *testing.T) {
 	m := newTestModel()
 	m.width = 100
