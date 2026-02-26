@@ -673,6 +673,22 @@ func TestHandleTableKeyHorizontalNoOpWhenZeroVisibleCols(t *testing.T) {
 			t.Errorf("key %q: tableColOffHint %d out of bounds for %d columns", tc.key, h, len(m.tableCols))
 		}
 	}
+
+	m.selectedColName = "b"
+	m.tableColOffHint = -1
+	for _, key := range []string{"left", "h"} {
+		updated, cmd := m.handleTableKey(key)
+		if cmd != nil {
+			t.Errorf("key %q from b: expected no command, got %v", key, cmd)
+		}
+		um := updated.(Model)
+		if um.selectedColName != "a" {
+			t.Errorf("key %q from b: expected selectedColName %q, got %q", key, "a", um.selectedColName)
+		}
+		if um.tableColOffHint != -1 {
+			t.Errorf("key %q from b: expected tableColOffHint to remain -1, got %d", key, um.tableColOffHint)
+		}
+	}
 }
 
 func TestPreviewDoneMsgReconcilesSelectedColumnWhenProjectionChanges(t *testing.T) {
