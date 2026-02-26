@@ -640,6 +640,9 @@ func TestHandleKeyEscClearsFocusedSearch(t *testing.T) {
 	if len(m.filteredCols) != 2 {
 		t.Fatalf("expected esc clear to restore all columns, got %d", len(m.filteredCols))
 	}
+	if m.colCursor >= len(m.filteredCols) {
+		t.Fatalf("expected colCursor clamped within filteredCols, got %d (len %d)", m.colCursor, len(m.filteredCols))
+	}
 }
 
 func TestHandleColumnsKeyEscClearsSearchWhenUnfocused(t *testing.T) {
@@ -666,6 +669,9 @@ func TestHandleColumnsKeyEscClearsSearchWhenUnfocused(t *testing.T) {
 	}
 	if len(m.filteredCols) != 2 {
 		t.Fatalf("expected esc clear to restore all columns, got %d", len(m.filteredCols))
+	}
+	if m.colCursor >= len(m.filteredCols) {
+		t.Fatalf("expected colCursor clamped within filteredCols, got %d (len %d)", m.colCursor, len(m.filteredCols))
 	}
 }
 
