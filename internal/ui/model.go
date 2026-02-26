@@ -1496,9 +1496,11 @@ func (m Model) viewColumns(w, h int) string {
 			if m.sel.IsSelected(col.Name) {
 				markChar = selectedMarkGlyph
 			}
+			// Highlighted rows are rendered as one full-width styled string, so this
+			// branch assembles a plain text line first (mirrored by wantPlain in tests).
 			plainNamePart := name
 			if hasNulls && nameWidth > 0 {
-				plainNamePart += " •"
+				plainNamePart += " " + nullDot
 			}
 			plain := fmt.Sprintf("%s %s %s%s", markChar, plainNamePart, typeStr, statsStr)
 			if m.focus == FocusColumns {
