@@ -19,15 +19,17 @@ func FuzzyMatch(s, query string) bool {
 	sNorm := strings.ToLower(s)
 	acronym := componentAcronym(parts)
 
+	anyReal := false
 	for _, term := range strings.Fields(query) {
 		if len(splitIdentifierParts(term)) == 0 {
 			continue
 		}
+		anyReal = true
 		if !matchTerm(term, sNorm, joined, acronym, parts) {
 			return false
 		}
 	}
-	return true
+	return anyReal
 }
 
 func matchTerm(term, sNorm, joined, acronym string, parts []string) bool {
@@ -45,11 +47,6 @@ func matchToken(token, sNorm, joined, acronym string, parts []string) bool {
 	}
 	if acronym != "" && strings.Contains(acronym, token) {
 		return true
-	}
-	for _, p := range parts {
-		if strings.Contains(p, token) {
-			return true
-		}
 	}
 	return false
 }
