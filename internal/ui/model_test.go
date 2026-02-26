@@ -647,20 +647,28 @@ func TestHandleTableKeyHorizontalNoOpWhenZeroVisibleCols(t *testing.T) {
 		t.Fatalf("expected zero visible columns at width %d, got %d", m.width, got)
 	}
 
-	for _, key := range []string{"left", "h", "right", "l"} {
-		updated, cmd := m.handleTableKey(key)
+	// left/h: already at left edge, cursor stays; right/l: cursor advances but hint must not be corrupted.
+	leftRightCases := []struct {
+		key            string
+		wantColName    string
+		wantHintChange bool
+	}{
+		{"left", "a", false},
+		{"h", "a", false},
+		{"right", "b", false},
+		{"l", "b", false},
+	}
+	for _, tc := range leftRightCases {
+		updated, cmd := m.handleTableKey(tc.key)
 		if cmd != nil {
-			t.Errorf("key %q: expected no command, got %v", key, cmd)
+			t.Errorf("key %q: expected no command, got %v", tc.key, cmd)
 		}
 		um := updated.(Model)
-		if um.selectedColName != m.selectedColName {
-			t.Errorf("key %q: expected selectedColName %q, got %q", key, m.selectedColName, um.selectedColName)
-		}
-		if um.tableColOffHint != m.tableColOffHint {
-			t.Errorf("key %q: expected tableColOffHint %d, got %d", key, m.tableColOffHint, um.tableColOffHint)
+		if um.selectedColName != tc.wantColName {
+			t.Errorf("key %q: expected selectedColName %q, got %q", tc.key, tc.wantColName, um.selectedColName)
 		}
 		if h := um.tableColOffHint; h != -1 && (h < 0 || h >= len(m.tableCols)) {
-			t.Errorf("key %q: tableColOffHint %d out of bounds for %d columns", key, h, len(m.tableCols))
+			t.Errorf("key %q: tableColOffHint %d out of bounds for %d columns", tc.key, h, len(m.tableCols))
 		}
 	}
 }

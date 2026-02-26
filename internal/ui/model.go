@@ -860,7 +860,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 	if (key == "up" || key == "k" || key == "down" || key == "j") && m.visibleTableRows() == 0 {
 		return m, nil
 	}
-	if (key == "left" || key == "h" || key == "right" || key == "l") && m.visibleColCount() == 0 {
+	if (key == "left" || key == "h" || key == "right" || key == "l") && len(m.tableCols) == 0 {
 		return m, nil
 	}
 	switch key {
@@ -914,10 +914,10 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 	case "right", "l":
 		idx := m.tableColCursor()
 		if idx >= 0 && idx < len(m.tableCols)-1 {
+			nextIdx := idx + 1
 			visibleCols := m.visibleColCount()
 			if visibleCols > 0 {
 				startCol := m.computeTableColOff(visibleCols)
-				nextIdx := idx + 1
 				endCol := startCol + visibleCols - 1
 				if endCol >= len(m.tableCols) {
 					endCol = len(m.tableCols) - 1
@@ -933,9 +933,9 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 					}
 					m.tableColOffHint = min(maxStart, startCol+1)
 				}
-				m.selectedColName = m.tableCols[nextIdx]
-				m.syncCursorFromSelectedColName()
 			}
+			m.selectedColName = m.tableCols[nextIdx]
+			m.syncCursorFromSelectedColName()
 		} else if idx < 0 && len(m.tableCols) > 0 {
 			m.tableColOffHint = -1
 			m.selectedColName = m.tableCols[0]
