@@ -883,7 +883,11 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 	case "L":
 		if len(m.filteredCols) > 0 {
 			m.clampColumnsListState()
-			target := m.colListOff + m.currentColumnsListHeight() - 1
+			h := m.currentColumnsListHeight()
+			if h < 1 {
+				break
+			}
+			target := m.colListOff + h - 1
 			if target >= len(m.filteredCols) {
 				target = len(m.filteredCols) - 1
 			}
@@ -1344,7 +1348,7 @@ func (m Model) viewBottomBar() string {
 	selCount := m.sel.Count()
 	var hints string
 	if m.focus == FocusColumns {
-		hints = "jk:move  C-f/b:page  C-d/u:half  gG/HML:jump  /:search  x:toggle  a/d/y:sel"
+		hints = "jk:move  Space/C-f/b:page  C-d/u:half  gG/HML:jump  /:search  x:toggle  a/d/y:sel"
 	} else {
 		hints = "hjkl:move  space:pgdn  []:col-page  f:null-filter  drag:divider  Ctrl+L:redraw"
 	}

@@ -1397,10 +1397,10 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 
 	m.focus = FocusColumns
 	bottom = m.viewBottomBar()
-	if !strings.Contains(bottom, "HML") {
+	if !strings.Contains(bottom, "HML:jump") {
 		t.Fatalf("expected columns bottom bar to include HML hint, got %q", bottom)
 	}
-	if !strings.Contains(bottom, "C-d/u") {
+	if !strings.Contains(bottom, "C-d/u:half") {
 		t.Fatalf("expected columns bottom bar to include ctrl+d/u hint, got %q", bottom)
 	}
 	if !strings.Contains(bottom, "a/d/y:sel") {
