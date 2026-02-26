@@ -754,7 +754,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 					t.Fatalf("expected at least 3 lines from columns view, got %d", len(lines))
 				}
 
-				wantName := truncate("alpha", 40-12-nullDotWidth())
+				wantName := truncate("alpha", 40-12-inlineNullDotWidth())
 				wantPlain := fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, wantName+" •", truncate("BIGINT", 8), " M:0% D:0%")
 				want := tc.style.Width(40).Render(wantPlain)
 				if lines[2] != want {
@@ -795,9 +795,9 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 	})
 
 	t.Run("name truncated to make room for dot", func(t *testing.T) {
-		// With w=20: nameWidth = max(0, 20-12) = 8; with hasNulls: 8-nullDotWidth = 6.
+		// With w=20: nameWidth = max(0, 20-12) = 8; with hasNulls: 8-inlineNullDotWidth = 6.
 		// truncate("verylongcolumnname", 6) = "veryl…" (5 chars + ellipsis).
-		// Without the -nullDotWidth adjustment nameWidth stays 8, giving "verylo…",
+		// Without the -inlineNullDotWidth adjustment nameWidth stays 8, giving "verylo…",
 		// and the line would be 2 cells wider than w (hidden by clampLineWidth).
 		m := newTestModel()
 		m.columns = []types.ColumnInfo{{Name: "verylongcolumnname", DuckType: "BIGINT"}}
@@ -812,7 +812,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 			t.Fatalf("expected null dot in output, got %q", out)
 		}
 		// "veryl…" is the 6-char truncation; "verylo…" would indicate the 8-char
-		// (un-adjusted) truncation that the -nullDotWidth fix is meant to prevent.
+		// (un-adjusted) truncation that the -inlineNullDotWidth fix is meant to prevent.
 		if strings.Contains(out, "verylo…") {
 			t.Fatalf("name not shortened for null dot: found 8-char truncation, got %q", out)
 		}

@@ -1477,7 +1477,7 @@ func (m Model) viewColumns(w, h int) string {
 
 		nameWidth := max(0, w-12)
 		if hasNulls {
-			nameWidth = max(0, nameWidth-nullDotWidth())
+			nameWidth = max(0, nameWidth-inlineNullDotWidth())
 		}
 		name := truncate(col.Name, nameWidth)
 		namePart := name
