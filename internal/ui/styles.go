@@ -106,9 +106,6 @@ var (
 
 	// Null indicator dots (pre-rendered strings, not reusable styles)
 	nullDot             = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("•")
-	// nullDotWidth is derived from the actual rendered " •" string so it stays
-	// correct if nullDot ever changes to a different glyph.
-	nullDotWidth = lipgloss.Width(" " + nullDot)
 	nullDotHeader       = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("62")).Render("•")
 	nullDotActiveHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("69")).Render("•")
 
@@ -158,3 +155,7 @@ var (
 	helpDescStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("252"))
 )
+
+func nullDotWidth() int {
+	return lipgloss.Width(" " + nullDot)
+}
