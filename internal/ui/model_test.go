@@ -16,7 +16,7 @@ import (
 )
 
 func TestHandleTableKeyDownKeepsCursorWithinVisibleRowsAndScrolls(t *testing.T) {
-	m := newTestModel()
+	m := newCmdTestModel()
 	m.width = 120
 	m.height = 10
 	m.pageSize = 50
@@ -74,7 +74,7 @@ func TestHandleTableKeyDownCanReachFinalRowWithSmallViewport(t *testing.T) {
 }
 
 func TestWindowSizeMsgClampsOffsetAndKeepsPageDownMonotonic(t *testing.T) {
-	m := newTestModel()
+	m := newCmdTestModel()
 	m.width = 120
 	m.height = 10
 	m.pageSize = 50
@@ -107,7 +107,7 @@ func TestWindowSizeMsgClampsOffsetAndKeepsPageDownMonotonic(t *testing.T) {
 }
 
 func TestHandleTableKeyCtrlPagingLoadsOnlyWhenOffsetChanges(t *testing.T) {
-	base := newTestModel()
+	base := newCmdTestModel()
 	base.width = 120
 	base.height = 20
 	base.pageSize = 20
@@ -168,7 +168,7 @@ func TestHandleKeyToggleShowSelectedGlobalLoadsPreview(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newTestModel()
+			m := newCmdTestModel()
 			m.focus = tc.focus
 			m.columns = []types.ColumnInfo{{Name: "alpha"}}
 			m.sel = selection.New(nil)
@@ -204,7 +204,7 @@ func TestHandleKeyToggleShowSelectedGlobalLoadsPreview(t *testing.T) {
 
 func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	t.Run("table focus uses selected column", func(t *testing.T) {
-		m := newTestModel()
+		m := newCmdTestModel()
 		m.focus = FocusTable
 		m.columns = []types.ColumnInfo{{Name: "alpha"}}
 		m.selectedColName = "alpha"
@@ -224,7 +224,7 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	})
 
 	t.Run("columns focus uses active column", func(t *testing.T) {
-		m := newTestModel()
+		m := newCmdTestModel()
 		m.focus = FocusColumns
 		m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
 		m.selectedColName = "alpha"
@@ -338,7 +338,7 @@ func TestHandleTableKeyHorizontalNavigationPagingBoundaries(t *testing.T) {
 }
 
 func TestHandleTableKeyGPositionsCursorAtFinalRow(t *testing.T) {
-	m := newTestModel()
+	m := newCmdTestModel()
 	m.width = 120
 	m.height = 10
 	m.pageSize = 50
@@ -375,7 +375,7 @@ func TestHandleTableKeyGPositionsCursorAtFinalRow(t *testing.T) {
 }
 
 func TestHandleTableKeyGWithZeroVisibleRowsStaysWithinBounds(t *testing.T) {
-	m := newTestModel()
+	m := newCmdTestModel()
 	m.width = 120
 	m.height = 6
 	m.pageSize = 50
@@ -939,7 +939,7 @@ func TestMaxTableOffsetUsesVisibleRowsNotPageSize(t *testing.T) {
 }
 
 func TestWindowSizeMsgReloadsWhenViewportGrowsBeyondLoadedRows(t *testing.T) {
-	m := newTestModel()
+	m := newCmdTestModel()
 	m.width = 120
 	m.height = 10
 	m.pageSize = 50
@@ -1335,7 +1335,7 @@ func TestFilePickerPathInputExpandsTilde(t *testing.T) {
 	}
 }
 
-func TestFilePickerAllowsTypingG(t *testing.T) {
+func TestFilePickerAllowsTypingQueryText(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "alpha.csv"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write alpha: %v", err)
@@ -1347,10 +1347,27 @@ func TestFilePickerAllowsTypingG(t *testing.T) {
 	m := NewModel(nil, "", root)
 	m.openFilePicker()
 
-	updated, _ := m.handleFilePickerKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	for _, r := range []rune{'g', 'q'} {
+		updated, _ := m.handleFilePickerKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(Model)
+	}
+	if got := m.pickerInput.Value(); got != "gq" {
+		t.Fatalf("expected picker input to accept typed runes, got %q", got)
+	}
+}
+
+func TestHandleKeyCtrlOOpensFilePickerAndReturnsInputInitCmd(t *testing.T) {
+	m := NewModel(nil, "", t.TempDir())
+	m.overlay = OverlayNone
+
+	updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlO})
 	m = updated.(Model)
-	if got := m.pickerInput.Value(); got != "g" {
-		t.Fatalf("expected picker input to accept 'g', got %q", got)
+
+	if m.overlay != OverlayFilePicker {
+		t.Fatalf("expected overlay %v after ctrl+o, got %v", OverlayFilePicker, m.overlay)
+	}
+	if cmd == nil {
+		t.Fatal("expected non-nil picker input init command after ctrl+o")
 	}
 }
 

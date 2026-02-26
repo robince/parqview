@@ -13,11 +13,19 @@ import (
 // newTestModel creates a minimal Model suitable for unit tests.
 func newTestModel() Model {
 	return Model{
-		engine:          &engine.Engine{},
+		engine:          nil,
 		sel:             selection.New(nil),
 		summaries:       make(map[string]*types.ColumnSummary),
 		tableColOffHint: -1,
 	}
+}
+
+// newCmdTestModel returns a model with a non-nil engine pointer so command
+// paths that guard only on nil can be asserted without executing those commands.
+func newCmdTestModel() Model {
+	m := newTestModel()
+	m.engine = &engine.Engine{}
+	return m
 }
 
 // updateModel sends a message through Model.Update and returns the updated model.

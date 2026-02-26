@@ -643,7 +643,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.openFilePicker()
-		return m, nil
+		return m, textinput.Blink
 	}
 
 	if m.overlay == OverlayFilePicker {
@@ -796,6 +796,7 @@ func (m *Model) openFilePicker() {
 	m.searchFocused = false
 	m.overlay = OverlayFilePicker
 	m.pickerDir = m.launchDir
+	m.pickerInput.Focus()
 	m.pickerInput.SetValue("")
 	m.pickerQuery = ""
 	m.pickerCursor = 0
@@ -805,7 +806,7 @@ func (m *Model) openFilePicker() {
 func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch key {
-	case "esc", "q":
+	case "esc":
 		m.overlay = OverlayNone
 		return m, nil
 	case "up", "k":
@@ -924,11 +925,13 @@ func (m Model) resolvePickerInputTarget(input string) (path string, isDir bool, 
 }
 
 func looksLikePathInput(s string) bool {
+	sep := string(filepath.Separator)
 	return strings.HasPrefix(s, "~") ||
 		strings.HasPrefix(s, ".") ||
-		strings.HasPrefix(s, string(filepath.Separator)) ||
+		strings.HasPrefix(s, sep) ||
 		strings.Contains(s, "/") ||
-		strings.Contains(s, string(filepath.Separator))
+		// filepath.Separator is "/" on Unix, so this is only distinct on Windows.
+		(sep != "/" && strings.Contains(s, sep))
 }
 
 func expandTildePath(path string) (string, error) {
@@ -939,8 +942,9 @@ func expandTildePath(path string) (string, error) {
 		}
 		return home, nil
 	}
-	prefix := "~" + string(filepath.Separator)
-	if strings.HasPrefix(path, prefix) || strings.HasPrefix(path, "~/") {
+	// "~/" is the Unix form; "~\" is the Windows form when filepath.Separator is "\".
+	if strings.HasPrefix(path, "~/") ||
+		(filepath.Separator != '/' && strings.HasPrefix(path, "~"+string(filepath.Separator))) {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", err
