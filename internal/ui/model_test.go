@@ -2276,6 +2276,47 @@ func TestOpenFileDoneIgnoresStaleRequest(t *testing.T) {
 	}
 }
 
+func TestOpenFileDoneCurrentRequestErrorPreservesLoadedFile(t *testing.T) {
+	m := NewModel(nil, "", t.TempDir())
+	m.openReqID = 3
+
+	currentPath := filepath.Join(t.TempDir(), "new.csv")
+	if err := os.WriteFile(currentPath, []byte("a\n1\n"), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+
+	currentEngine, err := engine.New(currentPath)
+	if err != nil {
+		t.Fatalf("engine.New(%q): %v", currentPath, err)
+	}
+	t.Cleanup(func() { _ = currentEngine.Close() })
+
+	updated, _ := m.Update(openFileDoneMsg{
+		path:  currentPath,
+		eng:   currentEngine,
+		reqID: 3,
+	})
+	m = updated.(Model)
+
+	openErr := fmt.Errorf("boom")
+	updated, _ = m.Update(openFileDoneMsg{
+		path:  filepath.Join(t.TempDir(), "missing.csv"),
+		reqID: 3,
+		err:   openErr,
+	})
+	m = updated.(Model)
+
+	if m.engine != currentEngine {
+		t.Fatal("expected current engine to remain loaded after open error")
+	}
+	if m.fileName != "new.csv" {
+		t.Fatalf("expected file name to remain new.csv after open error, got %q", m.fileName)
+	}
+	if got := m.statusMsg; got != "Error opening file: boom" {
+		t.Fatalf("expected error status for current request, got %q", got)
+	}
+}
+
 func TestFilePickerPathQueryShowsHomeAutocomplete(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()

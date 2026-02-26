@@ -939,6 +939,7 @@ func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pickerGoUp()
 			return m, nil
 		}
+		// Intentionally handled by textinput.Update below when a query is present.
 	case "enter":
 		typed := strings.TrimSpace(m.pickerInput.Value())
 		if typed != "" && (looksLikePathInput(typed) || isSupportedDataFile(typed)) {
@@ -1020,7 +1021,6 @@ func looksLikePathInput(s string) bool {
 	sep := string(filepath.Separator)
 	return strings.HasPrefix(s, "~") ||
 		strings.HasPrefix(s, ".") ||
-		strings.HasPrefix(s, sep) ||
 		strings.Contains(s, "/") ||
 		// filepath.Separator is "/" on Unix, so this is only distinct on Windows.
 		(sep != "/" && strings.Contains(s, sep))
@@ -1041,9 +1041,11 @@ func expandTildePath(path string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		// Drop "~" plus a single path separator ("~/foo" or "~\\foo").
 		rest := strings.TrimPrefix(path, "~")
-		rest = strings.TrimPrefix(rest, string(filepath.Separator))
-		rest = strings.TrimPrefix(rest, "/")
+		if strings.HasPrefix(rest, "/") || strings.HasPrefix(rest, "\\") {
+			rest = rest[1:]
+		}
 		return filepath.Join(home, rest), nil
 	}
 	return path, nil
