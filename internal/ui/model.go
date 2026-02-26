@@ -1496,7 +1496,11 @@ func (m Model) viewColumns(w, h int) string {
 			if m.sel.IsSelected(col.Name) {
 				markChar = selectedMarkGlyph
 			}
-			plain := fmt.Sprintf("%s %s %s%s", markChar, namePart, typeStr, statsStr)
+			highlightNamePart := name
+			if hasNulls && nameWidth > 0 {
+				highlightNamePart += " •"
+			}
+			plain := fmt.Sprintf("%s %s %s%s", markChar, highlightNamePart, typeStr, statsStr)
 			if m.focus == FocusColumns {
 				lines = append(lines, clampLineWidth(highlightStyle.Width(w).Render(plain), w))
 			} else {

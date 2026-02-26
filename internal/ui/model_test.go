@@ -738,8 +738,16 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 		m.summaries["alpha"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
 
 		out := m.viewColumns(40, 6)
-		if !strings.Contains(out, "alpha "+nullDot) {
-			t.Fatalf("expected highlighted row to include null dot after alpha, got %q", out)
+		lines := strings.Split(out, "\n")
+		if len(lines) < 3 {
+			t.Fatalf("expected at least 3 lines from columns view, got %d", len(lines))
+		}
+
+		wantName := truncate("alpha", 40-12-nullDotWidth())
+		wantPlain := fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, wantName+" •", truncate("BIGINT", 8), " M:0% D:0%")
+		want := highlightStyle.Width(40).Render(wantPlain)
+		if lines[2] != want {
+			t.Fatalf("expected highlighted row render %q, got %q", want, lines[2])
 		}
 	})
 
