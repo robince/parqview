@@ -642,8 +642,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = OverlayNone
 			return m, nil
 		}
-		m.openFilePicker()
-		return m, textinput.Blink
+		return m, m.openFilePicker()
 	}
 
 	if m.overlay == OverlayFilePicker {
@@ -792,15 +791,16 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) openFilePicker() {
+func (m *Model) openFilePicker() tea.Cmd {
 	m.searchFocused = false
 	m.overlay = OverlayFilePicker
 	m.pickerDir = m.launchDir
-	m.pickerInput.Focus()
+	focusCmd := m.pickerInput.Focus()
 	m.pickerInput.SetValue("")
 	m.pickerQuery = ""
 	m.pickerCursor = 0
 	m.refreshPickerItems()
+	return focusCmd
 }
 
 func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
