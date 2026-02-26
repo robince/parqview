@@ -334,6 +334,240 @@ func TestHandleTableKeyHorizontalNavigationPagingBoundaries(t *testing.T) {
 	})
 }
 
+func TestHandleTableKeyHorizontalLeftKeepsViewportUntilLeftEdge(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c6"
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
+	}
+	if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 3 {
+		t.Fatalf("expected initial start col 3 for selected c6, got %d", startCol)
+	}
+
+	cases := []struct {
+		key              string
+		expectedSelected string
+		expectedStartCol int
+	}{
+		{key: "left", expectedSelected: "c5", expectedStartCol: 3},
+		{key: "left", expectedSelected: "c4", expectedStartCol: 3},
+		{key: "left", expectedSelected: "c3", expectedStartCol: 3},
+		{key: "left", expectedSelected: "c2", expectedStartCol: 2},
+	}
+
+	for _, tc := range cases {
+		updated, cmd := m.handleTableKey(tc.key)
+		if cmd != nil {
+			t.Fatalf("expected no load command for horizontal key %q", tc.key)
+		}
+		m = updated.(Model)
+
+		if m.selectedColName != tc.expectedSelected {
+			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
+		}
+		startCol := m.computeTableColOff(m.visibleColCount())
+		if startCol != tc.expectedStartCol {
+			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
+		}
+	}
+}
+
+func TestHandleTableKeyHorizontalRightKeepsViewportUntilRightEdge(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c0"
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
+	}
+	if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 0 {
+		t.Fatalf("expected initial start col 0 for selected c0, got %d", startCol)
+	}
+
+	cases := []struct {
+		key              string
+		expectedSelected string
+		expectedStartCol int
+	}{
+		{key: "right", expectedSelected: "c1", expectedStartCol: 0},
+		{key: "right", expectedSelected: "c2", expectedStartCol: 0},
+		{key: "right", expectedSelected: "c3", expectedStartCol: 0},
+		{key: "right", expectedSelected: "c4", expectedStartCol: 1},
+	}
+
+	for _, tc := range cases {
+		updated, cmd := m.handleTableKey(tc.key)
+		if cmd != nil {
+			t.Fatalf("expected no load command for horizontal key %q", tc.key)
+		}
+		m = updated.(Model)
+
+		if m.selectedColName != tc.expectedSelected {
+			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
+		}
+		startCol := m.computeTableColOff(m.visibleColCount())
+		if startCol != tc.expectedStartCol {
+			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
+		}
+	}
+}
+
+func TestHandleTableKeyHorizontalLeftClampAtLeftBoundary(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c2"
+	// Pin viewport so c2 is visible at startCol=2 initially.
+	m.tableColOffHint = 2
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
+	}
+
+	// Navigate left from c2 to c0, exercising the max(0, startCol-1) clamp.
+	cases := []struct {
+		key              string
+		expectedSelected string
+		expectedStartCol int
+	}{
+		{key: "left", expectedSelected: "c1", expectedStartCol: 1},
+		{key: "left", expectedSelected: "c0", expectedStartCol: 0},
+	}
+
+	for _, tc := range cases {
+		updated, cmd := m.handleTableKey(tc.key)
+		if cmd != nil {
+			t.Fatalf("expected no load command for horizontal key %q", tc.key)
+		}
+		m = updated.(Model)
+
+		if m.selectedColName != tc.expectedSelected {
+			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
+		}
+		startCol := m.computeTableColOff(m.visibleColCount())
+		if startCol != tc.expectedStartCol {
+			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
+		}
+	}
+
+	// One more left press at c0 should be a no-op (idx == 0, not idx > 0).
+	updated, cmd := m.handleTableKey("left")
+	if cmd != nil {
+		t.Fatalf("expected no load command pressing left at c0")
+	}
+	m = updated.(Model)
+	if m.selectedColName != "c0" {
+		t.Fatalf("expected selectedColName to remain c0, got %q", m.selectedColName)
+	}
+	startCol := m.computeTableColOff(m.visibleColCount())
+	if startCol != 0 {
+		t.Fatalf("expected startCol to remain 0, got %d", startCol)
+	}
+}
+
+func TestHandleTableKeyHorizontalRightClampAtRightBoundary(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c4"
+	// Pin viewport so c4..c7 are visible at startCol=4.
+	m.tableColOffHint = 4
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
+	}
+
+	// Navigate right from c4 to c9, exercising the min(maxStart, startCol+1) clamp.
+	cases := []struct {
+		key              string
+		expectedSelected string
+		expectedStartCol int
+	}{
+		{key: "right", expectedSelected: "c5", expectedStartCol: 4},
+		{key: "right", expectedSelected: "c6", expectedStartCol: 4},
+		{key: "right", expectedSelected: "c7", expectedStartCol: 4},
+		{key: "right", expectedSelected: "c8", expectedStartCol: 5},
+		{key: "right", expectedSelected: "c9", expectedStartCol: 6},
+	}
+
+	for _, tc := range cases {
+		updated, cmd := m.handleTableKey(tc.key)
+		if cmd != nil {
+			t.Fatalf("expected no load command for horizontal key %q", tc.key)
+		}
+		m = updated.(Model)
+
+		if m.selectedColName != tc.expectedSelected {
+			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
+		}
+		startCol := m.computeTableColOff(m.visibleColCount())
+		if startCol != tc.expectedStartCol {
+			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
+		}
+	}
+
+	// One more right press at c9 should be a no-op (idx == len-1).
+	updated, cmd := m.handleTableKey("right")
+	if cmd != nil {
+		t.Fatalf("expected no load command pressing right at c9")
+	}
+	m = updated.(Model)
+	if m.selectedColName != "c9" {
+		t.Fatalf("expected selectedColName to remain c9, got %q", m.selectedColName)
+	}
+	startCol := m.computeTableColOff(m.visibleColCount())
+	if startCol != 6 {
+		t.Fatalf("expected startCol to remain 6, got %d", startCol)
+	}
+}
+
+func TestHandleTableKeyHorizontalRoundTrip(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c0"
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
+	}
+
+	// Navigate right from c0 to c9.
+	for i := 0; i < 9; i++ {
+		updated, cmd := m.handleTableKey("right")
+		if cmd != nil {
+			t.Fatalf("right step %d: expected no load command", i+1)
+		}
+		m = updated.(Model)
+	}
+	if m.selectedColName != "c9" {
+		t.Fatalf("expected c9 after full right traversal, got %q", m.selectedColName)
+	}
+	startCol := m.computeTableColOff(m.visibleColCount())
+	if startCol != 6 {
+		t.Fatalf("expected startCol=6 at c9, got %d", startCol)
+	}
+
+	// Navigate left from c9 back to c0.
+	for i := 0; i < 9; i++ {
+		updated, cmd := m.handleTableKey("left")
+		if cmd != nil {
+			t.Fatalf("left step %d: expected no load command", i+1)
+		}
+		m = updated.(Model)
+	}
+	if m.selectedColName != "c0" {
+		t.Fatalf("expected c0 after full left traversal, got %q", m.selectedColName)
+	}
+	startCol = m.computeTableColOff(m.visibleColCount())
+	if startCol != 0 {
+		t.Fatalf("expected startCol=0 at c0, got %d", startCol)
+	}
+}
+
 func TestHandleTableKeyGPositionsCursorAtFinalRow(t *testing.T) {
 	m := newTestModel()
 	m.width = 120
@@ -413,17 +647,46 @@ func TestHandleTableKeyHorizontalNoOpWhenZeroVisibleCols(t *testing.T) {
 		t.Fatalf("expected zero visible columns at width %d, got %d", m.width, got)
 	}
 
-	for _, key := range []string{"left", "h", "right", "l"} {
-		updated, cmd := m.handleTableKey(key)
+	// left/h: already at left edge, cursor stays; right/l: cursor advances but hint must not be corrupted.
+	leftRightCases := []struct {
+		key         string
+		wantColName string
+	}{
+		{"left", "a"},
+		{"h", "a"},
+		{"right", "b"},
+		{"l", "b"},
+	}
+	for _, tc := range leftRightCases {
+		updated, cmd := m.handleTableKey(tc.key)
 		if cmd != nil {
-			t.Errorf("key %q: expected no command, got %v", key, cmd)
+			t.Errorf("key %q: expected no command, got %v", tc.key, cmd)
 		}
 		um := updated.(Model)
-		if um.selectedColName != m.selectedColName {
-			t.Errorf("key %q: expected selectedColName %q, got %q", key, m.selectedColName, um.selectedColName)
+		if um.selectedColName != tc.wantColName {
+			t.Errorf("key %q: expected selectedColName %q, got %q", tc.key, tc.wantColName, um.selectedColName)
 		}
 		if um.tableColOffHint != m.tableColOffHint {
-			t.Errorf("key %q: expected tableColOffHint %d, got %d", key, m.tableColOffHint, um.tableColOffHint)
+			t.Errorf("key %q: tableColOffHint changed from %d to %d", tc.key, m.tableColOffHint, um.tableColOffHint)
+		}
+		if h := um.tableColOffHint; h != -1 && (h < 0 || h >= len(m.tableCols)) {
+			t.Errorf("key %q: tableColOffHint %d out of bounds for %d columns", tc.key, h, len(m.tableCols))
+		}
+	}
+
+	m.selectedColName = "b"
+	m.tableColOffHint = -1
+	for _, key := range []string{"left", "h"} {
+		updated, cmd := m.handleTableKey(key)
+		if cmd != nil {
+			t.Errorf("key %q from b: expected no command, got %v", key, cmd)
+		}
+		um := updated.(Model)
+		if um.selectedColName != "a" {
+			t.Errorf("key %q from b: expected selectedColName %q, got %q", key, "a", um.selectedColName)
+		}
+		if um.tableColOffHint != -1 {
+			t.Errorf("key %q from b: expected tableColOffHint to remain -1, got %d", key, um.tableColOffHint)
 		}
 	}
 }

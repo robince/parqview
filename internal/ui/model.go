@@ -860,7 +860,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 	if (key == "up" || key == "k" || key == "down" || key == "j") && m.visibleTableRows() == 0 {
 		return m, nil
 	}
-	if (key == "left" || key == "h" || key == "right" || key == "l") && m.visibleColCount() == 0 {
+	if (key == "left" || key == "h" || key == "right" || key == "l") && len(m.tableCols) == 0 {
 		return m, nil
 	}
 	switch key {
@@ -892,22 +892,53 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "left", "h":
-		m.tableColOffHint = -1
 		idx := m.tableColCursor()
 		if idx > 0 {
+			visibleCols := m.visibleColCount()
+			if visibleCols > 0 {
+				startCol := m.computeTableColOff(visibleCols)
+				if idx > startCol {
+					// Cursor can move within the current viewport; keep it fixed.
+					m.tableColOffHint = startCol
+				} else {
+					// Cursor is at the left edge; now shift viewport left with it.
+					m.tableColOffHint = max(0, startCol-1)
+				}
+			}
 			m.selectedColName = m.tableCols[idx-1]
 			m.syncCursorFromSelectedColName()
 		} else if idx < 0 && len(m.tableCols) > 0 {
+			m.tableColOffHint = -1
 			m.selectedColName = m.tableCols[0]
 			m.syncCursorFromSelectedColName()
 		}
 	case "right", "l":
-		m.tableColOffHint = -1
 		idx := m.tableColCursor()
 		if idx >= 0 && idx < len(m.tableCols)-1 {
-			m.selectedColName = m.tableCols[idx+1]
+			nextIdx := idx + 1
+			visibleCols := m.visibleColCount()
+			if visibleCols > 0 {
+				startCol := m.computeTableColOff(visibleCols)
+				endCol := startCol + visibleCols - 1
+				if endCol >= len(m.tableCols) {
+					endCol = len(m.tableCols) - 1
+				}
+				if idx < endCol {
+					// Cursor can move within the current viewport; keep it fixed.
+					m.tableColOffHint = startCol
+				} else {
+					// Cursor is at the right edge; now shift viewport right with it.
+					maxStart := len(m.tableCols) - visibleCols
+					if maxStart < 0 {
+						maxStart = 0
+					}
+					m.tableColOffHint = min(maxStart, startCol+1)
+				}
+			}
+			m.selectedColName = m.tableCols[nextIdx]
 			m.syncCursorFromSelectedColName()
 		} else if idx < 0 && len(m.tableCols) > 0 {
+			m.tableColOffHint = -1
 			m.selectedColName = m.tableCols[0]
 			m.syncCursorFromSelectedColName()
 		}
