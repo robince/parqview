@@ -233,7 +233,7 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 		m := newCmdTestModel()
 		m.focus = FocusColumns
 		m.columns = []types.ColumnInfo{
-			{Name: "alpha", DuckType: "INTEGER"},
+			{Name: "alpha", DuckType: "DOUBLE"},
 			{Name: "beta", DuckType: "VARCHAR"},
 		}
 		m.selectedColName = "alpha"
@@ -251,8 +251,8 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 		if m.overlay != OverlayDetail {
 			t.Fatalf("expected detail overlay, got %v", m.overlay)
 		}
-		if m.detailTab != 0 {
-			t.Fatalf("expected top-values tab (0) for INTEGER column, got %d", m.detailTab)
+		if m.detailTab != 1 {
+			t.Fatalf("expected stats tab (1) for DOUBLE column, got %d", m.detailTab)
 		}
 	})
 }
