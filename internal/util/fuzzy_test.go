@@ -23,6 +23,9 @@ func TestFuzzyMatch(t *testing.T) {
 		{name: "multi-term narrows results", s: "normalized_mean_index", query: "nmi mean", want: true},
 		{name: "multi-term excludes partial matches", s: "normalized_max_index", query: "nmi mean", want: false},
 		{name: "multi-term excludes acronym-only match", s: "near_market_inventory", query: "nmi mean", want: false},
+		{name: "all-underscore query shows all", s: "hello_world", query: "___", want: true},
+		{name: "all-dash query shows all", s: "hello_world", query: "---", want: true},
+		{name: "whitespace-only query shows all", s: "hello_world", query: "   ", want: true},
 	}
 	for _, tt := range tests {
 		got := FuzzyMatch(tt.s, tt.query)
