@@ -377,9 +377,6 @@ func (m *Model) clampColumnsListState() {
 	if m.colCursor >= m.colListOff+listHeight {
 		m.colListOff = m.colCursor - listHeight + 1
 	}
-	if m.colListOff > maxOff {
-		m.colListOff = maxOff
-	}
 }
 
 func (m *Model) applyColumnsStep(step int) {
@@ -815,13 +812,11 @@ func (m *Model) reconcileSelectedColNameWithTableCols() {
 	for _, name := range m.tableCols {
 		if name == m.selectedColName {
 			m.syncCursorFromSelectedColName()
-			m.clampColumnsListState()
 			return
 		}
 	}
 	m.selectedColName = m.tableCols[0]
 	m.syncCursorFromSelectedColName()
-	m.clampColumnsListState()
 }
 
 func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
