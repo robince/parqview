@@ -2345,6 +2345,18 @@ func TestViewTableFooterShowsRowWhenNotProjected(t *testing.T) {
 	}
 }
 
+func TestViewTableFooterShowsCorrectRowAfterScrolling(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.tableData = [][]string{{"x"}}
+	m.tableOffset = 9 // scrolled down 9 rows, cursor at first visible row → row 10
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, "Row 10") {
+		t.Fatalf("expected footer to show Row 10 after scrolling, got %q", footer)
+	}
+}
+
 func TestViewTableFooterSanitizesControlChars(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
