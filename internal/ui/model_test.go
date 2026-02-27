@@ -747,6 +747,9 @@ func TestHandleTableKeyRightHintDoesNotMoveLeftWhenHintIsStaleAfterResize(t *tes
 	if m.tableColOffHint < startCol {
 		t.Fatalf("expected hint to stay at or right of prior startCol %d, got %d", startCol, m.tableColOffHint)
 	}
+	if m.tableColOffHint != startCol {
+		t.Fatalf("expected hint to clamp to prior startCol %d, got %d", startCol, m.tableColOffHint)
+	}
 }
 
 func TestHandleTableKeyHorizontalRoundTrip(t *testing.T) {
@@ -1465,6 +1468,9 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 	m.summaries["b"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
 
 	w, h := m.tablePaneDimensions()
+	if w <= 0 || h <= 0 {
+		t.Fatalf("expected non-degenerate table pane dimensions, got w=%d h=%d", w, h)
+	}
 	out := m.viewTable(w, h)
 	lines := strings.Split(out, "\n")
 	if len(lines) < 4 {
