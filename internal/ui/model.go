@@ -2108,7 +2108,7 @@ func (m Model) pageColumnsHorizontal(direction int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	visibleCols := endCol - startCol
-	var newStart int
+	newStart := startCol
 	switch {
 	case direction < 0:
 		newStart = max(0, startCol-visibleCols)
@@ -2668,8 +2668,11 @@ func (m Model) viewTableFooter() string {
 			} else {
 				parts = append(parts, fmt.Sprintf("R%d %s%s: %s", absRow, colName, typeInfo, value))
 			}
+		} else {
+			// Column selected but not projected.
+			colName := truncateDisplayMiddle(m.selectedColName, 20)
+			parts = append(parts, fmt.Sprintf("R%d %s: <not projected>", absRow, colName))
 		}
-		// Column selected but not projected → blank footer (no parts added).
 	}
 	return strings.Join(parts, "    ")
 }

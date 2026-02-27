@@ -2316,6 +2316,9 @@ func TestViewTableFooterShowsRowWhenNoColumnSelected(t *testing.T) {
 	if !strings.Contains(footer, "Row 1") {
 		t.Fatalf("expected footer to show row number when no column selected, got %q", footer)
 	}
+	if strings.Contains(footer, "a:") {
+		t.Fatalf("expected no column info when no column selected, got %q", footer)
+	}
 }
 
 func TestViewTableFooterIncludesCellValue(t *testing.T) {
@@ -2333,18 +2336,15 @@ func TestViewTableFooterIncludesCellValue(t *testing.T) {
 	}
 }
 
-func TestViewTableFooterBlankWhenNotProjected(t *testing.T) {
+func TestViewTableFooterShowsNotProjected(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
 	m.selectedColName = "b" // not in tableCols → not projected
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
-	// With non-empty tableData and a selected column that isn't projected,
-	// the footer should be blank. TestViewTableFooterIncludesCellValue
-	// covers the non-empty case when the column *is* projected.
-	if footer != "" {
-		t.Fatalf("expected blank footer when column not projected, got %q", footer)
+	if !strings.Contains(footer, "R1 b: <not projected>") {
+		t.Fatalf("expected footer to show column as not projected, got %q", footer)
 	}
 }
 
@@ -2357,6 +2357,13 @@ func TestViewTableFooterShowsCorrectRowAfterScrolling(t *testing.T) {
 	footer := m.viewTableFooter()
 	if !strings.Contains(footer, "Row 10") {
 		t.Fatalf("expected footer to show Row 10 after scrolling, got %q", footer)
+	}
+
+	// Also verify row number with a selected column (uses R%d format).
+	m.selectedColName = "a"
+	footer = m.viewTableFooter()
+	if !strings.Contains(footer, "R10 a: ") {
+		t.Fatalf("expected footer to show R10 with selected column after scrolling, got %q", footer)
 	}
 }
 
