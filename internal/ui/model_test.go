@@ -836,6 +836,7 @@ func TestHandleTableKeyHorizontalPagingWithWidthOverride(t *testing.T) {
 		t.Fatalf("expected selected c1 after first ], got %q", m.selectedColName)
 	}
 	firstStart := m.computeTableColOff()
+	// c1 is forced wide enough that paging right once should anchor the viewport at c1.
 	if firstStart != 1 {
 		t.Fatalf("expected start col 1 after first ], got %d", firstStart)
 	}
