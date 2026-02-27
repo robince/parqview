@@ -1678,6 +1678,7 @@ func TestViewTableDoesNotOverflowWidthWithRowPrefix(t *testing.T) {
 		{"v0", "v1", "v2", "v3"},
 	}
 
+	// Keep this at 60 so tablePaneDimensions() resolves to the 34-column overflow boundary.
 	m.width = 60
 	m.height = 10
 	w, h := m.tablePaneDimensions()
