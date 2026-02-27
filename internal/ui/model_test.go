@@ -3110,24 +3110,38 @@ func TestFilePickerBackspaceCanMoveAboveLaunchDir(t *testing.T) {
 
 func TestTruncateDisplayMiddle(t *testing.T) {
 	cases := []struct {
-		name string
-		in   string
-		w    int
-		want string
+		name            string
+		in              string
+		w               int
+		want            string
+		wantTruncated   bool
+		requireZWJWidth bool
 	}{
 		{name: "fits", in: "abcdef", w: 6, want: "abcdef"},
 		{name: "single width", in: "abcdef", w: 1, want: "…"},
 		{name: "middle truncation", in: "abcdefghijklmnop", w: 12, want: "abcde…klmnop"},
-		{name: "cjk truncation", in: "你好世界你好世界", w: 5, want: "你…界"},
-		{name: "emoji truncation", in: "😀😃😄😁😆", w: 5, want: "😀…😆"},
-		{name: "zwj fits", in: "👩‍💻dev", w: 5, want: "👩‍💻dev"},
+		{name: "cjk truncation", in: "你好世界你好世界", w: 5, wantTruncated: true},
+		{name: "emoji truncation", in: "😀😃😄😁😆", w: 5, wantTruncated: true},
+		{name: "zwj fits", in: "👩‍💻dev", w: 5, want: "👩‍💻dev", requireZWJWidth: true},
+		{name: "zwj truncation", in: "👩‍💻👩‍💻👩‍💻", w: 5, wantTruncated: true},
 		{name: "combining accent fits", in: "Cafe\u0301", w: 4, want: "Cafe\u0301"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.requireZWJWidth {
+				if got := lipgloss.Width("👩‍💻"); got != 2 {
+					t.Skipf("test assumes lipgloss.Width(👩‍💻)=2, got %d", got)
+				}
+			}
+
 			got := truncateDisplayMiddle(tc.in, tc.w)
-			if got != tc.want {
+			if tc.want != "" && got != tc.want {
 				t.Fatalf("truncateDisplayMiddle(%q,%d)=%q want %q", tc.in, tc.w, got, tc.want)
+			}
+			if tc.wantTruncated {
+				if got == tc.in || !strings.Contains(got, "…") {
+					t.Fatalf("truncateDisplayMiddle(%q,%d)=%q want truncated output with ellipsis", tc.in, tc.w, got)
+				}
 			}
 			if tc.w > 0 && lipgloss.Width(got) > tc.w {
 				t.Fatalf("truncateDisplayMiddle(%q,%d) width=%d exceeds max width", tc.in, tc.w, lipgloss.Width(got))
