@@ -2325,8 +2325,8 @@ func TestViewTableFooterIncludesCellValue(t *testing.T) {
 	m.tableData = [][]string{{strings.Repeat("x", 120)}}
 
 	footer := m.viewTableFooter()
-	if !strings.HasPrefix(footer, "a: ") {
-		t.Fatalf("expected footer to start with column name, got %q", footer)
+	if !strings.Contains(footer, "a: ") {
+		t.Fatalf("expected footer to include column name, got %q", footer)
 	}
 	if !strings.Contains(footer, "…") {
 		t.Fatalf("expected long cell value to be truncated with ellipsis, got %q", footer)
@@ -2364,7 +2364,7 @@ func TestViewTableFooterSanitizesControlChars(t *testing.T) {
 	m.tableData = [][]string{{"line1\nline2\r\x1b[31mred\tx"}}
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, `a: line1\nline2\r\x1b[31mred\tx`) {
+	if !strings.Contains(footer, `R1 a: line1\nline2\r\x1b[31mred\tx`) {
 		t.Fatalf("expected footer to sanitize control characters, got %q", footer)
 	}
 }
@@ -2404,6 +2404,9 @@ func TestViewTableMinimalHeightFooterBehavior(t *testing.T) {
 	if !strings.Contains(out, "x") {
 		t.Fatalf("expected data row content at minimal height, got %q", out)
 	}
+	if strings.Contains(out, "R1 a:") {
+		t.Fatalf("expected footer not to replace the only visible data row, got %q", out)
+	}
 	m.height = 8
 	if m.visibleTableRows() == 0 {
 		t.Fatal("expected test setup to allow at least one visible data row")
@@ -2413,7 +2416,7 @@ func TestViewTableMinimalHeightFooterBehavior(t *testing.T) {
 	if strings.Contains(out, "Terminal too small to display rows") {
 		t.Fatalf("expected table output when one data row fits, got %q", out)
 	}
-	if !strings.Contains(out, "a: ") {
+	if !strings.Contains(out, "R1 a: ") {
 		t.Fatalf("expected footer with column info when data row fits, got %q", out)
 	}
 }
@@ -2460,7 +2463,7 @@ func TestViewTableFooterNonEmptyOmitsFilterContext(t *testing.T) {
 	m.filterRows = 1
 
 	footer := m.viewTableFooter()
-	if !strings.HasPrefix(footer, "a: ") {
+	if !strings.Contains(footer, "a: ") {
 		t.Fatalf("expected column info in non-empty footer, got %q", footer)
 	}
 	if strings.Contains(footer, "Filter active") {

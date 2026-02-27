@@ -2108,7 +2108,7 @@ func (m Model) pageColumnsHorizontal(direction int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	visibleCols := endCol - startCol
-	var newStart int
+	newStart := startCol
 	switch {
 	case direction < 0:
 		newStart = max(0, startCol-visibleCols)
@@ -2661,10 +2661,10 @@ func (m Model) viewTableFooter() string {
 			value := sanitizeInlineDisplayPreview(row[colIdx], 80)
 
 			if s, ok := m.summaries[m.selectedColName]; ok && s.Loaded {
-				parts = append(parts, fmt.Sprintf("%s%s: %s (%d missing, %.1f%%)",
-					colName, typeInfo, value, s.MissingCount, s.MissingPct))
+				parts = append(parts, fmt.Sprintf("R%d %s%s: %s (%d missing, %.1f%%)",
+					absRow, colName, typeInfo, value, s.MissingCount, s.MissingPct))
 			} else {
-				parts = append(parts, fmt.Sprintf("%s%s: %s", colName, typeInfo, value))
+				parts = append(parts, fmt.Sprintf("R%d %s%s: %s", absRow, colName, typeInfo, value))
 			}
 		} else {
 			parts = append(parts, fmt.Sprintf("Row %d", absRow))
