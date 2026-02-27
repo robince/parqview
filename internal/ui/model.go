@@ -1491,6 +1491,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 	case "/":
 		m.searchFocused = true
 		m.searchInput.Focus()
+		m.updateFilteredCols()
 		return m, textinput.Blink
 	case "esc":
 		if m.searchQuery != "" {

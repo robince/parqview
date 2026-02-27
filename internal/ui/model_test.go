@@ -1494,6 +1494,9 @@ func TestShowSelectedInColumnsIgnoredWhileSearchingAndRestoredAfterClear(t *test
 
 	updated, _ := m.handleColumnsKey("/")
 	m = updated.(Model)
+	if len(m.filteredCols) != 3 {
+		t.Fatalf("expected / to immediately activate search filtering and show all columns, got %#v", m.filteredCols)
+	}
 	for _, r := range "beta" {
 		updated, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		m = updated.(Model)
