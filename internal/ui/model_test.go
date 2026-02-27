@@ -3498,6 +3498,9 @@ func TestApplyEngineResetsTableColWidths(t *testing.T) {
 
 	m.applyEngine(eng, filepath.Base(path))
 
+	if m.tableColWidths == nil {
+		t.Fatal("expected non-nil tableColWidths after applyEngine")
+	}
 	if len(m.tableColWidths) != 0 {
 		t.Fatalf("expected tableColWidths cleared on engine apply, got %v", m.tableColWidths)
 	}
