@@ -20,8 +20,9 @@ const (
 	topBottomBarPadW  = 2 // horizontal padding in top/bottom bar styles
 
 	// Table layout constants
-	// Invariant: tableColWidth >= tableColMinWidth (renderRowCells relies on this).
-	tableColWidth      = 14 // fixed column width for v1
+	// Invariant: tableColWidth/tableColWideWidth >= tableColMinWidth (renderRowCells relies on this).
+	tableColWidth      = 14 // default table column width
+	tableColWideWidth  = 30 // wide-mode table column width
 	tableColMinWidth   = 4
 	tableRowNumW       = 6 // row number column width
 	tableRowPrefixW    = 1 // prefix space for null dot alignment
@@ -110,6 +111,7 @@ var (
 	inlineNullDotW      = lipgloss.Width(" " + nullDot) // inline indicator is rendered as " " + dot
 	nullDotHeader       = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("62")).Render(nullDotChar)
 	nullDotActiveHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("69")).Render(nullDotChar)
+	tableHeaderNullDotW = max(lipgloss.Width(nullDotHeader), lipgloss.Width(nullDotActiveHeader))
 
 	// Column list
 	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)
@@ -160,4 +162,8 @@ var (
 
 func inlineNullDotWidth() int {
 	return inlineNullDotW
+}
+
+func tableHeaderNullDotWidth() int {
+	return tableHeaderNullDotW
 }

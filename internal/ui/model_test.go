@@ -639,6 +639,94 @@ func TestDefaultDetailTab(t *testing.T) {
 	}
 }
 
+func TestViewportStartForCursor(t *testing.T) {
+	cases := []struct {
+		name         string
+		tableCols    []string
+		tableColW    map[string]int
+		cursor       int
+		colAreaWidth int
+		wantStart    int
+	}{
+		{
+			name:         "cursor at first column",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       0,
+			colAreaWidth: 15,
+			wantStart:    0,
+		},
+		{
+			name:         "cursor at last column packs left",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       3,
+			colAreaWidth: 15,
+			wantStart:    2,
+		},
+		{
+			name:         "middle cursor packs as far left as possible",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       2,
+			colAreaWidth: 15,
+			wantStart:    1,
+		},
+		{
+			name:         "all columns fit returns first column",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       2,
+			colAreaWidth: 50,
+			wantStart:    0,
+		},
+		{
+			name:         "cursor below range clamps to zero",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       -1,
+			colAreaWidth: 15,
+			wantStart:    0,
+		},
+		{
+			name:         "cursor above range clamps to last",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       99,
+			colAreaWidth: 15,
+			wantStart:    2,
+		},
+		{
+			name:         "narrow viewport returns clamped cursor",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       2,
+			colAreaWidth: tableColMinWidth - 1,
+			wantStart:    2,
+		},
+		{
+			name:         "active column wider than viewport stays anchored",
+			tableCols:    []string{"c0", "c1", "c2"},
+			tableColW:    map[string]int{"c0": 5, "c1": 100, "c2": 5},
+			cursor:       1,
+			colAreaWidth: 10,
+			wantStart:    1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel()
+			m.tableCols = tc.tableCols
+			m.tableColWidths = tc.tableColW
+
+			if got := m.viewportStartForCursor(tc.cursor, tc.colAreaWidth); got != tc.wantStart {
+				t.Fatalf("viewportStartForCursor(%d, %d) = %d, want %d", tc.cursor, tc.colAreaWidth, got, tc.wantStart)
+			}
+		})
+	}
+}
+
 func TestHandleTableKeyHorizontalNavigationTracksViewportPaging(t *testing.T) {
 	m := newTestModel()
 	m.width = 100
@@ -678,7 +766,7 @@ func TestHandleTableKeyHorizontalNavigationTracksViewportPaging(t *testing.T) {
 			if m.selectedColName != tc.expectedSelected {
 				t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
 			}
-			startCol := m.computeTableColOff(m.visibleColCount())
+			startCol := m.computeTableColOff()
 			if startCol != tc.expectedStartCol {
 				t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
 			}
@@ -702,7 +790,7 @@ func TestHandleTableKeyHorizontalNavigationPagingBoundaries(t *testing.T) {
 		if m.selectedColName != "c0" {
 			t.Fatalf("expected selected column to remain %q, got %q", "c0", m.selectedColName)
 		}
-		if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 0 {
+		if startCol := m.computeTableColOff(); startCol != 0 {
 			t.Fatalf("expected start col to remain 0, got %d", startCol)
 		}
 	})
@@ -725,7 +813,7 @@ func TestHandleTableKeyHorizontalNavigationPagingBoundaries(t *testing.T) {
 		if m.selectedColName != "c1" {
 			t.Fatalf("expected selected column to remain %q, got %q", "c1", m.selectedColName)
 		}
-		if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 0 {
+		if startCol := m.computeTableColOff(); startCol != 0 {
 			t.Fatalf("expected start col to remain 0, got %d", startCol)
 		}
 	})
@@ -740,7 +828,7 @@ func TestHandleTableKeyHorizontalLeftKeepsViewportUntilLeftEdge(t *testing.T) {
 	if got := m.visibleColCount(); got != 4 {
 		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
 	}
-	if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 3 {
+	if startCol := m.computeTableColOff(); startCol != 3 {
 		t.Fatalf("expected initial start col 3 for selected c6, got %d", startCol)
 	}
 
@@ -765,7 +853,7 @@ func TestHandleTableKeyHorizontalLeftKeepsViewportUntilLeftEdge(t *testing.T) {
 		if m.selectedColName != tc.expectedSelected {
 			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
 		}
-		startCol := m.computeTableColOff(m.visibleColCount())
+		startCol := m.computeTableColOff()
 		if startCol != tc.expectedStartCol {
 			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
 		}
@@ -781,7 +869,7 @@ func TestHandleTableKeyHorizontalRightKeepsViewportUntilRightEdge(t *testing.T) 
 	if got := m.visibleColCount(); got != 4 {
 		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
 	}
-	if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 0 {
+	if startCol := m.computeTableColOff(); startCol != 0 {
 		t.Fatalf("expected initial start col 0 for selected c0, got %d", startCol)
 	}
 
@@ -806,7 +894,7 @@ func TestHandleTableKeyHorizontalRightKeepsViewportUntilRightEdge(t *testing.T) 
 		if m.selectedColName != tc.expectedSelected {
 			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
 		}
-		startCol := m.computeTableColOff(m.visibleColCount())
+		startCol := m.computeTableColOff()
 		if startCol != tc.expectedStartCol {
 			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
 		}
@@ -845,7 +933,7 @@ func TestHandleTableKeyHorizontalLeftClampAtLeftBoundary(t *testing.T) {
 		if m.selectedColName != tc.expectedSelected {
 			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
 		}
-		startCol := m.computeTableColOff(m.visibleColCount())
+		startCol := m.computeTableColOff()
 		if startCol != tc.expectedStartCol {
 			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
 		}
@@ -860,7 +948,7 @@ func TestHandleTableKeyHorizontalLeftClampAtLeftBoundary(t *testing.T) {
 	if m.selectedColName != "c0" {
 		t.Fatalf("expected selectedColName to remain c0, got %q", m.selectedColName)
 	}
-	startCol := m.computeTableColOff(m.visibleColCount())
+	startCol := m.computeTableColOff()
 	if startCol != 0 {
 		t.Fatalf("expected startCol to remain 0, got %d", startCol)
 	}
@@ -901,7 +989,7 @@ func TestHandleTableKeyHorizontalRightClampAtRightBoundary(t *testing.T) {
 		if m.selectedColName != tc.expectedSelected {
 			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
 		}
-		startCol := m.computeTableColOff(m.visibleColCount())
+		startCol := m.computeTableColOff()
 		if startCol != tc.expectedStartCol {
 			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
 		}
@@ -916,9 +1004,96 @@ func TestHandleTableKeyHorizontalRightClampAtRightBoundary(t *testing.T) {
 	if m.selectedColName != "c9" {
 		t.Fatalf("expected selectedColName to remain c9, got %q", m.selectedColName)
 	}
-	startCol := m.computeTableColOff(m.visibleColCount())
+	startCol := m.computeTableColOff()
 	if startCol != 6 {
 		t.Fatalf("expected startCol to remain 6, got %d", startCol)
+	}
+}
+
+func TestTableViewportClampsHintAboveMaxStart(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c9"
+	m.tableColOffHint = len(m.tableCols) - 1
+
+	colAreaWidth := m.tableColAreaWidth()
+	if colAreaWidth < tableColMinWidth {
+		t.Fatalf("expected test setup with visible columns, got colAreaWidth=%d", colAreaWidth)
+	}
+	maxStart := m.maxViewportStart(colAreaWidth)
+	if maxStart >= m.tableColOffHint {
+		t.Fatalf("expected hint %d to exceed maxStart %d in setup", m.tableColOffHint, maxStart)
+	}
+
+	startCol, endCol := m.tableViewport()
+	if startCol != maxStart {
+		t.Fatalf("expected clamped startCol %d, got %d", maxStart, startCol)
+	}
+	if endCol != len(m.tableCols) {
+		t.Fatalf("expected viewport to include last column, got endCol=%d len=%d", endCol, len(m.tableCols))
+	}
+}
+
+func TestHandleTableKeyRightHintStaysWithinBoundsWhenShifting(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c0"
+	sawShift := false
+
+	for i := 0; i < len(m.tableCols)-1; i++ {
+		startCol, endCol := m.tableViewport()
+		idx := m.tableColCursor()
+
+		updated, cmd := m.handleTableKey("right")
+		if cmd != nil {
+			t.Fatalf("step %d: expected no load command for right key", i+1)
+		}
+		m = updated.(Model)
+
+		if idx == endCol-1 {
+			sawShift = true
+			colAreaWidth := m.tableColAreaWidth()
+			maxStart := max(0, m.maxViewportStart(colAreaWidth))
+			if m.tableColOffHint < startCol {
+				t.Fatalf("step %d: expected hint >= prior startCol (%d), got %d", i+1, startCol, m.tableColOffHint)
+			}
+			if m.tableColOffHint > maxStart {
+				t.Fatalf("step %d: expected hint <= maxStart (%d), got %d", i+1, maxStart, m.tableColOffHint)
+			}
+		}
+	}
+	if !sawShift {
+		t.Fatal("expected test setup to reach right-edge shift at least once")
+	}
+}
+
+func TestHandleTableKeyRightHintDoesNotMoveLeftWhenHintIsStaleAfterResize(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c8"
+	m.tableColOffHint = len(m.tableCols) - 1
+
+	colAreaWidth := m.tableColAreaWidth()
+	maxStart := max(0, m.maxViewportStart(colAreaWidth))
+	if m.tableColOffHint <= maxStart {
+		t.Fatalf("expected stale hint > maxStart in setup, hint=%d maxStart=%d", m.tableColOffHint, maxStart)
+	}
+	startCol, _ := m.tableViewport()
+
+	updated, cmd := m.handleTableKey("right")
+	if cmd != nil {
+		t.Fatalf("expected no load command for right key")
+	}
+	m = updated.(Model)
+
+	if m.tableColOffHint < startCol {
+		t.Fatalf("expected hint to stay at or right of prior startCol %d, got %d", startCol, m.tableColOffHint)
+	}
+	if m.tableColOffHint != startCol {
+		t.Fatalf("expected hint to clamp to prior startCol %d, got %d", startCol, m.tableColOffHint)
 	}
 }
 
@@ -943,7 +1118,7 @@ func TestHandleTableKeyHorizontalRoundTrip(t *testing.T) {
 	if m.selectedColName != "c9" {
 		t.Fatalf("expected c9 after full right traversal, got %q", m.selectedColName)
 	}
-	startCol := m.computeTableColOff(m.visibleColCount())
+	startCol := m.computeTableColOff()
 	if startCol != 6 {
 		t.Fatalf("expected startCol=6 at c9, got %d", startCol)
 	}
@@ -959,9 +1134,215 @@ func TestHandleTableKeyHorizontalRoundTrip(t *testing.T) {
 	if m.selectedColName != "c0" {
 		t.Fatalf("expected c0 after full left traversal, got %q", m.selectedColName)
 	}
-	startCol = m.computeTableColOff(m.visibleColCount())
+	startCol = m.computeTableColOff()
 	if startCol != 0 {
 		t.Fatalf("expected startCol=0 at c0, got %d", startCol)
+	}
+}
+
+func TestHandleTableKeyHorizontalNavigationWithWidthOverride(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3"}
+	m.selectedColName = "c0"
+	m.tableColWidths["c1"] = 50
+
+	if got := m.visibleColCount(); got != 1 {
+		t.Fatalf("expected 1 visible column with override, got %d", got)
+	}
+
+	updated, cmd := m.handleTableKey("right")
+	if cmd != nil {
+		t.Fatalf("expected no load command for right, got %v", cmd)
+	}
+	m = updated.(Model)
+
+	if m.selectedColName != "c1" {
+		t.Fatalf("expected selected column c1, got %q", m.selectedColName)
+	}
+	if startCol := m.computeTableColOff(); startCol != 1 {
+		t.Fatalf("expected start col 1 after moving right, got %d", startCol)
+	}
+}
+
+func TestHandleTableKeyHorizontalPagingWithWidthOverride(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4"}
+	m.selectedColName = "c0"
+	m.tableColWidths["c1"] = 50
+
+	updated, cmd := m.handleTableKey("]")
+	if cmd != nil {
+		t.Fatalf("expected no load command for ], got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.selectedColName != "c1" {
+		t.Fatalf("expected selected c1 after first ], got %q", m.selectedColName)
+	}
+	firstStart := m.computeTableColOff()
+	// c1 is forced wide enough that paging right once should anchor the viewport at c1.
+	if firstStart != 1 {
+		t.Fatalf("expected start col 1 after first ], got %d", firstStart)
+	}
+
+	updated, cmd = m.handleTableKey("]")
+	if cmd != nil {
+		t.Fatalf("expected no load command for ], got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.selectedColName == "c1" {
+		t.Fatalf("expected second ] to move selection right, still on %q", m.selectedColName)
+	}
+	secondStart := m.computeTableColOff()
+	if secondStart <= firstStart {
+		t.Fatalf("expected second ] to move viewport right, firstStart=%d secondStart=%d", firstStart, secondStart)
+	}
+
+	updated, cmd = m.handleTableKey("[")
+	if cmd != nil {
+		t.Fatalf("expected no load command for [, got %v", cmd)
+	}
+	m = updated.(Model)
+	if startCol := m.computeTableColOff(); startCol >= secondStart {
+		t.Fatalf("expected [ to move viewport left, secondStart=%d got=%d", secondStart, startCol)
+	}
+}
+
+func TestHandleTableKeyCtrlWToggleWideColumns(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5"}
+	m.selectedColName = "c0"
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected 4 visible columns in default mode, got %d", got)
+	}
+	m.tableColWidths["c1"] = 50
+
+	updated, cmd := m.handleTableKey("ctrl+w")
+	if cmd != nil {
+		t.Fatalf("expected no load command for ctrl+w, got %v", cmd)
+	}
+	m = updated.(Model)
+
+	if !m.tableWide {
+		t.Fatal("expected tableWide=true after first ctrl+w")
+	}
+	if _, ok := m.tableColWidths["c1"]; ok {
+		t.Fatal("expected ctrl+w to clear fit-width overrides")
+	}
+	if got := m.visibleColCount(); got >= 4 {
+		t.Fatalf("expected fewer visible columns in wide mode, got %d", got)
+	}
+
+	updated, _ = m.handleTableKey("ctrl+w")
+	m = updated.(Model)
+	if m.tableWide {
+		t.Fatal("expected tableWide=false after second ctrl+w")
+	}
+}
+
+func TestFitWidthForActiveColumnIncludesHeaderWidth(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 12
+	m.tableCols = []string{"very_long_column_name"}
+	m.selectedColName = "very_long_column_name"
+	m.tableData = [][]string{{"x"}}
+
+	got, ok := m.fitWidthForActiveColumn()
+	if !ok {
+		t.Fatal("expected fit width to be computable")
+	}
+	want := lipgloss.Width("very_long_column_name") + 2
+	if got != want {
+		t.Fatalf("expected fit width %d, got %d", want, got)
+	}
+}
+
+func TestFitWidthForActiveColumnIncludesHeaderNullDotWidth(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 12
+	m.tableCols = []string{"very_long_column_name"}
+	m.selectedColName = "very_long_column_name"
+	m.tableData = [][]string{{"x"}}
+	m.summaries["very_long_column_name"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+
+	got, ok := m.fitWidthForActiveColumn()
+	if !ok {
+		t.Fatal("expected fit width to be computable")
+	}
+	want := lipgloss.Width("very_long_column_name") + 1 + tableHeaderNullDotWidth()
+	if got != want {
+		t.Fatalf("expected fit width %d, got %d", want, got)
+	}
+}
+
+func TestFitWidthForActiveColumnScansAllVisibleRows(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 12
+	m.tableCols = []string{"id", "tag"}
+	m.selectedColName = "tag"
+	m.tableData = [][]string{
+		{"1", "a"},
+		{"2", "b"},
+		{"3", "c"},
+		{"4", "d"},
+		{"5", "e"},
+		{"6", "f"},
+		{"7", "g"},
+	}
+	visibleRows := m.visibleTableDataRows()
+	if visibleRows != 5 {
+		t.Fatalf("expected visibleTableDataRows()=5 for test setup, got %d", visibleRows)
+	}
+	lastVisibleRow := visibleRows - 1
+	m.tableData[lastVisibleRow][1] = "value-visible-last-row"
+	m.tableData[lastVisibleRow+1][1] = "value-hidden-row-should-not-influence-width"
+
+	got, ok := m.fitWidthForActiveColumn()
+	if !ok {
+		t.Fatal("expected fit width to be computable")
+	}
+	want := lipgloss.Width("value-visible-last-row") + 1
+	if got != want {
+		t.Fatalf("expected fit width %d from last visible row, got %d", want, got)
+	}
+}
+
+func TestHandleTableKeyWToggleFitWidth(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 12
+	m.tableCols = []string{"id", "tag"}
+	m.selectedColName = "tag"
+	m.tableData = [][]string{
+		{"1", "short"},
+		{"2", "very-long-descriptive-tag-value"},
+		{"3", "medium"},
+	}
+
+	wantWidth, ok := m.fitWidthForActiveColumn()
+	if !ok {
+		t.Fatal("expected fit width to be computable")
+	}
+
+	updated, cmd := m.handleTableKey("w")
+	if cmd != nil {
+		t.Fatalf("expected no load command for w, got %v", cmd)
+	}
+	m = updated.(Model)
+	if got, ok := m.tableColWidths["tag"]; !ok || got != wantWidth {
+		t.Fatalf("expected override width %d for tag, got %d (ok=%v)", wantWidth, got, ok)
+	}
+
+	updated, _ = m.handleTableKey("w")
+	m = updated.(Model)
+	if _, ok := m.tableColWidths["tag"]; ok {
+		t.Fatal("expected tag override to be removed on second w")
 	}
 }
 
@@ -1657,7 +2038,11 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 	m.summaries["a"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
 	m.summaries["b"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
 
-	out := m.viewTable(60, 6)
+	w, h := m.tablePaneDimensions()
+	if w <= 0 || h <= 0 {
+		t.Fatalf("expected non-degenerate table pane dimensions, got w=%d h=%d", w, h)
+	}
+	out := m.viewTable(w, h)
 	lines := strings.Split(out, "\n")
 	if len(lines) < 4 {
 		t.Fatalf("expected at least 4 lines in table view, got %d", len(lines))
@@ -1864,11 +2249,36 @@ func TestViewTableDoesNotOverflowWidthWithRowPrefix(t *testing.T) {
 		{"v0", "v1", "v2", "v3"},
 	}
 
-	w := 34
-	out := m.viewTable(w, 4)
+	// Keep this at 60 so tablePaneDimensions() resolves to the 34-column overflow boundary.
+	m.width = 60
+	m.height = 10
+	w, h := m.tablePaneDimensions()
+	if w != 34 {
+		t.Fatalf("expected test setup to keep table pane width at 34, got %d", w)
+	}
+	out := m.viewTable(w, h)
 	for _, line := range strings.Split(out, "\n") {
 		if got := lipgloss.Width(line); got > w {
 			t.Fatalf("expected line width <= %d, got %d: %q", w, got, line)
+		}
+	}
+}
+
+func TestViewTableUnicodeDoesNotOverflowPaneWidth(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"数据数据数据", "👩‍💻开发者👩‍💻", "Cafe\u0301Cafe\u0301"}
+	m.selectedColName = m.tableCols[0]
+	m.tableData = [][]string{
+		{"数据数据数据数据数据", "👩‍💻👩‍💻👩‍💻👩‍💻", "e\u0301e\u0301e\u0301e\u0301e\u0301"},
+	}
+	m.width = 60
+	m.height = 10
+
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
+	for _, line := range strings.Split(out, "\n") {
+		if got := lipgloss.Width(line); got > w {
+			t.Fatalf("expected unicode line width <= %d, got %d: %q", w, got, line)
 		}
 	}
 }
@@ -1883,8 +2293,10 @@ func TestViewTableFooterStaysSingleLineWithLongColumnType(t *testing.T) {
 	m.tableData = [][]string{{"x"}}
 	m.summaries["nested"] = &types.ColumnSummary{Loaded: true, MissingCount: 0, MissingPct: 0}
 
-	w := 50
-	out := m.viewTable(w, 4)
+	m.width = 80
+	m.height = 10
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
 	lines := strings.Split(out, "\n")
 	footer := lines[len(lines)-1]
 	if strings.Contains(footer, "\n") {
@@ -1906,14 +2318,158 @@ func TestViewTableFooterClarifiesProjectedMissingCounts(t *testing.T) {
 	}
 }
 
+func TestViewTableFooterIncludesCellInspector(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{strings.Repeat("x", 120)}}
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, `Cell "a"=`) {
+		t.Fatalf("expected footer to include cell inspector, got %q", footer)
+	}
+	if !strings.Contains(footer, "…") {
+		t.Fatalf("expected long cell value to be truncated with ellipsis, got %q", footer)
+	}
+}
+
+func TestViewTableFooterCellInspectorNotProjected(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "b"
+	m.tableData = [][]string{{"x"}}
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, `Cell "b"=<not projected>`) {
+		t.Fatalf("expected footer to mark non-projected cell inspector, got %q", footer)
+	}
+}
+
+func TestViewTableFooterCellInspectorSanitizesControlChars(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"line1\nline2\r\x1b[31mred\tx"}}
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, `Cell "a"=line1\nline2\r\x1b[31mred\tx`) {
+		t.Fatalf("expected footer to sanitize control characters, got %q", footer)
+	}
+}
+
+func TestViewTableUsesMiddleTruncationForHeaderAndCell(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"abcdefghijklmnop"}
+	m.selectedColName = "abcdefghijklmnop"
+	m.tableData = [][]string{{"abcdefghijklmnop"}}
+	m.width = 90
+	m.height = 10
+
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
+	if !strings.Contains(out, "abcde…klmnop") {
+		t.Fatalf("expected header to use middle truncation, got %q", out)
+	}
+	if !strings.Contains(out, "abcdef…klmnop") {
+		t.Fatalf("expected cell to use middle truncation, got %q", out)
+	}
+}
+
+func TestViewTableMinimalHeightFooterBehavior(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"x"}}
+	m.width = 80
+
+	// height=7 fits one data row without footer; height=8 fits one data row plus footer.
+	m.height = 7
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
+	if strings.Contains(out, "Terminal too small to display rows") {
+		t.Fatalf("expected one data row to render at minimal height, got %q", out)
+	}
+	if !strings.Contains(out, "x") {
+		t.Fatalf("expected data row content at minimal height, got %q", out)
+	}
+	if strings.Contains(out, "Row 1:") {
+		t.Fatalf("expected footer not to replace the only visible data row, got %q", out)
+	}
+
+	m.height = 8
+	if m.visibleTableRows() == 0 {
+		t.Fatal("expected test setup to allow at least one visible data row")
+	}
+	w, h = m.tablePaneDimensions()
+	out = m.viewTable(w, h)
+	if strings.Contains(out, "Terminal too small to display rows") {
+		t.Fatalf("expected table output when one data row fits, got %q", out)
+	}
+	if !strings.Contains(out, "Row 1:") {
+		t.Fatalf("expected footer when one data row fits, got %q", out)
+	}
+}
+
+func TestViewTableRendersFooterForZeroRows(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = nil
+	m.width = 80
+	// height=7 leaves exactly one table row slot; with zero rows available, that slot is used by the footer.
+	m.height = 7
+
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
+	if strings.Contains(out, "Terminal too small to display rows") {
+		t.Fatalf("expected zero-row footer output, got %q", out)
+	}
+	if !strings.Contains(out, "No rows in current result") {
+		t.Fatalf("expected zero-row footer message, got %q", out)
+	}
+}
+
+func TestViewTableFooterZeroRowsIncludesFilterContext(t *testing.T) {
+	m := newTestModel()
+	m.rowFilter = "a IS NULL"
+	m.filterRows = 0
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, "No rows in current result") {
+		t.Fatalf("expected zero-row footer message, got %q", footer)
+	}
+	if !strings.Contains(footer, "Filter active (0 rows)") {
+		t.Fatalf("expected filter context in zero-row footer, got %q", footer)
+	}
+}
+
+func TestViewTableFooterNonEmptyOmitsFilterContext(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.tableData = [][]string{{"x"}}
+	m.rowFilter = "a IS NULL"
+	m.filterRows = 1
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, "Row 1:") {
+		t.Fatalf("expected row context in non-empty footer, got %q", footer)
+	}
+	if strings.Contains(footer, "Filter active") {
+		t.Fatalf("expected non-empty footer to omit filter context, got %q", footer)
+	}
+}
+
 func TestViewTableTinyViewportDoesNotOverflowHeight(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a", "b"}
 	m.tableData = [][]string{{"1", "2"}, {"3", "4"}}
 	m.selectedColName = "a"
+	m.width = 80
 
-	for _, h := range []int{1, 2} {
-		out := m.viewTable(40, h)
+	for _, height := range []int{1, 2} {
+		m.height = height + statusBarH + paneBorderH
+		w, h := m.tablePaneDimensions()
+		out := m.viewTable(w, h)
 		lines := strings.Split(out, "\n")
 		if len(lines) > h {
 			t.Fatalf("expected at most %d lines for tiny viewport, got %d: %q", h, len(lines), out)
@@ -2603,6 +3159,9 @@ func TestNewModelWithoutFileStartsEmpty(t *testing.T) {
 	root := t.TempDir()
 	m := NewModel(nil, "", root)
 
+	if m.sel == nil {
+		t.Fatal("expected selection set to be initialized")
+	}
 	if m.engine != nil {
 		t.Fatal("expected no engine when starting without a file")
 	}
@@ -2941,6 +3500,34 @@ func TestOpenFileDoneCurrentRequestErrorPreservesLoadedFile(t *testing.T) {
 	}
 }
 
+func TestApplyEngineResetsTableColWidths(t *testing.T) {
+	m := NewModel(nil, "", t.TempDir())
+	m.tableColWidths["a"] = 42
+	m.tableWide = true
+
+	path := filepath.Join(t.TempDir(), "data.csv")
+	if err := os.WriteFile(path, []byte("a,b\n1,2\n"), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+	eng, err := engine.New(path)
+	if err != nil {
+		t.Fatalf("engine.New(%q): %v", path, err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	m.applyEngine(eng, filepath.Base(path))
+
+	if m.tableColWidths == nil {
+		t.Fatal("expected non-nil tableColWidths after applyEngine")
+	}
+	if len(m.tableColWidths) != 0 {
+		t.Fatalf("expected tableColWidths cleared on engine apply, got %v", m.tableColWidths)
+	}
+	if m.tableWide {
+		t.Fatal("expected tableWide reset on engine apply")
+	}
+}
+
 func TestFilePickerPathQueryShowsHomeAutocomplete(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
@@ -2994,5 +3581,131 @@ func TestFilePickerBackspaceCanMoveAboveLaunchDir(t *testing.T) {
 	m = updated.(Model)
 	if m.pickerDir != filepath.Dir(launchDir) {
 		t.Fatalf("expected picker dir to move to parent %q, got %q", filepath.Dir(launchDir), m.pickerDir)
+	}
+}
+
+func TestTruncateDisplayMiddle(t *testing.T) {
+	cases := []struct {
+		name            string
+		in              string
+		w               int
+		want            string
+		skipExact       bool
+		wantTruncated   bool
+		requireZWJWidth bool
+	}{
+		{name: "fits", in: "abcdef", w: 6, want: "abcdef"},
+		{name: "single width", in: "abcdef", w: 1, want: "…"},
+		{name: "middle truncation", in: "abcdefghijklmnop", w: 12, want: "abcde…klmnop"},
+		{name: "cjk truncation", in: "你好世界你好世界", w: 5, skipExact: true, wantTruncated: true},
+		{name: "emoji truncation", in: "😀😃😄😁😆", w: 5, skipExact: true, wantTruncated: true},
+		{name: "zwj fits", in: "👩‍💻dev", w: 5, want: "👩‍💻dev", requireZWJWidth: true},
+		{name: "zwj truncation", in: "👩‍💻👩‍💻👩‍💻", w: 5, skipExact: true, wantTruncated: true, requireZWJWidth: true},
+		{name: "combining accent fits", in: "Cafe\u0301", w: 4, want: "Cafe\u0301"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.requireZWJWidth {
+				if got := lipgloss.Width("👩‍💻"); got != 2 {
+					t.Skipf("test assumes lipgloss.Width(👩‍💻)=2, got %d", got)
+				}
+			}
+
+			got := truncateDisplayMiddle(tc.in, tc.w)
+			if !tc.skipExact && got != tc.want {
+				t.Fatalf("truncateDisplayMiddle(%q,%d)=%q want %q", tc.in, tc.w, got, tc.want)
+			}
+			if tc.wantTruncated {
+				if got == tc.in || !strings.Contains(got, "…") {
+					t.Fatalf("truncateDisplayMiddle(%q,%d)=%q want truncated output with ellipsis", tc.in, tc.w, got)
+				}
+			}
+			if tc.w > 0 && lipgloss.Width(got) > tc.w {
+				t.Fatalf("truncateDisplayMiddle(%q,%d) width=%d exceeds max width", tc.in, tc.w, lipgloss.Width(got))
+			}
+		})
+	}
+}
+
+func TestTruncateDisplayMiddlePreservesGraphemeClusters(t *testing.T) {
+	if got := lipgloss.Width("👩‍💻"); got != 2 {
+		t.Skipf("test assumes lipgloss.Width(👩‍💻)=2, got %d", got)
+	}
+
+	got := truncateDisplayMiddle("👩‍💻👩‍💻👩‍💻", 5)
+	if !strings.Contains(got, "…") {
+		t.Fatalf("expected truncated output with ellipsis, got %q", got)
+	}
+	if strings.Contains(got, "\u200d…") || strings.Contains(got, "…\u200d") {
+		t.Fatalf("expected truncation on grapheme boundaries, got %q", got)
+	}
+	if lipgloss.Width(got) > 5 {
+		t.Fatalf("expected output width <= 5, got %d for %q", lipgloss.Width(got), got)
+	}
+
+	got = truncateDisplayMiddle("e\u0301e\u0301e\u0301e\u0301", 3)
+	if got != "e\u0301…e\u0301" {
+		t.Fatalf("expected combining sequence to stay intact, got %q", got)
+	}
+}
+
+func TestSanitizeInlineDisplayEscapesNonASCIIControlRunes(t *testing.T) {
+	got := sanitizeInlineDisplay("a\u202eb\U0001D173c")
+	want := `a\u202eb\U0001d173c`
+	if got != want {
+		t.Fatalf("sanitizeInlineDisplay non-ascii control escaping = %q, want %q", got, want)
+	}
+
+	if got := sanitizeInlineDisplay("👩‍💻"); got != "👩‍💻" {
+		t.Fatalf("sanitizeInlineDisplay should preserve ZWJ emoji sequence, got %q", got)
+	}
+}
+
+func BenchmarkViewTableUnicodeWide(b *testing.B) {
+	m := newTestModel()
+	m.width = 160
+	m.height = 28
+	m.tableWide = true
+
+	cols := make([]string, 24)
+	for i := range cols {
+		cols[i] = fmt.Sprintf("c%02d_👩‍💻_世界", i)
+	}
+	m.tableCols = cols
+	m.selectedColName = cols[0]
+
+	cell := strings.Repeat("👩‍💻数据e\u0301", 8)
+	m.tableData = make([][]string, 40)
+	for r := range m.tableData {
+		row := make([]string, len(cols))
+		for c := range cols {
+			row[c] = cell
+		}
+		m.tableData[r] = row
+	}
+
+	w, h := m.tablePaneDimensions()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = m.viewTable(w, h)
+	}
+}
+
+func BenchmarkTruncateDisplayMiddleLong(b *testing.B) {
+	s := strings.Repeat("prefix-👩‍💻-e\u0301-世界-", 64)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = truncateDisplayMiddle(s, 48)
+	}
+}
+
+func BenchmarkTruncateDisplayMiddleLongASCII(b *testing.B) {
+	s := strings.Repeat("abcdefghijklmnop", 64)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = truncateDisplayMiddle(s, 48)
 	}
 }

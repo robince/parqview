@@ -16,6 +16,7 @@ func newTestModel() Model {
 		engine:          nil,
 		sel:             selection.New(nil),
 		summaries:       make(map[string]*types.ColumnSummary),
+		tableColWidths:  make(map[string]int),
 		tableColOffHint: -1,
 	}
 }
