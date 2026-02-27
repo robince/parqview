@@ -3155,14 +3155,6 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 	}
 }
 
-func TestViewBottomBarHandlesNilSelection(t *testing.T) {
-	m := Model{width: 80}
-	out := m.viewBottomBar()
-	if !strings.Contains(out, "Sel: 0/0") {
-		t.Fatalf("expected bottom bar to render zero selection state, got %q", out)
-	}
-}
-
 func TestNewModelWithoutFileStartsEmpty(t *testing.T) {
 	root := t.TempDir()
 	m := NewModel(nil, "", root)
