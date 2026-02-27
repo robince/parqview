@@ -712,12 +712,10 @@ func (m *Model) updateFilteredCols() {
 		}
 		if len(m.filteredCols) > 0 {
 			m.selectedColName = m.filteredCols[m.colCursor].Name
-		} else {
+		} else if !m.showSelectedInCols || m.columnsSearchActive() {
 			// Keep the table crosshair stable when the columns list is intentionally
 			// narrowed to selected-only and the selection is empty.
-			if !(m.showSelectedInCols && !m.columnsSearchActive()) {
-				m.selectedColName = ""
-			}
+			m.selectedColName = ""
 		}
 	}
 	m.clampColumnsListState()
@@ -1022,7 +1020,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if (m.overlay != OverlayNone || m.searchFocused) && !(m.draggingDivider && msg.Action == tea.MouseActionRelease) {
+	if (m.overlay != OverlayNone || m.searchFocused) && (!m.draggingDivider || msg.Action != tea.MouseActionRelease) {
 		return m, nil
 	}
 
@@ -2110,7 +2108,7 @@ func (m Model) pageColumnsHorizontal(direction int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	visibleCols := endCol - startCol
-	newStart := startCol
+	var newStart int
 	switch {
 	case direction < 0:
 		newStart = max(0, startCol-visibleCols)
@@ -2650,33 +2648,26 @@ func (m Model) viewTableFooter() string {
 			rowCursor = len(m.tableData) - 1
 		}
 		row := m.tableData[rowCursor]
-		missingCount := 0
-		for _, v := range row {
-			if missing.IsDisplayMissing(v) {
-				missingCount++
-			}
-		}
+
 		absRow := m.tableOffset + rowCursor + 1
-		parts = append(parts, fmt.Sprintf("Row %d: %d/%d missing (projected)", absRow, missingCount, len(row)))
-
-		if m.selectedColName != "" {
+		colIdx := m.tableColCursor()
+		if m.selectedColName != "" && colIdx >= 0 && colIdx < len(row) {
 			colName := truncateDisplayMiddle(m.selectedColName, 20)
-			if colIdx := m.tableColCursor(); colIdx >= 0 && colIdx < len(row) {
-				parts = append(parts, fmt.Sprintf("Cell %q=%s", colName, sanitizeInlineDisplayPreview(row[colIdx], 80)))
-			} else {
-				parts = append(parts, fmt.Sprintf("Cell %q=<not projected>", colName))
-			}
+			colNameQ := fmt.Sprintf("%q", colName)
 
-			colType := truncateDisplayMiddle(m.columnType(m.selectedColName), 20)
-			typeInfo := ""
-			if colType != "" {
-				typeInfo = fmt.Sprintf(" (%s)", colType)
-			}
+			value := sanitizeInlineDisplayPreview(row[colIdx], 80)
+
 			if s, ok := m.summaries[m.selectedColName]; ok && s.Loaded {
-				parts = append(parts, fmt.Sprintf("Col %q%s: %d missing (%.1f%%)", colName, typeInfo, s.MissingCount, s.MissingPct))
+				parts = append(parts, fmt.Sprintf("R%d %s: %s (%d missing, %.1f%%)",
+					absRow, colNameQ, value, s.MissingCount, s.MissingPct))
+			} else if ok {
+				// Summary entry exists but profiling still in progress.
+				parts = append(parts, fmt.Sprintf("R%d %s: %s …", absRow, colNameQ, value))
 			} else {
-				parts = append(parts, fmt.Sprintf("Col %q%s: ...", colName, typeInfo))
+				parts = append(parts, fmt.Sprintf("R%d %s: %s", absRow, colNameQ, value))
 			}
+		} else {
+			parts = append(parts, fmt.Sprintf("R%d", absRow))
 		}
 	}
 	return strings.Join(parts, "    ")
@@ -3141,11 +3132,11 @@ func sanitizeInlineDisplay(s string) string {
 			if unicode.IsControl(r) || (unicode.Is(unicode.Cf, r) && r != '\u200c' && r != '\u200d') {
 				switch {
 				case r <= 0xFF:
-					b.WriteString(fmt.Sprintf(`\x%02x`, r))
+					fmt.Fprintf(&b, `\x%02x`, r)
 				case r <= 0xFFFF:
-					b.WriteString(fmt.Sprintf(`\u%04x`, r))
+					fmt.Fprintf(&b, `\u%04x`, r)
 				default:
-					b.WriteString(fmt.Sprintf(`\U%08x`, r))
+					fmt.Fprintf(&b, `\U%08x`, r)
 				}
 			} else {
 				b.WriteRune(r)
