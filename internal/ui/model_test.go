@@ -3118,11 +3118,19 @@ func TestTruncateDisplayMiddle(t *testing.T) {
 		{name: "fits", in: "abcdef", w: 6, want: "abcdef"},
 		{name: "single width", in: "abcdef", w: 1, want: "…"},
 		{name: "middle truncation", in: "abcdefghijklmnop", w: 12, want: "abcde…klmnop"},
+		{name: "cjk truncation", in: "你好世界你好世界", w: 5, want: "你…界"},
+		{name: "emoji truncation", in: "😀😃😄😁😆", w: 5, want: "😀…😆"},
+		{name: "zwj fits", in: "👩‍💻dev", w: 5, want: "👩‍💻dev"},
+		{name: "combining accent fits", in: "Cafe\u0301", w: 4, want: "Cafe\u0301"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := truncateDisplayMiddle(tc.in, tc.w); got != tc.want {
+			got := truncateDisplayMiddle(tc.in, tc.w)
+			if got != tc.want {
 				t.Fatalf("truncateDisplayMiddle(%q,%d)=%q want %q", tc.in, tc.w, got, tc.want)
+			}
+			if tc.w > 0 && lipgloss.Width(got) > tc.w {
+				t.Fatalf("truncateDisplayMiddle(%q,%d) width=%d exceeds max width", tc.in, tc.w, lipgloss.Width(got))
 			}
 		})
 	}
