@@ -2432,7 +2432,10 @@ func (m Model) viewTopBar() string {
 }
 
 func (m Model) viewBottomBar() string {
-	selCount := m.sel.Count()
+	selCount := 0
+	if m.sel != nil {
+		selCount = m.sel.Count()
+	}
 	var hints string
 	if m.focus == FocusColumns {
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  /:search  v:sel-list  x:toggle  a/d/y:sel"
