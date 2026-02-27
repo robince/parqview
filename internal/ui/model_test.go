@@ -2333,15 +2333,15 @@ func TestViewTableFooterIncludesCellValue(t *testing.T) {
 	}
 }
 
-func TestViewTableFooterShowsRowWhenNotProjected(t *testing.T) {
+func TestViewTableFooterBlankWhenNotProjected(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
 	m.selectedColName = "b"
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "R1 b: <not projected>") {
-		t.Fatalf("expected footer to show column as not projected, got %q", footer)
+	if footer != "" {
+		t.Fatalf("expected blank footer when column not projected, got %q", footer)
 	}
 }
 
