@@ -695,6 +695,7 @@ func TestHandleTableKeyRightHintStaysWithinBoundsWhenShifting(t *testing.T) {
 	m.width = 100
 	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
 	m.selectedColName = "c0"
+	sawShift := false
 
 	for i := 0; i < len(m.tableCols)-1; i++ {
 		startCol, endCol := m.tableViewport()
@@ -707,6 +708,7 @@ func TestHandleTableKeyRightHintStaysWithinBoundsWhenShifting(t *testing.T) {
 		m = updated.(Model)
 
 		if idx == endCol-1 {
+			sawShift = true
 			colAreaWidth := m.tableColAreaWidth()
 			maxStart := max(0, m.maxViewportStart(colAreaWidth))
 			if m.tableColOffHint < startCol {
@@ -716,6 +718,20 @@ func TestHandleTableKeyRightHintStaysWithinBoundsWhenShifting(t *testing.T) {
 				t.Fatalf("step %d: expected hint <= maxStart (%d), got %d", i+1, maxStart, m.tableColOffHint)
 			}
 		}
+	}
+	if !sawShift {
+		t.Fatal("expected test setup to reach right-edge shift at least once")
+	}
+}
+
+func TestHandleTableKeyRightHintFormulaDoesNotMoveLeftWhenStartExceedsMaxStart(t *testing.T) {
+	// Simulate a stale startCol captured before a resize where maxStart has since dropped.
+	startCol := 6
+	maxStart := 3
+
+	nextHint := max(startCol, min(maxStart, startCol+1))
+	if nextHint != startCol {
+		t.Fatalf("expected next hint to stay at stale startCol %d, got %d", startCol, nextHint)
 	}
 }
 
@@ -1435,6 +1451,9 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 	m.summaries["b"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
 
 	w, h := m.tablePaneDimensions()
+	if w <= 0 || h <= 0 {
+		t.Fatalf("expected non-degenerate table pane dimensions, got w=%d h=%d", w, h)
+	}
 	out := m.viewTable(w, h)
 	lines := strings.Split(out, "\n")
 	if len(lines) < 4 {
