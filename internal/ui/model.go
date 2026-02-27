@@ -792,8 +792,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.searchInput.SetValue("")
 			m.searchQuery = ""
-			m.updateFilteredCols()
 			m.searchFocused = false
+			m.updateFilteredCols()
 			return m, nil
 		case "ctrl+u":
 			m.searchInput.SetValue("")
@@ -802,6 +802,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			m.searchFocused = false
+			m.updateFilteredCols()
 			return m, nil
 		default:
 			var cmd tea.Cmd
@@ -861,14 +862,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.tableRowCursor = 0
 		return m, m.nextPreviewCmd()
 	case "v", "V":
-		m.showSelectedInCols = !m.showSelectedInCols
-		if m.focus == FocusTable {
-			if m.showSelectedInCols {
-				m.statusMsg = "cols selected-list on"
-			} else {
-				m.statusMsg = "cols selected-list off"
-			}
+		if m.focus != FocusColumns {
+			return m, nil
 		}
+		m.showSelectedInCols = !m.showSelectedInCols
 		m.updateFilteredCols()
 		return m, nil
 	case "enter":
