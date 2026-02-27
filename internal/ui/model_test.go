@@ -2307,14 +2307,14 @@ func TestViewTableFooterStaysSingleLineWithLongColumnType(t *testing.T) {
 	}
 }
 
-func TestViewTableFooterBlankWhenNoColumnSelected(t *testing.T) {
+func TestViewTableFooterShowsRowMarkerWhenNoColumnSelected(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
-	if footer != "" {
-		t.Fatalf("expected blank footer when no column selected, got %q", footer)
+	if footer != "R1" {
+		t.Fatalf("expected row marker footer when no column selected, got %q", footer)
 	}
 }
 
@@ -2361,15 +2361,15 @@ func TestViewTableFooterNoEllipsisWhenSummaryAbsent(t *testing.T) {
 	}
 }
 
-func TestViewTableFooterBlankWhenNotProjected(t *testing.T) {
+func TestViewTableFooterShowsRowMarkerWhenNotProjected(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
 	m.selectedColName = "b" // not in tableCols → not projected
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
-	if footer != "" {
-		t.Fatalf("expected blank footer when column not projected, got %q", footer)
+	if footer != "R1" {
+		t.Fatalf("expected row marker footer when column not projected, got %q", footer)
 	}
 }
 
@@ -2395,6 +2395,21 @@ func TestViewTableFooterSanitizesControlChars(t *testing.T) {
 	footer := m.viewTableFooter()
 	if !strings.Contains(footer, `R1 "a": line1\nline2\r\x1b[31mred\tx`) {
 		t.Fatalf("expected footer to sanitize control characters, got %q", footer)
+	}
+}
+
+func TestViewTableFooterQuotesColumnName(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a\"b\nc"}
+	m.selectedColName = "a\"b\nc"
+	m.tableData = [][]string{{"x"}}
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, `R1 "a\"b\nc": x`) {
+		t.Fatalf("expected quoted/escaped column name in footer, got %q", footer)
+	}
+	if strings.Contains(footer, "\n") {
+		t.Fatalf("expected single-line footer output, got %q", footer)
 	}
 }
 
@@ -2500,7 +2515,7 @@ func TestViewTableFooterNonEmptyOmitsFilterContext(t *testing.T) {
 	}
 }
 
-func TestViewTableFooterNoColumnWithFilterIsBlank(t *testing.T) {
+func TestViewTableFooterNoColumnWithFilterShowsRowMarker(t *testing.T) {
 	m := newTestModel()
 	m.selectedColName = "" // explicitly no column selected
 	m.tableCols = []string{"a"}
@@ -2509,8 +2524,8 @@ func TestViewTableFooterNoColumnWithFilterIsBlank(t *testing.T) {
 	m.filterRows = 1
 
 	footer := m.viewTableFooter()
-	if footer != "" {
-		t.Fatalf("expected blank footer when no column selected, got %q", footer)
+	if footer != "R1" {
+		t.Fatalf("expected row marker footer when no column selected, got %q", footer)
 	}
 }
 
