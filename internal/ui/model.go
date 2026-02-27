@@ -2615,24 +2615,12 @@ func (m Model) columnType(colName string) string {
 }
 
 func defaultDetailTab(colType string) int {
-	switch duckTypeBase(colType) {
+	switch util.DuckTypeBase(colType) {
 	case "FLOAT", "REAL", "DOUBLE", "DECIMAL", "NUMERIC", "FLOAT4", "FLOAT8":
 		return 1 // Stats
 	default:
 		return 0 // Top Values
 	}
-}
-
-func duckTypeBase(colType string) string {
-	t := strings.TrimSpace(strings.ToUpper(colType))
-	if t == "" {
-		return ""
-	}
-	base := strings.Fields(t)[0]
-	if idx := strings.Index(base, "("); idx >= 0 {
-		base = base[:idx]
-	}
-	return base
 }
 
 func (m Model) activeRowCount() int64 {

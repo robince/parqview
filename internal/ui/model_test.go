@@ -257,27 +257,6 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	})
 }
 
-func TestDuckTypeBase(t *testing.T) {
-	cases := []struct {
-		name    string
-		in      string
-		want    string
-	}{
-		{name: "bare type", in: "INTEGER", want: "INTEGER"},
-		{name: "parameterized type", in: "DECIMAL(10,2)", want: "DECIMAL"},
-		{name: "multi word type", in: "DOUBLE PRECISION", want: "DOUBLE"},
-		{name: "empty", in: "", want: ""},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := duckTypeBase(tc.in); got != tc.want {
-				t.Fatalf("duckTypeBase(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestDefaultDetailTab(t *testing.T) {
 	cases := []struct {
 		name    string
