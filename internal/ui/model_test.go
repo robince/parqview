@@ -345,6 +345,7 @@ func TestToggleShowSelectedInColumnsPreservesActiveTableColumnWhenListBecomesEmp
 	m.sel = selection.New([]string{"alpha", "beta"})
 	m.tableCols = []string{"alpha", "beta"}
 	m.selectedColName = "beta"
+	m.colCursor = 1
 	m.updateFilteredCols()
 
 	updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
