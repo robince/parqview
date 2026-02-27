@@ -2313,7 +2313,7 @@ func TestViewTableFooterShowsRowWhenNoColumnSelected(t *testing.T) {
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "Row 1") {
+	if !strings.Contains(footer, "R1") {
 		t.Fatalf("expected footer to show row number when no column selected, got %q", footer)
 	}
 	if strings.Contains(footer, "a:") {
@@ -2355,11 +2355,11 @@ func TestViewTableFooterShowsCorrectRowAfterScrolling(t *testing.T) {
 	m.tableOffset = 9 // scrolled down 9 rows, cursor at first visible row → row 10
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "Row 10") {
-		t.Fatalf("expected footer to show Row 10 after scrolling, got %q", footer)
+	if !strings.Contains(footer, "R10") {
+		t.Fatalf("expected footer to show R10 after scrolling, got %q", footer)
 	}
 
-	// Also verify row number with a selected column (uses R%d format).
+	// Also verify row number with a selected column.
 	m.selectedColName = "a"
 	footer = m.viewTableFooter()
 	if !strings.Contains(footer, `R10 "a": `) {
@@ -2490,7 +2490,7 @@ func TestViewTableFooterNoColumnWithFilterShowsRow(t *testing.T) {
 	m.filterRows = 1
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "Row 1") {
+	if !strings.Contains(footer, "R1") {
 		t.Fatalf("expected footer to show row number with filter active and no column selected, got %q", footer)
 	}
 	if strings.Contains(footer, "Filter active") {

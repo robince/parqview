@@ -2651,7 +2651,7 @@ func (m Model) viewTableFooter() string {
 
 		absRow := m.tableOffset + rowCursor + 1
 		if m.selectedColName == "" {
-			parts = append(parts, fmt.Sprintf("Row %d", absRow))
+			parts = append(parts, fmt.Sprintf("R%d", absRow))
 		} else if colIdx := m.tableColCursor(); colIdx >= 0 && colIdx < len(row) {
 			colName := truncateDisplayMiddle(m.selectedColName, 20)
 			colType := truncateDisplayMiddle(m.columnType(m.selectedColName), 20)
@@ -2666,7 +2666,7 @@ func (m Model) viewTableFooter() string {
 				parts = append(parts, fmt.Sprintf("R%d \"%s\"%s: %s (%d missing, %.1f%%)",
 					absRow, colName, typeInfo, value, s.MissingCount, s.MissingPct))
 			} else {
-				parts = append(parts, fmt.Sprintf("R%d \"%s\"%s: %s", absRow, colName, typeInfo, value))
+				parts = append(parts, fmt.Sprintf("R%d \"%s\"%s: %s …", absRow, colName, typeInfo, value))
 			}
 		} else {
 			// Column selected but not projected.
