@@ -1661,6 +1661,33 @@ func TestViewTableUsesMiddleTruncationForHeaderAndCell(t *testing.T) {
 	}
 }
 
+func TestViewTableMinimalHeightFooterBehavior(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"x"}}
+	m.width = 80
+
+	m.height = 7
+	w, h := m.tablePaneDimensions()
+	if out := m.viewTable(w, h); out != "Terminal too small to display rows" {
+		t.Fatalf("expected too-small message when no data row fits, got %q", out)
+	}
+
+	m.height = 8
+	if m.visibleTableRows() == 0 {
+		t.Fatal("expected test setup to allow at least one visible data row")
+	}
+	w, h = m.tablePaneDimensions()
+	out := m.viewTable(w, h)
+	if strings.Contains(out, "Terminal too small to display rows") {
+		t.Fatalf("expected table output when one data row fits, got %q", out)
+	}
+	if !strings.Contains(out, "Row 1:") {
+		t.Fatalf("expected footer when one data row fits, got %q", out)
+	}
+}
+
 func TestViewTableTinyViewportDoesNotOverflowHeight(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a", "b"}
