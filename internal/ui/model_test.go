@@ -1209,13 +1209,13 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 		t.Fatalf("expected at least 4 lines in table view, got %d", len(lines))
 	}
 
-	if strings.Count(lines[0], "•") != 1 {
+	if strings.Count(lines[0], nullDotChar) != 1 {
 		t.Fatalf("expected exactly one header null dot, got %q", lines[0])
 	}
-	if !strings.Contains(lines[1], "•") {
+	if !strings.Contains(lines[1], nullDotChar) {
 		t.Fatalf("expected null-dot row marker for row containing NULL, got %q", lines[1])
 	}
-	if strings.Contains(lines[2], "•") {
+	if strings.Contains(lines[2], nullDotChar) {
 		t.Fatalf("expected no row marker for row without NULL, got %q", lines[2])
 	}
 }
@@ -1270,7 +1270,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 				}
 
 				wantName := truncate("alpha", 40-12-inlineNullDotWidth())
-				wantPlain := fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, wantName+" •", truncate("BIGINT", 8), " M:0% D:0%")
+				wantPlain := fmt.Sprintf("%s %s %s%s", unselectedMarkGlyph, wantName+" "+nullDotChar, truncate("BIGINT", 8), " M:0% D:0%")
 				want := tc.style.Width(40).Render(wantPlain)
 				if lines[2] != want {
 					t.Fatalf("expected highlighted row render %q, got %q", want, lines[2])
@@ -2278,6 +2278,69 @@ func TestFilePickerPathInputExpandsTilde(t *testing.T) {
 	}
 }
 
+func TestExpandTildePathSeparatorVariants(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("os.UserHomeDir: %v", err)
+	}
+
+	type tcase struct {
+		name string
+		in   string
+		want string
+	}
+
+	cases := []tcase{
+		{
+			name: "double forward slash",
+			in:   "~//foo",
+			// Cross-platform: after trimming one separator, filepath.Join normalizes "/foo" as a child of home.
+			want: filepath.Join(home, "foo"),
+		},
+	}
+
+	if filepath.Separator == '/' {
+		// On Unix, '\' is not a path separator, so these inputs are not tilde-expanded.
+		cases = append(cases,
+			tcase{
+				name: "windows separator on unix",
+				in:   "~\\foo",
+				want: "~\\foo",
+			},
+			tcase{
+				name: "mixed separators on unix",
+				in:   "~\\/foo",
+				want: "~\\/foo",
+			},
+		)
+	} else {
+		cases = append(cases,
+			tcase{
+				name: "double native separator",
+				in:   "~\\\\foo",
+				want: filepath.Join(home, "foo"),
+			},
+			tcase{
+				name: "mixed separators on windows",
+				in:   "~\\/foo",
+				want: filepath.Join(home, "foo"),
+			},
+		)
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := expandTildePath(tc.in)
+			if err != nil {
+				t.Fatalf("expandTildePath(%q) error: %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Fatalf("expandTildePath(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestFilePickerAllowsTypingQueryText(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "alpha.csv"), []byte("x"), 0o644); err != nil {
@@ -2373,6 +2436,48 @@ func TestOpenFileDoneIgnoresStaleRequest(t *testing.T) {
 	}
 	if got := m.statusMsg; got != "Opened new.csv" {
 		t.Fatalf("expected stale request to keep status, got %q", got)
+	}
+}
+
+func TestOpenFileDoneCurrentRequestErrorPreservesLoadedFile(t *testing.T) {
+	m := NewModel(nil, "", t.TempDir())
+	m.openReqID = 3
+
+	currentPath := filepath.Join(t.TempDir(), "new.csv")
+	if err := os.WriteFile(currentPath, []byte("a\n1\n"), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+
+	currentEngine, err := engine.New(currentPath)
+	if err != nil {
+		t.Fatalf("engine.New(%q): %v", currentPath, err)
+	}
+	t.Cleanup(func() { _ = currentEngine.Close() })
+
+	updated, _ := m.Update(openFileDoneMsg{
+		path:  currentPath,
+		eng:   currentEngine,
+		reqID: 3,
+	})
+	m = updated.(Model)
+	// openReqID stays at 3 after a successful open; only user-initiated opens advance it.
+
+	openErr := fmt.Errorf("boom")
+	updated, _ = m.Update(openFileDoneMsg{
+		path:  filepath.Join(t.TempDir(), "missing.csv"),
+		reqID: 3,
+		err:   openErr,
+	})
+	m = updated.(Model)
+
+	if m.engine != currentEngine {
+		t.Fatal("expected current engine to remain loaded after open error")
+	}
+	if m.fileName != "new.csv" {
+		t.Fatalf("expected file name to remain new.csv after open error, got %q", m.fileName)
+	}
+	if got := m.statusMsg; got != "Error opening file: boom" {
+		t.Fatalf("expected error status for current request, got %q", got)
 	}
 }
 

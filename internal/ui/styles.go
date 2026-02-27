@@ -5,6 +5,7 @@ import "github.com/charmbracelet/lipgloss"
 const (
 	selectedMarkGlyph   = "●"
 	unselectedMarkGlyph = "○"
+	nullDotChar         = "•"
 
 	// Layout constants
 	tableSplitPct     = 65 // default percentage of width for table pane
@@ -105,10 +106,10 @@ var (
 				Italic(true)
 
 	// Null indicator dots (pre-rendered strings, not reusable styles)
-	nullDot             = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("•")
+	nullDot             = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(nullDotChar)
 	inlineNullDotW      = lipgloss.Width(" " + nullDot) // inline indicator is rendered as " " + dot
-	nullDotHeader       = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("62")).Render("•")
-	nullDotActiveHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("69")).Render("•")
+	nullDotHeader       = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("62")).Render(nullDotChar)
+	nullDotActiveHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("69")).Render(nullDotChar)
 
 	// Column list
 	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)

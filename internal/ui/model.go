@@ -982,6 +982,7 @@ func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pickerGoUp()
 			return m, nil
 		}
+		// Intentionally handled by textinput.Update below when a query is present.
 	case "enter":
 		typed := strings.TrimSpace(m.pickerInput.Value())
 		if typed != "" && (looksLikePathInput(typed) || isSupportedDataFile(typed)) {
@@ -1063,7 +1064,7 @@ func looksLikePathInput(s string) bool {
 	sep := string(filepath.Separator)
 	return strings.HasPrefix(s, "~") ||
 		strings.HasPrefix(s, ".") ||
-		strings.HasPrefix(s, sep) ||
+		// Contains also covers absolute paths like "/foo", so HasPrefix("/", ...) is redundant.
 		strings.Contains(s, "/") ||
 		// filepath.Separator is "/" on Unix, so this is only distinct on Windows.
 		(sep != "/" && strings.Contains(s, sep))
@@ -1084,9 +1085,11 @@ func expandTildePath(path string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		// Drop "~" plus one separator ("~/foo" or "~\\foo"); filepath.Join normalizes any remaining leading separators.
 		rest := strings.TrimPrefix(path, "~")
-		rest = strings.TrimPrefix(rest, string(filepath.Separator))
-		rest = strings.TrimPrefix(rest, "/")
+		if strings.HasPrefix(rest, "/") || strings.HasPrefix(rest, "\\") {
+			rest = rest[1:]
+		}
 		return filepath.Join(home, rest), nil
 	}
 	return path, nil
@@ -2449,7 +2452,7 @@ func (m Model) viewColumns(w, h int) string {
 			// branch assembles a plain text line first (mirrored by wantPlain in tests).
 			plainNamePart := name
 			if hasMissing && nameWidth > 0 {
-				plainNamePart += " •"
+				plainNamePart += " " + nullDotChar
 			}
 			plain := fmt.Sprintf("%s %s %s%s", markChar, plainNamePart, typeStr, statsStr)
 			if m.focus == FocusColumns {
