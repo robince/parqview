@@ -797,9 +797,16 @@ func TestFitWidthForActiveColumnScansAllVisibleRows(t *testing.T) {
 		{"3", "c"},
 		{"4", "d"},
 		{"5", "e"},
-		{"6", "value-visible-last-row"},
-		{"7", "z"},
+		{"6", "f"},
+		{"7", "g"},
 	}
+	visibleRows := m.visibleTableDataRows()
+	if visibleRows != 5 {
+		t.Fatalf("expected visibleTableDataRows()=5 for test setup, got %d", visibleRows)
+	}
+	lastVisibleRow := visibleRows - 1
+	m.tableData[lastVisibleRow][1] = "value-visible-last-row"
+	m.tableData[lastVisibleRow+1][1] = "value-hidden-row-should-not-influence-width"
 
 	got, ok := m.fitWidthForActiveColumn()
 	if !ok {

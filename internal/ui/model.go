@@ -1540,6 +1540,10 @@ func (m *Model) clampTableRowCursor() {
 	}
 }
 
+func shouldRenderFooter(maxRows, dataLen int) bool {
+	return maxRows > 0 && dataLen > 0
+}
+
 func (m *Model) reconcileSelectedColNameWithTableCols() {
 	if len(m.tableCols) == 0 {
 		m.selectedColName = ""
@@ -1737,7 +1741,7 @@ func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
 func (m Model) visibleTableDataRows() int {
 	_, h := m.tablePaneDimensions()
 	maxRows := m.tableDataRowsHeight(h)
-	renderFooter := maxRows > 0 && (maxRows > len(m.tableData) || (maxRows == len(m.tableData) && len(m.tableData) > 0))
+	renderFooter := shouldRenderFooter(maxRows, len(m.tableData))
 	if renderFooter {
 		maxRows-- // reserve one line for footer
 	}
@@ -2409,7 +2413,7 @@ func (m Model) viewTable(w, h int) string {
 
 	// Data rows — footer is only rendered when there's room for it.
 	maxRows := m.tableDataRowsHeight(h)
-	renderFooter := maxRows > 0 && (maxRows > len(m.tableData) || (maxRows == len(m.tableData) && len(m.tableData) > 0))
+	renderFooter := shouldRenderFooter(maxRows, len(m.tableData))
 	if renderFooter {
 		maxRows-- // reserve one line for the footer
 	}
