@@ -2325,8 +2325,8 @@ func TestViewTableFooterIncludesCellValue(t *testing.T) {
 	m.tableData = [][]string{{strings.Repeat("x", 120)}}
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "a: ") {
-		t.Fatalf("expected footer to include column name, got %q", footer)
+	if !strings.HasPrefix(footer, "R1 a: ") {
+		t.Fatalf("expected footer to start with row and column name, got %q", footer)
 	}
 	if !strings.Contains(footer, "…") {
 		t.Fatalf("expected long cell value to be truncated with ellipsis, got %q", footer)
@@ -2463,8 +2463,8 @@ func TestViewTableFooterNonEmptyOmitsFilterContext(t *testing.T) {
 	m.filterRows = 1
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "a: ") {
-		t.Fatalf("expected column info in non-empty footer, got %q", footer)
+	if !strings.HasPrefix(footer, "R1 a: ") {
+		t.Fatalf("expected footer to start with row and column name, got %q", footer)
 	}
 	if strings.Contains(footer, "Filter active") {
 		t.Fatalf("expected non-empty footer to omit filter context, got %q", footer)
