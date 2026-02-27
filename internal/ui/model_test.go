@@ -929,7 +929,7 @@ func TestFitWidthForActiveColumnIncludesHeaderNullDotWidth(t *testing.T) {
 	if !ok {
 		t.Fatal("expected fit width to be computable")
 	}
-	want := lipgloss.Width("very_long_column_name") + 2 + inlineNullDotWidth()
+	want := lipgloss.Width("very_long_column_name") + 1 + tableHeaderNullDotWidth()
 	if got != want {
 		t.Fatalf("expected fit width %d, got %d", want, got)
 	}

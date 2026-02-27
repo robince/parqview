@@ -109,6 +109,7 @@ var (
 	// Null indicator dots (pre-rendered strings, not reusable styles)
 	nullDot             = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(nullDotChar)
 	inlineNullDotW      = lipgloss.Width(" " + nullDot) // inline indicator is rendered as " " + dot
+	tableHeaderNullDotW = lipgloss.Width(nullDotChar)
 	nullDotHeader       = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("62")).Render(nullDotChar)
 	nullDotActiveHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("69")).Render(nullDotChar)
 
@@ -161,4 +162,8 @@ var (
 
 func inlineNullDotWidth() int {
 	return inlineNullDotW
+}
+
+func tableHeaderNullDotWidth() int {
+	return tableHeaderNullDotW
 }

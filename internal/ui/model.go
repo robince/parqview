@@ -501,6 +501,33 @@ func (m Model) maxViewportStart(colAreaWidth int) int {
 	return start
 }
 
+func (m Model) viewportStartForCursor(cursor, colAreaWidth int) int {
+	if len(m.tableCols) == 0 {
+		return 0
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= len(m.tableCols) {
+		cursor = len(m.tableCols) - 1
+	}
+	if colAreaWidth < tableColMinWidth {
+		return cursor
+	}
+
+	start := cursor
+	used := m.columnWidth(m.tableCols[start], colAreaWidth)
+	for start > 0 {
+		prevW := m.columnWidth(m.tableCols[start-1], colAreaWidth)
+		if used+prevW > colAreaWidth {
+			break
+		}
+		start--
+		used += prevW
+	}
+	return start
+}
+
 func (m Model) tableViewport() (startCol, endCol int) {
 	if len(m.tableCols) == 0 {
 		return 0, 0
@@ -526,16 +553,7 @@ func (m Model) tableViewport() (startCol, endCol int) {
 		}
 	}
 
-	startCol = cursor
-	for startCol > 0 {
-		candidate := startCol - 1
-		candidateEnd := m.viewportEndFromStart(candidate, colAreaWidth)
-		if cursor >= candidate && cursor < candidateEnd {
-			startCol = candidate
-			continue
-		}
-		break
-	}
+	startCol = m.viewportStartForCursor(cursor, colAreaWidth)
 	endCol = m.viewportEndFromStart(startCol, colAreaWidth)
 	return startCol, endCol
 }
@@ -1781,9 +1799,11 @@ func (m Model) fitWidthForActiveColumn() (int, bool) {
 			maxValueW = valueW
 		}
 	}
-	headerW := lipgloss.Width(m.tableCols[colIdx]) + 2
+	headerW := lipgloss.Width(m.tableCols[colIdx]) + 1
 	if s, ok := m.summaries[m.tableCols[colIdx]]; ok && s.Loaded && s.MissingCount > 0 {
-		headerW += inlineNullDotWidth()
+		headerW += tableHeaderNullDotWidth()
+	} else {
+		headerW++
 	}
 	fitWidth := max(maxValueW+1, headerW)
 	fitWidth = max(fitWidth, tableColMinWidth)
