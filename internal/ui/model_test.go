@@ -456,14 +456,14 @@ func TestColumnsBulkOpsAutoDisablesColsSelectedOnlyWithoutDataSelected(t *testin
 
 			updated, cmd := m.handleColumnsKey(tc.key)
 			m = updated.(Model)
-				if cmd != nil {
-					t.Fatalf("expected no command for %q, got %v", tc.key, cmd)
-				}
-				if m.showSelectedInCols {
-					t.Fatalf("expected showSelectedInCols=false after %q", tc.key)
-				}
-				if got := m.sel.Count(); got != 0 {
-					t.Fatalf("expected selection count 0 after %q, got %d", tc.key, got)
+			if cmd != nil {
+				t.Fatalf("expected no command for %q, got %v", tc.key, cmd)
+			}
+			if m.showSelectedInCols {
+				t.Fatalf("expected showSelectedInCols=false after %q", tc.key)
+			}
+			if got := m.sel.Count(); got != 0 {
+				t.Fatalf("expected selection count 0 after %q, got %d", tc.key, got)
 			}
 			if got := len(m.filteredCols); got != 3 {
 				t.Fatalf("expected filteredCols len 3 after %q, got %d", tc.key, got)
