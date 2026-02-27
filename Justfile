@@ -24,6 +24,7 @@ lint:
 
 install: build
     cp parqview ~/.local/bin/parqview
+    codesign --sign - ~/.local/bin/parqview
 
 clean:
     rm -f parqview
