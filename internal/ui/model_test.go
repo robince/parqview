@@ -665,6 +665,60 @@ func TestHandleTableKeyHorizontalRightClampAtRightBoundary(t *testing.T) {
 	}
 }
 
+func TestTableViewportClampsHintAboveMaxStart(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c9"
+	m.tableColOffHint = len(m.tableCols) - 1
+
+	colAreaWidth := m.tableColAreaWidth()
+	if colAreaWidth < tableColMinWidth {
+		t.Fatalf("expected test setup with visible columns, got colAreaWidth=%d", colAreaWidth)
+	}
+	maxStart := m.maxViewportStart(colAreaWidth)
+	if maxStart >= m.tableColOffHint {
+		t.Fatalf("expected hint %d to exceed maxStart %d in setup", m.tableColOffHint, maxStart)
+	}
+
+	startCol, endCol := m.tableViewport()
+	if startCol != maxStart {
+		t.Fatalf("expected clamped startCol %d, got %d", maxStart, startCol)
+	}
+	if endCol != len(m.tableCols) {
+		t.Fatalf("expected viewport to include last column, got endCol=%d len=%d", endCol, len(m.tableCols))
+	}
+}
+
+func TestHandleTableKeyRightHintStaysWithinBoundsWhenShifting(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c0"
+
+	for i := 0; i < len(m.tableCols)-1; i++ {
+		startCol, endCol := m.tableViewport()
+		idx := m.tableColCursor()
+
+		updated, cmd := m.handleTableKey("right")
+		if cmd != nil {
+			t.Fatalf("step %d: expected no load command for right key", i+1)
+		}
+		m = updated.(Model)
+
+		if idx == endCol-1 {
+			colAreaWidth := m.tableColAreaWidth()
+			maxStart := max(0, m.maxViewportStart(colAreaWidth))
+			if m.tableColOffHint < startCol {
+				t.Fatalf("step %d: expected hint >= prior startCol (%d), got %d", i+1, startCol, m.tableColOffHint)
+			}
+			if m.tableColOffHint > maxStart {
+				t.Fatalf("step %d: expected hint <= maxStart (%d), got %d", i+1, maxStart, m.tableColOffHint)
+			}
+		}
+	}
+}
+
 func TestHandleTableKeyHorizontalRoundTrip(t *testing.T) {
 	m := newTestModel()
 	m.width = 100
