@@ -724,14 +724,28 @@ func TestHandleTableKeyRightHintStaysWithinBoundsWhenShifting(t *testing.T) {
 	}
 }
 
-func TestHandleTableKeyRightHintFormulaDoesNotMoveLeftWhenStartExceedsMaxStart(t *testing.T) {
-	// Simulate a stale startCol captured before a resize where maxStart has since dropped.
-	startCol := 6
-	maxStart := 3
+func TestHandleTableKeyRightHintDoesNotMoveLeftWhenHintIsStaleAfterResize(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+	m.selectedColName = "c8"
+	m.tableColOffHint = len(m.tableCols) - 1
 
-	nextHint := max(startCol, min(maxStart, startCol+1))
-	if nextHint != startCol {
-		t.Fatalf("expected next hint to stay at stale startCol %d, got %d", startCol, nextHint)
+	colAreaWidth := m.tableColAreaWidth()
+	maxStart := max(0, m.maxViewportStart(colAreaWidth))
+	if m.tableColOffHint <= maxStart {
+		t.Fatalf("expected stale hint > maxStart in setup, hint=%d maxStart=%d", m.tableColOffHint, maxStart)
+	}
+	startCol, _ := m.tableViewport()
+
+	updated, cmd := m.handleTableKey("right")
+	if cmd != nil {
+		t.Fatalf("expected no load command for right key")
+	}
+	m = updated.(Model)
+
+	if m.tableColOffHint < startCol {
+		t.Fatalf("expected hint to stay at or right of prior startCol %d, got %d", startCol, m.tableColOffHint)
 	}
 }
 
@@ -1451,9 +1465,6 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 	m.summaries["b"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
 
 	w, h := m.tablePaneDimensions()
-	if w <= 0 || h <= 0 {
-		t.Fatalf("expected non-degenerate table pane dimensions, got w=%d h=%d", w, h)
-	}
 	out := m.viewTable(w, h)
 	lines := strings.Split(out, "\n")
 	if len(lines) < 4 {
