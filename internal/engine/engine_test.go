@@ -119,6 +119,29 @@ func TestProfileDetail(t *testing.T) {
 	}
 }
 
+func TestProfileDetailFloatAliasesAreNumeric(t *testing.T) {
+	eng := openSampleParquet(t)
+	ctx := bg()
+
+	for _, duckType := range []string{"FLOAT4", "FLOAT8"} {
+		t.Run(duckType, func(t *testing.T) {
+			summary, err := eng.ProfileBasic(ctx, "score")
+			if err != nil {
+				t.Fatalf("ProfileBasic(score): %v", err)
+			}
+			if err := eng.ProfileDetail(ctx, "score", summary, duckType); err != nil {
+				t.Fatalf("ProfileDetail(score): %v", err)
+			}
+			if summary.Numeric == nil {
+				t.Fatalf("expected numeric stats for %s", duckType)
+			}
+			if summary.Hist == nil {
+				t.Fatalf("expected histogram for %s", duckType)
+			}
+		})
+	}
+}
+
 func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	eng := openSampleParquet(t)
 	ctx := bg()
@@ -240,6 +263,12 @@ func TestIsNumericType(t *testing.T) {
 	}
 	if !isNumericType("DECIMAL(10,2)") {
 		t.Fatal("DECIMAL(10,2) should be treated as numeric")
+	}
+	if !isNumericType("FLOAT4") {
+		t.Fatal("FLOAT4 should be treated as numeric")
+	}
+	if !isNumericType("FLOAT8") {
+		t.Fatal("FLOAT8 should be treated as numeric")
 	}
 }
 

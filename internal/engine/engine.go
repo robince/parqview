@@ -365,7 +365,7 @@ func isNumericType(t string) bool {
 	switch base {
 	case "TINYINT", "SMALLINT", "INT", "INTEGER", "BIGINT", "HUGEINT",
 		"UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT", "UHUGEINT",
-		"FLOAT", "REAL", "DOUBLE", "DECIMAL", "NUMERIC":
+		"FLOAT", "REAL", "DOUBLE", "DECIMAL", "NUMERIC", "FLOAT4", "FLOAT8":
 		return true
 	default:
 		return false
