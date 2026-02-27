@@ -421,7 +421,7 @@ func TestHandleTableKeyHorizontalNavigationTracksViewportPaging(t *testing.T) {
 			if m.selectedColName != tc.expectedSelected {
 				t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
 			}
-			startCol := m.computeTableColOff(m.visibleColCount())
+			startCol := m.computeTableColOff()
 			if startCol != tc.expectedStartCol {
 				t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
 			}
@@ -445,7 +445,7 @@ func TestHandleTableKeyHorizontalNavigationPagingBoundaries(t *testing.T) {
 		if m.selectedColName != "c0" {
 			t.Fatalf("expected selected column to remain %q, got %q", "c0", m.selectedColName)
 		}
-		if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 0 {
+		if startCol := m.computeTableColOff(); startCol != 0 {
 			t.Fatalf("expected start col to remain 0, got %d", startCol)
 		}
 	})
@@ -468,7 +468,7 @@ func TestHandleTableKeyHorizontalNavigationPagingBoundaries(t *testing.T) {
 		if m.selectedColName != "c1" {
 			t.Fatalf("expected selected column to remain %q, got %q", "c1", m.selectedColName)
 		}
-		if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 0 {
+		if startCol := m.computeTableColOff(); startCol != 0 {
 			t.Fatalf("expected start col to remain 0, got %d", startCol)
 		}
 	})
@@ -483,7 +483,7 @@ func TestHandleTableKeyHorizontalLeftKeepsViewportUntilLeftEdge(t *testing.T) {
 	if got := m.visibleColCount(); got != 4 {
 		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
 	}
-	if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 3 {
+	if startCol := m.computeTableColOff(); startCol != 3 {
 		t.Fatalf("expected initial start col 3 for selected c6, got %d", startCol)
 	}
 
@@ -508,7 +508,7 @@ func TestHandleTableKeyHorizontalLeftKeepsViewportUntilLeftEdge(t *testing.T) {
 		if m.selectedColName != tc.expectedSelected {
 			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
 		}
-		startCol := m.computeTableColOff(m.visibleColCount())
+		startCol := m.computeTableColOff()
 		if startCol != tc.expectedStartCol {
 			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
 		}
@@ -524,7 +524,7 @@ func TestHandleTableKeyHorizontalRightKeepsViewportUntilRightEdge(t *testing.T) 
 	if got := m.visibleColCount(); got != 4 {
 		t.Fatalf("expected visibleColCount=4 for test setup, got %d", got)
 	}
-	if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 0 {
+	if startCol := m.computeTableColOff(); startCol != 0 {
 		t.Fatalf("expected initial start col 0 for selected c0, got %d", startCol)
 	}
 
@@ -549,7 +549,7 @@ func TestHandleTableKeyHorizontalRightKeepsViewportUntilRightEdge(t *testing.T) 
 		if m.selectedColName != tc.expectedSelected {
 			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
 		}
-		startCol := m.computeTableColOff(m.visibleColCount())
+		startCol := m.computeTableColOff()
 		if startCol != tc.expectedStartCol {
 			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
 		}
@@ -588,7 +588,7 @@ func TestHandleTableKeyHorizontalLeftClampAtLeftBoundary(t *testing.T) {
 		if m.selectedColName != tc.expectedSelected {
 			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
 		}
-		startCol := m.computeTableColOff(m.visibleColCount())
+		startCol := m.computeTableColOff()
 		if startCol != tc.expectedStartCol {
 			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
 		}
@@ -603,7 +603,7 @@ func TestHandleTableKeyHorizontalLeftClampAtLeftBoundary(t *testing.T) {
 	if m.selectedColName != "c0" {
 		t.Fatalf("expected selectedColName to remain c0, got %q", m.selectedColName)
 	}
-	startCol := m.computeTableColOff(m.visibleColCount())
+	startCol := m.computeTableColOff()
 	if startCol != 0 {
 		t.Fatalf("expected startCol to remain 0, got %d", startCol)
 	}
@@ -644,7 +644,7 @@ func TestHandleTableKeyHorizontalRightClampAtRightBoundary(t *testing.T) {
 		if m.selectedColName != tc.expectedSelected {
 			t.Fatalf("expected selected column %q, got %q", tc.expectedSelected, m.selectedColName)
 		}
-		startCol := m.computeTableColOff(m.visibleColCount())
+		startCol := m.computeTableColOff()
 		if startCol != tc.expectedStartCol {
 			t.Fatalf("expected start col %d after %q, got %d", tc.expectedStartCol, tc.key, startCol)
 		}
@@ -659,7 +659,7 @@ func TestHandleTableKeyHorizontalRightClampAtRightBoundary(t *testing.T) {
 	if m.selectedColName != "c9" {
 		t.Fatalf("expected selectedColName to remain c9, got %q", m.selectedColName)
 	}
-	startCol := m.computeTableColOff(m.visibleColCount())
+	startCol := m.computeTableColOff()
 	if startCol != 6 {
 		t.Fatalf("expected startCol to remain 6, got %d", startCol)
 	}
@@ -686,7 +686,7 @@ func TestHandleTableKeyHorizontalRoundTrip(t *testing.T) {
 	if m.selectedColName != "c9" {
 		t.Fatalf("expected c9 after full right traversal, got %q", m.selectedColName)
 	}
-	startCol := m.computeTableColOff(m.visibleColCount())
+	startCol := m.computeTableColOff()
 	if startCol != 6 {
 		t.Fatalf("expected startCol=6 at c9, got %d", startCol)
 	}
@@ -702,7 +702,7 @@ func TestHandleTableKeyHorizontalRoundTrip(t *testing.T) {
 	if m.selectedColName != "c0" {
 		t.Fatalf("expected c0 after full left traversal, got %q", m.selectedColName)
 	}
-	startCol = m.computeTableColOff(m.visibleColCount())
+	startCol = m.computeTableColOff()
 	if startCol != 0 {
 		t.Fatalf("expected startCol=0 at c0, got %d", startCol)
 	}
@@ -728,7 +728,7 @@ func TestHandleTableKeyHorizontalNavigationWithWidthOverride(t *testing.T) {
 	if m.selectedColName != "c1" {
 		t.Fatalf("expected selected column c1, got %q", m.selectedColName)
 	}
-	if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 1 {
+	if startCol := m.computeTableColOff(); startCol != 1 {
 		t.Fatalf("expected start col 1 after moving right, got %d", startCol)
 	}
 }
@@ -742,6 +742,7 @@ func TestHandleTableKeyCtrlWToggleWideColumns(t *testing.T) {
 	if got := m.visibleColCount(); got != 4 {
 		t.Fatalf("expected 4 visible columns in default mode, got %d", got)
 	}
+	m.tableColWidths["c1"] = 50
 
 	updated, cmd := m.handleTableKey("ctrl+w")
 	if cmd != nil {
@@ -752,6 +753,9 @@ func TestHandleTableKeyCtrlWToggleWideColumns(t *testing.T) {
 	if !m.tableWide {
 		t.Fatal("expected tableWide=true after first ctrl+w")
 	}
+	if _, ok := m.tableColWidths["c1"]; ok {
+		t.Fatal("expected ctrl+w to clear fit-width overrides")
+	}
 	if got := m.visibleColCount(); got >= 4 {
 		t.Fatalf("expected fewer visible columns in wide mode, got %d", got)
 	}
@@ -760,6 +764,50 @@ func TestHandleTableKeyCtrlWToggleWideColumns(t *testing.T) {
 	m = updated.(Model)
 	if m.tableWide {
 		t.Fatal("expected tableWide=false after second ctrl+w")
+	}
+}
+
+func TestFitWidthForActiveColumnIncludesHeaderWidth(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 12
+	m.tableCols = []string{"very_long_column_name"}
+	m.selectedColName = "very_long_column_name"
+	m.tableData = [][]string{{"x"}}
+
+	got, ok := m.fitWidthForActiveColumn()
+	if !ok {
+		t.Fatal("expected fit width to be computable")
+	}
+	want := lipgloss.Width("very_long_column_name") + 2
+	if got != want {
+		t.Fatalf("expected fit width %d, got %d", want, got)
+	}
+}
+
+func TestFitWidthForActiveColumnScansAllVisibleRows(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 12
+	m.tableCols = []string{"id", "tag"}
+	m.selectedColName = "tag"
+	m.tableData = [][]string{
+		{"1", "a"},
+		{"2", "b"},
+		{"3", "c"},
+		{"4", "d"},
+		{"5", "e"},
+		{"6", "value-visible-last-row"},
+		{"7", "z"},
+	}
+
+	got, ok := m.fitWidthForActiveColumn()
+	if !ok {
+		t.Fatal("expected fit width to be computable")
+	}
+	want := lipgloss.Width("value-visible-last-row") + 1
+	if got != want {
+		t.Fatalf("expected fit width %d from last visible row, got %d", want, got)
 	}
 }
 

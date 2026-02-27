@@ -289,9 +289,7 @@ func (m Model) tableColCursor() int {
 }
 
 // computeTableColOff returns the current left edge of the table viewport.
-// visibleCols is ignored and kept only for existing tests/callers.
-func (m Model) computeTableColOff(visibleCols int) int {
-	_ = visibleCols
+func (m Model) computeTableColOff() int {
 	startCol, _ := m.tableViewport()
 	return startCol
 }
@@ -1739,7 +1737,8 @@ func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
 func (m Model) visibleTableDataRows() int {
 	_, h := m.tablePaneDimensions()
 	maxRows := m.tableDataRowsHeight(h)
-	if maxRows > 0 {
+	renderFooter := maxRows > 0 && (maxRows > len(m.tableData) || (maxRows == len(m.tableData) && len(m.tableData) > 0))
+	if renderFooter {
 		maxRows-- // reserve one line for footer
 	}
 	if maxRows < 0 {
@@ -1773,7 +1772,9 @@ func (m Model) fitWidthForActiveColumn() (int, bool) {
 			maxValueW = valueW
 		}
 	}
-	fitWidth := max(maxValueW+1, tableColMinWidth)
+	headerW := lipgloss.Width(m.tableCols[colIdx]) + 2
+	fitWidth := max(maxValueW+1, headerW)
+	fitWidth = max(fitWidth, tableColMinWidth)
 	if fitWidth > colAreaWidth {
 		fitWidth = colAreaWidth
 	}
@@ -1918,6 +1919,9 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 	case "w":
 		m.toggleActiveColumnFitWidth()
 	case "ctrl+w":
+		if len(m.tableColWidths) > 0 {
+			m.tableColWidths = make(map[string]int)
+		}
 		m.tableWide = !m.tableWide
 		if m.tableWide {
 			m.statusMsg = fmt.Sprintf("Wide columns on (%d)", tableColWideWidth)
@@ -2405,7 +2409,7 @@ func (m Model) viewTable(w, h int) string {
 
 	// Data rows — footer is only rendered when there's room for it.
 	maxRows := m.tableDataRowsHeight(h)
-	renderFooter := maxRows > 0
+	renderFooter := maxRows > 0 && (maxRows > len(m.tableData) || (maxRows == len(m.tableData) && len(m.tableData) > 0))
 	if renderFooter {
 		maxRows-- // reserve one line for the footer
 	}
@@ -2546,11 +2550,7 @@ func (m Model) viewTableFooter() string {
 			cellValue = row[colIdx]
 		}
 		parts = append(parts, fmt.Sprintf("Cell %q=%s", colName, truncateDisplayMiddle(cellValue, 80)))
-	}
 
-	// Column info from profiling
-	if m.selectedColName != "" {
-		colName := truncateDisplayMiddle(m.selectedColName, 20)
 		colType := truncateDisplayMiddle(m.columnType(m.selectedColName), 20)
 		typeInfo := ""
 		if colType != "" {
