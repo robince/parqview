@@ -309,7 +309,7 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	t.Run("table focus uses selected column", func(t *testing.T) {
 		m := newCmdTestModel()
 		m.focus = FocusTable
-		m.columns = []types.ColumnInfo{{Name: "alpha"}}
+		m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "DOUBLE"}}
 		m.selectedColName = "alpha"
 		m.updateFilteredCols()
 
@@ -324,12 +324,18 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 		if m.overlay != OverlayDetail {
 			t.Fatalf("expected detail overlay, got %v", m.overlay)
 		}
+		if m.detailTab != 1 {
+			t.Fatalf("expected stats tab (1) for DOUBLE column, got %d", m.detailTab)
+		}
 	})
 
 	t.Run("columns focus uses active column", func(t *testing.T) {
 		m := newCmdTestModel()
 		m.focus = FocusColumns
-		m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
+		m.columns = []types.ColumnInfo{
+			{Name: "alpha", DuckType: "DOUBLE"},
+			{Name: "beta", DuckType: "VARCHAR"},
+		}
 		m.selectedColName = "alpha"
 		m.colCursor = 1
 		m.updateFilteredCols()
@@ -345,7 +351,35 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 		if m.overlay != OverlayDetail {
 			t.Fatalf("expected detail overlay, got %v", m.overlay)
 		}
+		if m.detailTab != 1 {
+			t.Fatalf("expected stats tab (1) for DOUBLE column, got %d", m.detailTab)
+		}
 	})
+}
+
+func TestDefaultDetailTab(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    int
+	}{
+		{name: "double", in: "DOUBLE", want: 1},
+		{name: "decimal parameterized", in: "DECIMAL(10,2)", want: 1},
+		{name: "numeric parameterized", in: "NUMERIC(12,4)", want: 1},
+		{name: "float4 alias", in: "FLOAT4", want: 1},
+		{name: "float8 alias", in: "FLOAT8", want: 1},
+		{name: "integer", in: "INTEGER", want: 0},
+		{name: "varchar", in: "VARCHAR", want: 0},
+		{name: "empty", in: "", want: 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := defaultDetailTab(tc.in); got != tc.want {
+				t.Fatalf("defaultDetailTab(%q) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestHandleTableKeyHorizontalNavigationTracksViewportPaging(t *testing.T) {

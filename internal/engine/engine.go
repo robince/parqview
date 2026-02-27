@@ -11,6 +11,7 @@ import (
 
 	"github.com/robince/parqview/internal/missing"
 	"github.com/robince/parqview/internal/types"
+	"github.com/robince/parqview/internal/util"
 )
 
 // Engine wraps a DuckDB connection for querying a data file.
@@ -471,22 +472,7 @@ func (e *Engine) Close() error {
 }
 
 func isNumericType(t string) bool {
-	t = strings.TrimSpace(strings.ToUpper(t))
-	if t == "" {
-		return false
-	}
-	base := strings.Fields(t)[0]
-	if idx := strings.Index(base, "("); idx >= 0 {
-		base = base[:idx]
-	}
-	switch base {
-	case "TINYINT", "SMALLINT", "INT", "INTEGER", "BIGINT", "HUGEINT",
-		"UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT", "UHUGEINT",
-		"FLOAT", "REAL", "DOUBLE", "DECIMAL", "NUMERIC":
-		return true
-	default:
-		return false
-	}
+	return util.IsNumericDuckType(t)
 }
 
 func quoteIdent(name string) string {

@@ -856,7 +856,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if targetCol != "" {
 			m.detailCol = targetCol
-			m.detailTab = 0
+			m.detailTab = defaultDetailTab(m.columnType(m.detailCol))
 			m.overlay = OverlayDetail
 			if s, ok := m.summaries[m.detailCol]; !ok || !s.DetailLoaded {
 				var existing *types.ColumnSummary
@@ -2769,6 +2769,15 @@ func (m Model) columnType(colName string) string {
 		}
 	}
 	return ""
+}
+
+func defaultDetailTab(colType string) int {
+	switch util.DuckTypeBase(colType) {
+	case "FLOAT", "REAL", "DOUBLE", "DECIMAL", "NUMERIC", "FLOAT4", "FLOAT8":
+		return 1 // Stats
+	default:
+		return 0 // Top Values
+	}
 }
 
 func (m Model) activeRowCount() int64 {
