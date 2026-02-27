@@ -2336,10 +2336,13 @@ func TestViewTableFooterIncludesCellValue(t *testing.T) {
 func TestViewTableFooterBlankWhenNotProjected(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
-	m.selectedColName = "b"
+	m.selectedColName = "b" // not in tableCols → not projected
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
+	// With non-empty tableData and a selected column that isn't projected,
+	// the footer should be blank. TestViewTableFooterIncludesCellValue
+	// covers the non-empty case when the column *is* projected.
 	if footer != "" {
 		t.Fatalf("expected blank footer when column not projected, got %q", footer)
 	}
