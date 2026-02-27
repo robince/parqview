@@ -141,7 +141,7 @@ type Model struct {
 	showSelected       bool           // show only selected columns
 	rowFilter          string         // active SQL filter
 	totalRows          int64
-	filterRows         int64 // -1 means no filter active
+	filterRows         int64 // -1 means filtered row count is unavailable (inactive or not fetched yet)
 
 	// Profiling
 	summaries map[string]*types.ColumnSummary
@@ -2529,6 +2529,14 @@ func (m Model) viewTableFooter() string {
 	var parts []string
 	if len(m.tableData) == 0 {
 		parts = append(parts, "No rows in current result")
+		if m.rowFilter != "" {
+			filterInfo := "Filter: rows with missing values"
+			// filterRows uses -1 while the filtered row count is unavailable.
+			if m.filterRows >= 0 {
+				filterInfo += fmt.Sprintf(" (%d rows)", m.filterRows)
+			}
+			parts = append(parts, filterInfo)
+		}
 	} else {
 		// Clamp cursor defensively for transient states where
 		// tableData may have shrunk (e.g. after filter/resize).
@@ -2569,14 +2577,6 @@ func (m Model) viewTableFooter() string {
 			}
 		}
 	}
-	if m.rowFilter != "" {
-		filterInfo := "Filter: rows with missing values"
-		if m.filterRows >= 0 {
-			filterInfo += fmt.Sprintf(" (%d rows)", m.filterRows)
-		}
-		parts = append(parts, filterInfo)
-	}
-
 	return strings.Join(parts, "    ")
 }
 

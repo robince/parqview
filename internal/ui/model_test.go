@@ -1742,6 +1742,22 @@ func TestViewTableFooterZeroRowsIncludesFilterContext(t *testing.T) {
 	}
 }
 
+func TestViewTableFooterNonEmptyOmitsFilterContext(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.tableData = [][]string{{"x"}}
+	m.rowFilter = "a IS NULL"
+	m.filterRows = 1
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, "Row 1:") {
+		t.Fatalf("expected row context in non-empty footer, got %q", footer)
+	}
+	if strings.Contains(footer, "Filter: rows with missing values") {
+		t.Fatalf("expected non-empty footer to omit filter context, got %q", footer)
+	}
+}
+
 func TestViewTableTinyViewportDoesNotOverflowHeight(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a", "b"}
