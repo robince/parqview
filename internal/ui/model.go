@@ -3029,7 +3029,7 @@ func sanitizeInlineDisplay(s string) string {
 		case '\x1b':
 			b.WriteString(`\x1b`)
 		default:
-			if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			if unicode.IsControl(r) || (unicode.Is(unicode.Cf, r) && r != '\u200c' && r != '\u200d') {
 				switch {
 				case r <= 0xFF:
 					b.WriteString(fmt.Sprintf(`\x%02x`, r))

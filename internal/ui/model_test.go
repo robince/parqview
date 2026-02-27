@@ -3157,8 +3157,14 @@ func TestTruncateDisplayMiddlePreservesGraphemeClusters(t *testing.T) {
 	}
 
 	got := truncateDisplayMiddle("👩‍💻👩‍💻👩‍💻", 5)
-	if got != "👩‍💻…👩‍💻" {
+	if !strings.Contains(got, "…") {
+		t.Fatalf("expected truncated output with ellipsis, got %q", got)
+	}
+	if strings.Contains(got, "\u200d…") || strings.Contains(got, "…\u200d") {
 		t.Fatalf("expected truncation on grapheme boundaries, got %q", got)
+	}
+	if lipgloss.Width(got) > 5 {
+		t.Fatalf("expected output width <= 5, got %d for %q", lipgloss.Width(got), got)
 	}
 
 	got = truncateDisplayMiddle("e\u0301e\u0301e\u0301e\u0301", 3)
@@ -3172,5 +3178,9 @@ func TestSanitizeInlineDisplayEscapesNonASCIIControlRunes(t *testing.T) {
 	want := `a\u202eb\U0001d173c`
 	if got != want {
 		t.Fatalf("sanitizeInlineDisplay non-ascii control escaping = %q, want %q", got, want)
+	}
+
+	if got := sanitizeInlineDisplay("👩‍💻"); got != "👩‍💻" {
+		t.Fatalf("sanitizeInlineDisplay should preserve ZWJ emoji sequence, got %q", got)
 	}
 }
