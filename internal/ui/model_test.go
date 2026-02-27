@@ -2325,8 +2325,8 @@ func TestViewTableFooterIncludesCellValue(t *testing.T) {
 	m.tableData = [][]string{{strings.Repeat("x", 120)}}
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "a:") {
-		t.Fatalf("expected footer to include column name, got %q", footer)
+	if !strings.HasPrefix(footer, "a: ") {
+		t.Fatalf("expected footer to start with column name, got %q", footer)
 	}
 	if !strings.Contains(footer, "…") {
 		t.Fatalf("expected long cell value to be truncated with ellipsis, got %q", footer)
@@ -2392,9 +2392,6 @@ func TestViewTableMinimalHeightFooterBehavior(t *testing.T) {
 	if !strings.Contains(out, "x") {
 		t.Fatalf("expected data row content at minimal height, got %q", out)
 	}
-	// Footer is now blank when no column is selected, so just verify
-	// the data row is present and no "too small" message appears.
-
 	m.height = 8
 	if m.visibleTableRows() == 0 {
 		t.Fatal("expected test setup to allow at least one visible data row")
@@ -2403,6 +2400,9 @@ func TestViewTableMinimalHeightFooterBehavior(t *testing.T) {
 	out = m.viewTable(w, h)
 	if strings.Contains(out, "Terminal too small to display rows") {
 		t.Fatalf("expected table output when one data row fits, got %q", out)
+	}
+	if !strings.Contains(out, "a: ") {
+		t.Fatalf("expected footer with column info when data row fits, got %q", out)
 	}
 }
 
@@ -2448,7 +2448,7 @@ func TestViewTableFooterNonEmptyOmitsFilterContext(t *testing.T) {
 	m.filterRows = 1
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "a:") {
+	if !strings.HasPrefix(footer, "a: ") {
 		t.Fatalf("expected column info in non-empty footer, got %q", footer)
 	}
 	if strings.Contains(footer, "Filter active") {

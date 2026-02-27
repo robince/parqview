@@ -2661,8 +2661,8 @@ func (m Model) viewTableFooter() string {
 			value := sanitizeInlineDisplayPreview(row[colIdx], 80)
 
 			if s, ok := m.summaries[m.selectedColName]; ok && s.Loaded {
-				parts = append(parts, fmt.Sprintf("%s%s: %s (%d/%d missing)",
-					colName, typeInfo, value, s.MissingCount, m.totalRows))
+				parts = append(parts, fmt.Sprintf("%s%s: %s (%d missing, %.1f%%)",
+					colName, typeInfo, value, s.MissingCount, s.MissingPct))
 			} else {
 				parts = append(parts, fmt.Sprintf("%s%s: %s", colName, typeInfo, value))
 			}
