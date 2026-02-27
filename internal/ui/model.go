@@ -1782,6 +1782,9 @@ func (m Model) fitWidthForActiveColumn() (int, bool) {
 		}
 	}
 	headerW := lipgloss.Width(m.tableCols[colIdx]) + 2
+	if s, ok := m.summaries[m.tableCols[colIdx]]; ok && s.Loaded && s.MissingCount > 0 {
+		headerW += inlineNullDotWidth()
+	}
 	fitWidth := max(maxValueW+1, headerW)
 	fitWidth = max(fitWidth, tableColMinWidth)
 	if fitWidth > colAreaWidth {
@@ -2535,7 +2538,7 @@ func (m Model) viewTableFooter() string {
 	if len(m.tableData) == 0 {
 		parts = append(parts, "No rows in current result")
 		if m.rowFilter != "" {
-			filterInfo := "Filter: rows with missing values"
+			filterInfo := "Filter active"
 			// -1 sentinel means filtered row count is unavailable.
 			if m.filterRows >= 0 {
 				filterInfo += fmt.Sprintf(" (%d rows)", m.filterRows)
@@ -2565,7 +2568,8 @@ func (m Model) viewTableFooter() string {
 		if m.selectedColName != "" {
 			colName := truncateDisplayMiddle(m.selectedColName, 20)
 			if colIdx := m.tableColCursor(); colIdx >= 0 && colIdx < len(row) {
-				parts = append(parts, fmt.Sprintf("Cell %q=%s", colName, truncateDisplayMiddle(row[colIdx], 80)))
+				cell := sanitizeInlineDisplay(row[colIdx])
+				parts = append(parts, fmt.Sprintf("Cell %q=%s", colName, truncateDisplayMiddle(cell, 80)))
 			} else {
 				parts = append(parts, fmt.Sprintf("Cell %q=<not projected>", colName))
 			}
@@ -2983,6 +2987,29 @@ func truncateDisplayMiddle(s string, maxW int) string {
 	}
 
 	return left.String() + "…" + string(runes[rightStart:])
+}
+
+func sanitizeInlineDisplay(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		case '\x1b':
+			b.WriteString(`\x1b`)
+		default:
+			if unicode.IsControl(r) {
+				b.WriteString(fmt.Sprintf(`\x%02X`, r))
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return b.String()
 }
 
 func clampLineWidth(line string, w int) string {

@@ -820,6 +820,49 @@ func TestHandleTableKeyHorizontalNavigationWithWidthOverride(t *testing.T) {
 	}
 }
 
+func TestHandleTableKeyHorizontalPagingWithWidthOverride(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4"}
+	m.selectedColName = "c0"
+	m.tableColWidths["c1"] = 50
+
+	updated, cmd := m.handleTableKey("]")
+	if cmd != nil {
+		t.Fatalf("expected no load command for ], got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.selectedColName != "c1" {
+		t.Fatalf("expected selected c1 after first ], got %q", m.selectedColName)
+	}
+	firstStart := m.computeTableColOff()
+	if firstStart != 1 {
+		t.Fatalf("expected start col 1 after first ], got %d", firstStart)
+	}
+
+	updated, cmd = m.handleTableKey("]")
+	if cmd != nil {
+		t.Fatalf("expected no load command for ], got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.selectedColName == "c1" {
+		t.Fatalf("expected second ] to move selection right, still on %q", m.selectedColName)
+	}
+	secondStart := m.computeTableColOff()
+	if secondStart <= firstStart {
+		t.Fatalf("expected second ] to move viewport right, firstStart=%d secondStart=%d", firstStart, secondStart)
+	}
+
+	updated, cmd = m.handleTableKey("[")
+	if cmd != nil {
+		t.Fatalf("expected no load command for [, got %v", cmd)
+	}
+	m = updated.(Model)
+	if startCol := m.computeTableColOff(); startCol >= secondStart {
+		t.Fatalf("expected [ to move viewport left, secondStart=%d got=%d", secondStart, startCol)
+	}
+}
+
 func TestHandleTableKeyCtrlWToggleWideColumns(t *testing.T) {
 	m := newTestModel()
 	m.width = 100
@@ -867,6 +910,25 @@ func TestFitWidthForActiveColumnIncludesHeaderWidth(t *testing.T) {
 		t.Fatal("expected fit width to be computable")
 	}
 	want := lipgloss.Width("very_long_column_name") + 2
+	if got != want {
+		t.Fatalf("expected fit width %d, got %d", want, got)
+	}
+}
+
+func TestFitWidthForActiveColumnIncludesHeaderNullDotWidth(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 12
+	m.tableCols = []string{"very_long_column_name"}
+	m.selectedColName = "very_long_column_name"
+	m.tableData = [][]string{{"x"}}
+	m.summaries["very_long_column_name"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+
+	got, ok := m.fitWidthForActiveColumn()
+	if !ok {
+		t.Fatal("expected fit width to be computable")
+	}
+	want := lipgloss.Width("very_long_column_name") + 2 + inlineNullDotWidth()
 	if got != want {
 		t.Fatalf("expected fit width %d, got %d", want, got)
 	}
@@ -1755,6 +1817,18 @@ func TestViewTableFooterCellInspectorNotProjected(t *testing.T) {
 	}
 }
 
+func TestViewTableFooterCellInspectorSanitizesControlChars(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"line1\nline2\r\x1b[31mred\tx"}}
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, `Cell "a"=line1\nline2\r\x1b[31mred\tx`) {
+		t.Fatalf("expected footer to sanitize control characters, got %q", footer)
+	}
+}
+
 func TestViewTableUsesMiddleTruncationForHeaderAndCell(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"abcdefghijklmnop"}
@@ -1836,7 +1910,7 @@ func TestViewTableFooterZeroRowsIncludesFilterContext(t *testing.T) {
 	if !strings.Contains(footer, "No rows in current result") {
 		t.Fatalf("expected zero-row footer message, got %q", footer)
 	}
-	if !strings.Contains(footer, "Filter: rows with missing values (0 rows)") {
+	if !strings.Contains(footer, "Filter active (0 rows)") {
 		t.Fatalf("expected filter context in zero-row footer, got %q", footer)
 	}
 }
@@ -1852,7 +1926,7 @@ func TestViewTableFooterNonEmptyOmitsFilterContext(t *testing.T) {
 	if !strings.Contains(footer, "Row 1:") {
 		t.Fatalf("expected row context in non-empty footer, got %q", footer)
 	}
-	if strings.Contains(footer, "Filter: rows with missing values") {
+	if strings.Contains(footer, "Filter active") {
 		t.Fatalf("expected non-empty footer to omit filter context, got %q", footer)
 	}
 }
