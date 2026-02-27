@@ -359,9 +359,9 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 
 func TestDefaultDetailTab(t *testing.T) {
 	cases := []struct {
-		name    string
-		in      string
-		want    int
+		name string
+		in   string
+		want int
 	}{
 		{name: "double", in: "DOUBLE", want: 1},
 		{name: "decimal parameterized", in: "DECIMAL(10,2)", want: 1},
@@ -705,6 +705,94 @@ func TestHandleTableKeyHorizontalRoundTrip(t *testing.T) {
 	startCol = m.computeTableColOff(m.visibleColCount())
 	if startCol != 0 {
 		t.Fatalf("expected startCol=0 at c0, got %d", startCol)
+	}
+}
+
+func TestHandleTableKeyHorizontalNavigationWithWidthOverride(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3"}
+	m.selectedColName = "c0"
+	m.tableColWidths["c1"] = 50
+
+	if got := m.visibleColCount(); got != 1 {
+		t.Fatalf("expected 1 visible column with override, got %d", got)
+	}
+
+	updated, cmd := m.handleTableKey("right")
+	if cmd != nil {
+		t.Fatalf("expected no load command for right, got %v", cmd)
+	}
+	m = updated.(Model)
+
+	if m.selectedColName != "c1" {
+		t.Fatalf("expected selected column c1, got %q", m.selectedColName)
+	}
+	if startCol := m.computeTableColOff(m.visibleColCount()); startCol != 1 {
+		t.Fatalf("expected start col 1 after moving right, got %d", startCol)
+	}
+}
+
+func TestHandleTableKeyCtrlWToggleWideColumns(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.tableCols = []string{"c0", "c1", "c2", "c3", "c4", "c5"}
+	m.selectedColName = "c0"
+
+	if got := m.visibleColCount(); got != 4 {
+		t.Fatalf("expected 4 visible columns in default mode, got %d", got)
+	}
+
+	updated, cmd := m.handleTableKey("ctrl+w")
+	if cmd != nil {
+		t.Fatalf("expected no load command for ctrl+w, got %v", cmd)
+	}
+	m = updated.(Model)
+
+	if !m.tableWide {
+		t.Fatal("expected tableWide=true after first ctrl+w")
+	}
+	if got := m.visibleColCount(); got >= 4 {
+		t.Fatalf("expected fewer visible columns in wide mode, got %d", got)
+	}
+
+	updated, _ = m.handleTableKey("ctrl+w")
+	m = updated.(Model)
+	if m.tableWide {
+		t.Fatal("expected tableWide=false after second ctrl+w")
+	}
+}
+
+func TestHandleTableKeyWToggleFitWidth(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 12
+	m.tableCols = []string{"id", "tag"}
+	m.selectedColName = "tag"
+	m.tableData = [][]string{
+		{"1", "short"},
+		{"2", "very-long-descriptive-tag-value"},
+		{"3", "medium"},
+	}
+
+	wantWidth, ok := m.fitWidthForActiveColumn()
+	if !ok {
+		t.Fatal("expected fit width to be computable")
+	}
+
+	updated, cmd := m.handleTableKey("w")
+	if cmd != nil {
+		t.Fatalf("expected no load command for w, got %v", cmd)
+	}
+	m = updated.(Model)
+	if got, ok := m.tableColWidths["tag"]; !ok || got != wantWidth {
+		t.Fatalf("expected override width %d for tag, got %d (ok=%v)", wantWidth, got, ok)
+	}
+
+	updated, _ = m.handleTableKey("w")
+	m = updated.(Model)
+	if _, ok := m.tableColWidths["tag"]; ok {
+		t.Fatal("expected tag override to be removed on second w")
 	}
 }
 
@@ -1483,6 +1571,38 @@ func TestViewTableFooterClarifiesProjectedMissingCounts(t *testing.T) {
 	footer := m.viewTableFooter()
 	if !strings.Contains(footer, "missing (projected)") {
 		t.Fatalf("expected footer to clarify projected-column missing count, got %q", footer)
+	}
+}
+
+func TestViewTableFooterIncludesCellInspector(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{strings.Repeat("x", 120)}}
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, `Cell "a"=`) {
+		t.Fatalf("expected footer to include cell inspector, got %q", footer)
+	}
+	if !strings.Contains(footer, "…") {
+		t.Fatalf("expected long cell value to be truncated with ellipsis, got %q", footer)
+	}
+}
+
+func TestViewTableUsesMiddleTruncationForHeaderAndCell(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"abcdefghijklmnop"}
+	m.selectedColName = "abcdefghijklmnop"
+	m.tableData = [][]string{{"abcdefghijklmnop"}}
+	m.width = 90
+	m.height = 10
+
+	out := m.viewTable(65, 6)
+	if !strings.Contains(out, "abcde…klmnop") {
+		t.Fatalf("expected header to use middle truncation, got %q", out)
+	}
+	if !strings.Contains(out, "abcdef…klmnop") {
+		t.Fatalf("expected cell to use middle truncation, got %q", out)
 	}
 }
 
@@ -2568,5 +2688,25 @@ func TestFilePickerBackspaceCanMoveAboveLaunchDir(t *testing.T) {
 	m = updated.(Model)
 	if m.pickerDir != filepath.Dir(launchDir) {
 		t.Fatalf("expected picker dir to move to parent %q, got %q", filepath.Dir(launchDir), m.pickerDir)
+	}
+}
+
+func TestTruncateDisplayMiddle(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		w    int
+		want string
+	}{
+		{name: "fits", in: "abcdef", w: 6, want: "abcdef"},
+		{name: "single width", in: "abcdef", w: 1, want: "…"},
+		{name: "middle truncation", in: "abcdefghijklmnop", w: 12, want: "abcde…klmnop"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := truncateDisplayMiddle(tc.in, tc.w); got != tc.want {
+				t.Fatalf("truncateDisplayMiddle(%q,%d)=%q want %q", tc.in, tc.w, got, tc.want)
+			}
+		})
 	}
 }

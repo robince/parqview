@@ -20,8 +20,9 @@ const (
 	topBottomBarPadW  = 2 // horizontal padding in top/bottom bar styles
 
 	// Table layout constants
-	// Invariant: tableColWidth >= tableColMinWidth (renderRowCells relies on this).
-	tableColWidth      = 14 // fixed column width for v1
+	// Invariant: tableColWidth/tableColWideWidth >= tableColMinWidth (renderRowCells relies on this).
+	tableColWidth      = 14 // default table column width
+	tableColWideWidth  = 30 // wide-mode table column width
 	tableColMinWidth   = 4
 	tableRowNumW       = 6 // row number column width
 	tableRowPrefixW    = 1 // prefix space for null dot alignment
