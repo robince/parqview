@@ -1380,7 +1380,8 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 	m.summaries["a"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
 	m.summaries["b"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
 
-	out := m.viewTable(60, 6)
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
 	lines := strings.Split(out, "\n")
 	if len(lines) < 4 {
 		t.Fatalf("expected at least 4 lines in table view, got %d", len(lines))
@@ -1587,9 +1588,10 @@ func TestViewTableDoesNotOverflowWidthWithRowPrefix(t *testing.T) {
 		{"v0", "v1", "v2", "v3"},
 	}
 
-	w := 34
-	m.width = w
-	out := m.viewTable(w, 4)
+	m.width = 56
+	m.height = 10
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
 	for _, line := range strings.Split(out, "\n") {
 		if got := lipgloss.Width(line); got > w {
 			t.Fatalf("expected line width <= %d, got %d: %q", w, got, line)
@@ -1607,8 +1609,10 @@ func TestViewTableFooterStaysSingleLineWithLongColumnType(t *testing.T) {
 	m.tableData = [][]string{{"x"}}
 	m.summaries["nested"] = &types.ColumnSummary{Loaded: true, MissingCount: 0, MissingPct: 0}
 
-	w := 50
-	out := m.viewTable(w, 4)
+	m.width = 80
+	m.height = 10
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
 	lines := strings.Split(out, "\n")
 	footer := lines[len(lines)-1]
 	if strings.Contains(footer, "\n") {
@@ -1665,7 +1669,8 @@ func TestViewTableUsesMiddleTruncationForHeaderAndCell(t *testing.T) {
 	m.width = 90
 	m.height = 10
 
-	out := m.viewTable(65, 6)
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
 	if !strings.Contains(out, "abcde…klmnop") {
 		t.Fatalf("expected header to use middle truncation, got %q", out)
 	}
@@ -1763,9 +1768,12 @@ func TestViewTableTinyViewportDoesNotOverflowHeight(t *testing.T) {
 	m.tableCols = []string{"a", "b"}
 	m.tableData = [][]string{{"1", "2"}, {"3", "4"}}
 	m.selectedColName = "a"
+	m.width = 80
 
-	for _, h := range []int{1, 2} {
-		out := m.viewTable(40, h)
+	for _, height := range []int{1, 2} {
+		m.height = height + statusBarH + paneBorderH
+		w, h := m.tablePaneDimensions()
+		out := m.viewTable(w, h)
 		lines := strings.Split(out, "\n")
 		if len(lines) > h {
 			t.Fatalf("expected at most %d lines for tiny viewport, got %d: %q", h, len(lines), out)
