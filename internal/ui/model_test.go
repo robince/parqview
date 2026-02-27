@@ -416,6 +416,14 @@ func TestViewportStartForCursor(t *testing.T) {
 			wantStart:    1,
 		},
 		{
+			name:         "all columns fit returns first column",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       2,
+			colAreaWidth: 50,
+			wantStart:    0,
+		},
+		{
 			name:         "cursor below range clamps to zero",
 			tableCols:    []string{"c0", "c1", "c2", "c3"},
 			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},

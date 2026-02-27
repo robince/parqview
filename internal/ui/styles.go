@@ -111,7 +111,7 @@ var (
 	inlineNullDotW      = lipgloss.Width(" " + nullDot) // inline indicator is rendered as " " + dot
 	nullDotHeader       = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("62")).Render(nullDotChar)
 	nullDotActiveHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("69")).Render(nullDotChar)
-	tableHeaderNullDotW = lipgloss.Width(nullDotHeader)
+	tableHeaderNullDotW = max(lipgloss.Width(nullDotHeader), lipgloss.Width(nullDotActiveHeader))
 
 	// Column list
 	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)
