@@ -2264,6 +2264,25 @@ func TestViewTableDoesNotOverflowWidthWithRowPrefix(t *testing.T) {
 	}
 }
 
+func TestViewTableUnicodeDoesNotOverflowPaneWidth(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"数据数据数据", "👩‍💻开发者👩‍💻", "Cafe\u0301Cafe\u0301"}
+	m.selectedColName = m.tableCols[0]
+	m.tableData = [][]string{
+		{"数据数据数据数据数据", "👩‍💻👩‍💻👩‍💻👩‍💻", "e\u0301e\u0301e\u0301e\u0301e\u0301"},
+	}
+	m.width = 60
+	m.height = 10
+
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
+	for _, line := range strings.Split(out, "\n") {
+		if got := lipgloss.Width(line); got > w {
+			t.Fatalf("expected unicode line width <= %d, got %d: %q", w, got, line)
+		}
+	}
+}
+
 func TestViewTableFooterStaysSingleLineWithLongColumnType(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"nested"}
@@ -3133,6 +3152,14 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 	}
 	if !strings.Contains(bottom, "v:sel-list") {
 		t.Fatalf("expected columns bottom bar to include v:sel-list hint, got %q", bottom)
+	}
+}
+
+func TestViewBottomBarHandlesNilSelection(t *testing.T) {
+	m := Model{width: 80}
+	out := m.viewBottomBar()
+	if !strings.Contains(out, "Sel: 0/0") {
+		t.Fatalf("expected bottom bar to render zero selection state, got %q", out)
 	}
 }
 

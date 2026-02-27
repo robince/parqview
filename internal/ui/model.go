@@ -2432,7 +2432,10 @@ func (m Model) viewTopBar() string {
 }
 
 func (m Model) viewBottomBar() string {
-	selCount := m.sel.Count()
+	selCount := 0
+	if m.sel != nil {
+		selCount = m.sel.Count()
+	}
 	var hints string
 	if m.focus == FocusColumns {
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  /:search  v:sel-list  x:toggle  a/d/y:sel"
@@ -2499,7 +2502,7 @@ func (m Model) viewTable(w, h int) string {
 	for i := startCol; i < endCol; i++ {
 		colW := m.columnWidth(m.tableCols[i], colAreaWidth)
 		name := truncateDisplayMiddle(m.tableCols[i], max(0, colW-2))
-		nameStr := fmt.Sprintf(" %-*s", max(0, colW-2), name)
+		nameStr := " " + padDisplayRight(name, max(0, colW-2))
 		// Check if column has missing values from profiling.
 		hasMissing := false
 		if s, ok := m.summaries[m.tableCols[i]]; ok && s.Loaded && s.MissingCount > 0 {
@@ -2564,7 +2567,7 @@ func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, 
 	for i := startCol; i < endCol && i < len(row); i++ {
 		colW := m.columnWidth(m.tableCols[i], colAreaWidth)
 		val := truncateDisplayMiddle(row[i], max(0, colW-1))
-		cell := fmt.Sprintf(" %-*s", max(0, colW-1), val)
+		cell := " " + padDisplayRight(val, max(0, colW-1))
 		isMissing := missing.IsDisplayMissing(row[i])
 		isSelectedCol := i == cursorColIdx
 
@@ -3048,6 +3051,17 @@ func truncateDisplay(s string, maxW int) string {
 		cur += rw
 	}
 	return b.String() + "…"
+}
+
+func padDisplayRight(s string, targetW int) string {
+	if targetW <= 0 {
+		return ""
+	}
+	w := lipgloss.Width(s)
+	if w >= targetW {
+		return s
+	}
+	return s + strings.Repeat(" ", targetW-w)
 }
 
 func truncateDisplayMiddle(s string, maxW int) string {
