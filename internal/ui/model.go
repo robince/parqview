@@ -2432,10 +2432,7 @@ func (m Model) viewTopBar() string {
 }
 
 func (m Model) viewBottomBar() string {
-	selCount := 0
-	if m.sel != nil {
-		selCount = m.sel.Count()
-	}
+	selCount := m.sel.Count()
 	var hints string
 	if m.focus == FocusColumns {
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  /:search  v:sel-list  x:toggle  a/d/y:sel"
@@ -3157,11 +3154,11 @@ func sanitizeInlineDisplayPreview(s string, maxW int) string {
 	}
 
 	left := s[:sampleBytes]
-	for len(left) > 0 && !utf8.ValidString(left) {
+	for i := 0; i < 3 && len(left) > 0 && !utf8.ValidString(left); i++ {
 		left = left[:len(left)-1]
 	}
 	right := s[len(s)-sampleBytes:]
-	for len(right) > 0 && !utf8.ValidString(right) {
+	for i := 0; i < 3 && len(right) > 0 && !utf8.ValidString(right); i++ {
 		right = right[1:]
 	}
 
