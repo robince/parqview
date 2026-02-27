@@ -2108,7 +2108,7 @@ func (m Model) pageColumnsHorizontal(direction int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	visibleCols := endCol - startCol
-	newStart := startCol
+	var newStart int
 	switch {
 	case direction < 0:
 		newStart = max(0, startCol-visibleCols)
@@ -2650,9 +2650,8 @@ func (m Model) viewTableFooter() string {
 		row := m.tableData[rowCursor]
 
 		absRow := m.tableOffset + rowCursor + 1
-		if m.selectedColName == "" {
-			parts = append(parts, fmt.Sprintf("R%d", absRow))
-		} else if colIdx := m.tableColCursor(); colIdx >= 0 && colIdx < len(row) {
+		colIdx := m.tableColCursor()
+		if m.selectedColName != "" && colIdx >= 0 && colIdx < len(row) {
 			colName := truncateDisplayMiddle(m.selectedColName, 20)
 			colType := truncateDisplayMiddle(m.columnType(m.selectedColName), 20)
 			typeInfo := ""
@@ -2665,14 +2664,14 @@ func (m Model) viewTableFooter() string {
 			if s, ok := m.summaries[m.selectedColName]; ok && s.Loaded {
 				parts = append(parts, fmt.Sprintf("R%d \"%s\"%s: %s (%d missing, %.1f%%)",
 					absRow, colName, typeInfo, value, s.MissingCount, s.MissingPct))
-			} else {
+			} else if ok {
+				// Summary entry exists but profiling still in progress.
 				parts = append(parts, fmt.Sprintf("R%d \"%s\"%s: %s …", absRow, colName, typeInfo, value))
+			} else {
+				parts = append(parts, fmt.Sprintf("R%d \"%s\"%s: %s", absRow, colName, typeInfo, value))
 			}
-		} else {
-			// Column selected but not projected.
-			colName := truncateDisplayMiddle(m.selectedColName, 20)
-			parts = append(parts, fmt.Sprintf("R%d \"%s\": <not projected>", absRow, colName))
 		}
+		// No column selected or column not projected → blank footer.
 	}
 	return strings.Join(parts, "    ")
 }

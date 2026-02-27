@@ -2307,17 +2307,14 @@ func TestViewTableFooterStaysSingleLineWithLongColumnType(t *testing.T) {
 	}
 }
 
-func TestViewTableFooterShowsRowWhenNoColumnSelected(t *testing.T) {
+func TestViewTableFooterBlankWhenNoColumnSelected(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "R1") {
-		t.Fatalf("expected footer to show row number when no column selected, got %q", footer)
-	}
-	if strings.Contains(footer, "a:") {
-		t.Fatalf("expected no column info when no column selected, got %q", footer)
+	if footer != "" {
+		t.Fatalf("expected blank footer when no column selected, got %q", footer)
 	}
 }
 
@@ -2331,37 +2328,59 @@ func TestViewTableFooterIncludesCellValue(t *testing.T) {
 	if !strings.HasPrefix(footer, `R1 "a": `) {
 		t.Fatalf("expected footer to start with row and column name, got %q", footer)
 	}
-	if !strings.Contains(footer, "…") {
-		t.Fatalf("expected long cell value to be truncated with ellipsis, got %q", footer)
+	// The value itself is truncated with middle-ellipsis; no summary → no trailing …
+	if strings.HasSuffix(footer, " …") {
+		t.Fatalf("expected no trailing … without summary entry, got %q", footer)
 	}
 }
 
-func TestViewTableFooterShowsNotProjected(t *testing.T) {
+func TestViewTableFooterShowsEllipsisWhenProfilingInProgress(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"x"}}
+	// Summary entry exists but not yet loaded.
+	m.summaries["a"] = &types.ColumnSummary{Loaded: false}
+
+	footer := m.viewTableFooter()
+	if !strings.HasSuffix(footer, " …") {
+		t.Fatalf("expected trailing … when summary is loading, got %q", footer)
+	}
+}
+
+func TestViewTableFooterNoEllipsisWhenSummaryAbsent(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"x"}}
+	// No summary entry at all.
+
+	footer := m.viewTableFooter()
+	if strings.HasSuffix(footer, " …") {
+		t.Fatalf("expected no trailing … when no summary entry, got %q", footer)
+	}
+}
+
+func TestViewTableFooterBlankWhenNotProjected(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
 	m.selectedColName = "b" // not in tableCols → not projected
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, `R1 "b": <not projected>`) {
-		t.Fatalf("expected footer to show column as not projected, got %q", footer)
+	if footer != "" {
+		t.Fatalf("expected blank footer when column not projected, got %q", footer)
 	}
 }
 
 func TestViewTableFooterShowsCorrectRowAfterScrolling(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
 	m.tableData = [][]string{{"x"}}
 	m.tableOffset = 9 // scrolled down 9 rows, cursor at first visible row → row 10
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "R10") {
-		t.Fatalf("expected footer to show R10 after scrolling, got %q", footer)
-	}
-
-	// Also verify row number with a selected column.
-	m.selectedColName = "a"
-	footer = m.viewTableFooter()
 	if !strings.Contains(footer, `R10 "a": `) {
 		t.Fatalf("expected footer to show R10 with selected column after scrolling, got %q", footer)
 	}
@@ -2481,7 +2500,7 @@ func TestViewTableFooterNonEmptyOmitsFilterContext(t *testing.T) {
 	}
 }
 
-func TestViewTableFooterNoColumnWithFilterShowsRow(t *testing.T) {
+func TestViewTableFooterNoColumnWithFilterIsBlank(t *testing.T) {
 	m := newTestModel()
 	m.selectedColName = "" // explicitly no column selected
 	m.tableCols = []string{"a"}
@@ -2490,11 +2509,8 @@ func TestViewTableFooterNoColumnWithFilterShowsRow(t *testing.T) {
 	m.filterRows = 1
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "R1") {
-		t.Fatalf("expected footer to show row number with filter active and no column selected, got %q", footer)
-	}
-	if strings.Contains(footer, "Filter active") {
-		t.Fatalf("expected non-empty footer to omit filter context, got %q", footer)
+	if footer != "" {
+		t.Fatalf("expected blank footer when no column selected, got %q", footer)
 	}
 }
 
