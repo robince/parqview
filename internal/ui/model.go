@@ -1517,7 +1517,7 @@ func (m Model) tableDataRowsHeight(h int) int {
 func (m Model) visibleTableRows() int {
 	_, h := m.tablePaneDimensions()
 	rows := m.tableDataRowsHeight(h)
-	if rows > 0 {
+	if shouldRenderFooter(rows, len(m.tableData)) {
 		rows-- // reserve one line for the footer
 	}
 	return rows
@@ -1540,10 +1540,10 @@ func (m *Model) clampTableRowCursor() {
 	}
 }
 
-// Render a footer whenever there's at least one screen row and one data row.
-// Table rendering still requires room for at least one data row.
+// Render a footer when there is space for it.
+// Keep the only visible data row when rows exist; still show footer for empty results.
 func shouldRenderFooter(maxRows, dataLen int) bool {
-	return maxRows > 0 && dataLen > 0
+	return maxRows > 0 && (dataLen == 0 || maxRows > 1)
 }
 
 func (m *Model) reconcileSelectedColNameWithTableCols() {
@@ -2371,7 +2371,7 @@ func (m Model) viewTable(w, h int) string {
 	if h <= 0 {
 		return ""
 	}
-	if m.visibleTableRows() == 0 {
+	if m.tableDataRowsHeight(h) == 0 {
 		return "Terminal too small to display rows"
 	}
 
@@ -2528,7 +2528,7 @@ func rowHasMissing(row []string) bool {
 
 func (m Model) viewTableFooter() string {
 	if len(m.tableData) == 0 {
-		return ""
+		return "No rows in current result"
 	}
 
 	var parts []string
@@ -2554,11 +2554,11 @@ func (m Model) viewTableFooter() string {
 
 	if m.selectedColName != "" {
 		colName := truncateDisplayMiddle(m.selectedColName, 20)
-		cellValue := ""
 		if colIdx := m.tableColCursor(); colIdx >= 0 && colIdx < len(row) {
-			cellValue = row[colIdx]
+			parts = append(parts, fmt.Sprintf("Cell %q=%s", colName, truncateDisplayMiddle(row[colIdx], 80)))
+		} else {
+			parts = append(parts, fmt.Sprintf("Cell %q=<not projected>", colName))
 		}
-		parts = append(parts, fmt.Sprintf("Cell %q=%s", colName, truncateDisplayMiddle(cellValue, 80)))
 
 		colType := truncateDisplayMiddle(m.columnType(m.selectedColName), 20)
 		typeInfo := ""

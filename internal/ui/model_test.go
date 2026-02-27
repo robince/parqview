@@ -1588,6 +1588,7 @@ func TestViewTableDoesNotOverflowWidthWithRowPrefix(t *testing.T) {
 	}
 
 	w := 34
+	m.width = w
 	out := m.viewTable(w, 4)
 	for _, line := range strings.Split(out, "\n") {
 		if got := lipgloss.Width(line); got > w {
@@ -1644,6 +1645,18 @@ func TestViewTableFooterIncludesCellInspector(t *testing.T) {
 	}
 }
 
+func TestViewTableFooterCellInspectorNotProjected(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "b"
+	m.tableData = [][]string{{"x"}}
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, `Cell "b"=<not projected>`) {
+		t.Fatalf("expected footer to mark non-projected cell inspector, got %q", footer)
+	}
+}
+
 func TestViewTableUsesMiddleTruncationForHeaderAndCell(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"abcdefghijklmnop"}
@@ -1668,11 +1681,18 @@ func TestViewTableMinimalHeightFooterBehavior(t *testing.T) {
 	m.tableData = [][]string{{"x"}}
 	m.width = 80
 
-	// height=7 leaves 0 data rows after header/border/footer reservation; height=8 leaves 1.
+	// height=7 fits one data row without footer; height=8 fits one data row plus footer.
 	m.height = 7
 	w, h := m.tablePaneDimensions()
-	if out := m.viewTable(w, h); !strings.Contains(out, "Terminal too small to display rows") {
-		t.Fatalf("expected too-small message when no data row fits, got %q", out)
+	out := m.viewTable(w, h)
+	if strings.Contains(out, "Terminal too small to display rows") {
+		t.Fatalf("expected one data row to render at minimal height, got %q", out)
+	}
+	if !strings.Contains(out, "x") {
+		t.Fatalf("expected data row content at minimal height, got %q", out)
+	}
+	if strings.Contains(out, "Row 1:") {
+		t.Fatalf("expected footer not to replace the only visible data row, got %q", out)
 	}
 
 	m.height = 8
@@ -1680,12 +1700,30 @@ func TestViewTableMinimalHeightFooterBehavior(t *testing.T) {
 		t.Fatal("expected test setup to allow at least one visible data row")
 	}
 	w, h = m.tablePaneDimensions()
-	out := m.viewTable(w, h)
+	out = m.viewTable(w, h)
 	if strings.Contains(out, "Terminal too small to display rows") {
 		t.Fatalf("expected table output when one data row fits, got %q", out)
 	}
 	if !strings.Contains(out, "Row 1:") {
 		t.Fatalf("expected footer when one data row fits, got %q", out)
+	}
+}
+
+func TestViewTableRendersFooterForZeroRows(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = nil
+	m.width = 80
+	m.height = 7
+
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
+	if strings.Contains(out, "Terminal too small to display rows") {
+		t.Fatalf("expected zero-row footer output, got %q", out)
+	}
+	if !strings.Contains(out, "No rows in current result") {
+		t.Fatalf("expected zero-row footer message, got %q", out)
 	}
 }
 
