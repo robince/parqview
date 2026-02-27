@@ -2432,7 +2432,10 @@ func (m Model) viewTopBar() string {
 }
 
 func (m Model) viewBottomBar() string {
-	selCount := m.sel.Count()
+	selCount := 0
+	if m.sel != nil {
+		selCount = m.sel.Count()
+	}
 	var hints string
 	if m.focus == FocusColumns {
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  /:search  v:sel-list  x:toggle  a/d/y:sel"
@@ -2662,8 +2665,7 @@ func (m Model) viewTableFooter() string {
 		if m.selectedColName != "" {
 			colName := truncateDisplayMiddle(m.selectedColName, 20)
 			if colIdx := m.tableColCursor(); colIdx >= 0 && colIdx < len(row) {
-				cell := sanitizeInlineDisplay(row[colIdx])
-				parts = append(parts, fmt.Sprintf("Cell %q=%s", colName, truncateDisplayMiddle(cell, 80)))
+				parts = append(parts, fmt.Sprintf("Cell %q=%s", colName, sanitizeInlineDisplayPreview(row[colIdx], 80)))
 			} else {
 				parts = append(parts, fmt.Sprintf("Cell %q=<not projected>", colName))
 			}
@@ -3143,6 +3145,28 @@ func sanitizeInlineDisplay(s string) string {
 		}
 	}
 	return b.String()
+}
+
+func sanitizeInlineDisplayPreview(s string, maxW int) string {
+	if maxW <= 0 {
+		return ""
+	}
+	const sampleBytes = 192
+	if len(s) <= sampleBytes*2 {
+		return truncateDisplayMiddle(sanitizeInlineDisplay(s), maxW)
+	}
+
+	left := s[:sampleBytes]
+	for len(left) > 0 && !utf8.ValidString(left) {
+		left = left[:len(left)-1]
+	}
+	right := s[len(s)-sampleBytes:]
+	for len(right) > 0 && !utf8.ValidString(right) {
+		right = right[1:]
+	}
+
+	preview := sanitizeInlineDisplay(left) + "…" + sanitizeInlineDisplay(right)
+	return truncateDisplayMiddle(preview, maxW)
 }
 
 func clampLineWidth(line string, w int) string {
