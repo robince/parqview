@@ -2483,6 +2483,7 @@ func TestViewTableFooterNonEmptyOmitsFilterContext(t *testing.T) {
 
 func TestViewTableFooterNoColumnWithFilterShowsRow(t *testing.T) {
 	m := newTestModel()
+	m.selectedColName = "" // explicitly no column selected
 	m.tableCols = []string{"a"}
 	m.tableData = [][]string{{"x"}}
 	m.rowFilter = "a IS NULL"
