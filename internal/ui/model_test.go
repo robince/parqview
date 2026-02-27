@@ -1678,9 +1678,12 @@ func TestViewTableDoesNotOverflowWidthWithRowPrefix(t *testing.T) {
 		{"v0", "v1", "v2", "v3"},
 	}
 
-	m.width = 56
+	m.width = 60
 	m.height = 10
 	w, h := m.tablePaneDimensions()
+	if w != 34 {
+		t.Fatalf("expected test setup to keep table pane width at 34, got %d", w)
+	}
 	out := m.viewTable(w, h)
 	for _, line := range strings.Split(out, "\n") {
 		if got := lipgloss.Width(line); got > w {
