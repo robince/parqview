@@ -136,7 +136,8 @@ type Model struct {
 	tableOffset        int      // row offset for pagination
 	tableRowCursor     int      // row cursor position within visible page
 	tableColOffHint    int      // preferred column offset; -1 = auto
-	showSelected       bool     // show only selected columns
+	showSelected       bool     // show only selected columns in data pane
+	showSelectedInCols bool     // show only selected columns in columns pane
 	rowFilter          string   // active SQL filter
 	totalRows          int64
 	filterRows         int64 // -1 means no filter active
@@ -242,6 +243,7 @@ func (m *Model) resetLoadedDataState() {
 	m.tableRowCursor = 0
 	m.tableColOffHint = -1
 	m.showSelected = false
+	m.showSelectedInCols = false
 	m.rowFilter = ""
 	m.totalRows = 0
 	m.filterRows = -1
@@ -547,6 +549,10 @@ func (m Model) columnsHasFilteredCol(name string) bool {
 	return false
 }
 
+func (m Model) columnsSearchActive() bool {
+	return m.searchFocused || m.searchQuery != ""
+}
+
 // columnsActiveColName returns the column that actions (x, enter) operate on
 // in the columns pane. The crosshair column (selectedColName) takes priority
 // over the colCursor position when both are visible in the filtered list.
@@ -562,10 +568,15 @@ func (m Model) columnsActiveColName() string {
 
 func (m *Model) updateFilteredCols() {
 	var filtered []types.ColumnInfo
+	filterSelectedOnly := m.showSelectedInCols && !m.columnsSearchActive()
 	for _, c := range m.columns {
-		if util.FuzzyMatch(c.Name, m.searchQuery) {
-			filtered = append(filtered, c)
+		if !util.FuzzyMatch(c.Name, m.searchQuery) {
+			continue
 		}
+		if filterSelectedOnly && !m.sel.IsSelected(c.Name) {
+			continue
+		}
+		filtered = append(filtered, c)
 	}
 	m.filteredCols = filtered
 
@@ -849,6 +860,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.tableColOffHint = -1
 		m.tableRowCursor = 0
 		return m, m.nextPreviewCmd()
+	case "v", "V":
+		m.showSelectedInCols = !m.showSelectedInCols
+		m.updateFilteredCols()
+		return m, nil
 	case "enter":
 		targetCol := m.selectedColName
 		if m.focus == FocusColumns {
@@ -1545,21 +1560,15 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 	case "x":
 		targetCol := m.columnsActiveColName()
 		if targetCol != "" {
+			dataShowSelectedWasOn := m.showSelected
 			m.sel.Toggle(targetCol)
-			if m.showSelected {
-				// If we just deselected a column, it will vanish from
-				// the projection. Refresh filtered cols and reconcile
-				// the cursor so selectedColName stays valid while the
-				// preview reloads.
-				if !m.sel.IsSelected(targetCol) {
-					if m.sel.Count() == 0 {
-						m.showSelected = false
-						m.statusMsg = "show-selected off (no columns selected)"
-					}
-					// updateFilteredCols handles cursor clamping and
-					// selectedColName re-sync (including the case where
-					// the deselected column was the highlighted one).
-					m.updateFilteredCols()
+			if m.showSelectedInCols {
+				m.updateFilteredCols()
+			}
+			if dataShowSelectedWasOn {
+				if m.sel.Count() == 0 {
+					m.showSelected = false
+					m.statusMsg = "show-selected off (no columns selected)"
 				}
 				return m, m.nextPreviewCmd()
 			}
@@ -1579,25 +1588,32 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			names[i] = c.Name
 		}
 		m.sel.RemoveAll(names)
+		if m.showSelectedInCols {
+			m.updateFilteredCols()
+		}
 		if m.showSelected {
 			if m.sel.Count() == 0 {
 				m.showSelected = false
 				m.statusMsg = "show-selected off (no columns selected)"
-				m.updateFilteredCols()
 			}
 			return m, m.nextPreviewCmd()
 		}
 	case "A":
 		m.sel.SelectAll()
+		if m.showSelectedInCols {
+			m.updateFilteredCols()
+		}
 		if m.showSelected {
 			return m, m.nextPreviewCmd()
 		}
 	case "X":
 		m.sel.Clear()
+		if m.showSelectedInCols {
+			m.updateFilteredCols()
+		}
 		if m.showSelected {
 			m.showSelected = false
 			m.statusMsg = "show-selected off (no columns selected)"
-			m.updateFilteredCols()
 			return m, m.nextPreviewCmd()
 		}
 	case "y":
@@ -2155,13 +2171,16 @@ func (m Model) viewBottomBar() string {
 	selCount := m.sel.Count()
 	var hints string
 	if m.focus == FocusColumns {
-		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  /:search  x:toggle  a/d/y:sel"
+		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  /:search  v:sel-list  x:toggle  a/d/y:sel"
 	} else {
 		hints = "Ctrl+O:open  hjkl:move  r/R:row missing ±  c/C:col missing ±  f:missing-filter  drag:divider  Ctrl+L:redraw"
 	}
 	status := fmt.Sprintf("  Sel: %d/%d", selCount, len(m.columns))
 	if m.showSelected {
-		status += "  [show-sel]"
+		status += "  [data:sel]"
+	}
+	if m.showSelectedInCols {
+		status += "  [cols:sel]"
 	}
 	if m.statusMsg != "" {
 		status += "  " + m.statusMsg
@@ -2419,6 +2438,13 @@ func (m Model) viewColumns(w, h int) string {
 		startIdx = maxStart
 	}
 	activeCol := m.columnsActiveColName()
+	if len(m.filteredCols) == 0 {
+		emptyMsg := "No matching columns"
+		if m.showSelectedInCols && !m.columnsSearchActive() {
+			emptyMsg = "No selected columns (v: show all)"
+		}
+		lines = append(lines, detailLabelStyle.Render(emptyMsg))
+	}
 
 	for i := startIdx; i < len(m.filteredCols) && i < startIdx+listHeight; i++ {
 		col := m.filteredCols[i]
@@ -2634,7 +2660,8 @@ func (m Model) viewHelp() string {
 		{"Ctrl+O", "Open file picker (.parquet/.csv)"},
 		{"Ctrl+L", "Redraw screen"},
 		{"?", "Toggle help"},
-		{"s / S", "Toggle show selected columns only"},
+		{"s / S", "Toggle selected columns in data pane"},
+		{"v / V", "Toggle selected columns in columns pane"},
 		{"Space", "Page down (rows or columns list)"},
 		{"Enter", "Open column detail"},
 		{"Mouse wheel", "Scroll cursor in focused pane"},

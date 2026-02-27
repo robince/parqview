@@ -305,6 +305,50 @@ func TestHandleKeyToggleShowSelectedGlobalLoadsPreview(t *testing.T) {
 	}
 }
 
+func TestHandleKeyToggleShowSelectedInColumnsDoesNotLoadPreview(t *testing.T) {
+	cases := []struct {
+		name  string
+		focus Focus
+	}{
+		{name: "table focus", focus: FocusTable},
+		{name: "columns focus", focus: FocusColumns},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newCmdTestModel()
+			m.focus = tc.focus
+			m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
+			m.sel = selection.New([]string{"alpha", "beta"})
+			m.sel.Add("alpha")
+			m.updateFilteredCols()
+
+			updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+			if cmd != nil {
+				t.Fatalf("expected no load command when toggling column-list selected-only with v, got %v", cmd)
+			}
+			m = updated.(Model)
+			if !m.showSelectedInCols {
+				t.Fatal("expected showSelectedInCols enabled after v")
+			}
+			if len(m.filteredCols) != 1 || m.filteredCols[0].Name != "alpha" {
+				t.Fatalf("expected filtered list to show selected columns only, got %#v", m.filteredCols)
+			}
+
+			updated, cmd = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'V'}})
+			if cmd != nil {
+				t.Fatalf("expected no load command when toggling column-list selected-only with V, got %v", cmd)
+			}
+			m = updated.(Model)
+			if m.showSelectedInCols {
+				t.Fatal("expected showSelectedInCols disabled after V")
+			}
+			if len(m.filteredCols) != 2 {
+				t.Fatalf("expected all columns visible after V, got %d", len(m.filteredCols))
+			}
+		})
+	}
+}
+
 func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	t.Run("table focus uses selected column", func(t *testing.T) {
 		m := newCmdTestModel()
@@ -359,9 +403,9 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 
 func TestDefaultDetailTab(t *testing.T) {
 	cases := []struct {
-		name    string
-		in      string
-		want    int
+		name string
+		in   string
+		want int
 	}{
 		{name: "double", in: "DOUBLE", want: 1},
 		{name: "decimal parameterized", in: "DECIMAL(10,2)", want: 1},
@@ -1136,6 +1180,60 @@ func TestHandleKeySearchFocusedAllowsSpaces(t *testing.T) {
 	}
 	if len(m.filteredCols) != 1 || m.filteredCols[0].Name != "customer_account_identifier" {
 		t.Fatalf("expected multi-term search to match underscore column, got %#v", m.filteredCols)
+	}
+}
+
+func TestShowSelectedInColumnsIgnoredWhileSearchingAndRestoredAfterClear(t *testing.T) {
+	m := newTestModel()
+	m.focus = FocusColumns
+	m.searchInput = textinput.New()
+	m.searchInput.Prompt = "/ "
+	m.searchInput.PromptStyle = searchPromptStyle
+	m.columns = []types.ColumnInfo{
+		{Name: "alpha"},
+		{Name: "beta"},
+		{Name: "gamma"},
+	}
+	m.sel = selection.New([]string{"alpha", "beta", "gamma"})
+	m.sel.Add("alpha")
+	m.showSelectedInCols = true
+	m.updateFilteredCols()
+	if len(m.filteredCols) != 1 || m.filteredCols[0].Name != "alpha" {
+		t.Fatalf("expected selected-only list before search, got %#v", m.filteredCols)
+	}
+
+	updated, _ := m.handleColumnsKey("/")
+	m = updated.(Model)
+	for _, r := range "beta" {
+		updated, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(Model)
+	}
+	if !m.searchFocused {
+		t.Fatal("expected search to stay focused while typing")
+	}
+	if m.searchQuery != "beta" {
+		t.Fatalf("expected search query beta, got %q", m.searchQuery)
+	}
+	if len(m.filteredCols) != 1 || m.filteredCols[0].Name != "beta" {
+		t.Fatalf("expected search to show matching unselected column while selected-only is enabled, got %#v", m.filteredCols)
+	}
+
+	updated, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.searchFocused {
+		t.Fatal("expected enter to unfocus search")
+	}
+	if len(m.filteredCols) != 1 || m.filteredCols[0].Name != "beta" {
+		t.Fatalf("expected active query to keep showing all searchable columns, got %#v", m.filteredCols)
+	}
+
+	updated, _ = m.handleColumnsKey("esc")
+	m = updated.(Model)
+	if m.searchQuery != "" {
+		t.Fatalf("expected esc to clear search query, got %q", m.searchQuery)
+	}
+	if len(m.filteredCols) != 1 || m.filteredCols[0].Name != "alpha" {
+		t.Fatalf("expected selected-only list restored after search clear, got %#v", m.filteredCols)
 	}
 }
 
@@ -2150,6 +2248,9 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 	if !strings.Contains(help, "H / M / L") {
 		t.Fatalf("expected help to include H/M/L bindings, got %q", help)
 	}
+	if !strings.Contains(help, "v / V") {
+		t.Fatalf("expected help to include v/V binding, got %q", help)
+	}
 
 	m.focus = FocusTable
 	bottom := m.viewBottomBar()
@@ -2170,6 +2271,9 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 	}
 	if !strings.Contains(bottom, "a/d/y:sel") {
 		t.Fatalf("expected columns bottom bar to include a/d/y:sel hint, got %q", bottom)
+	}
+	if !strings.Contains(bottom, "v:sel-list") {
+		t.Fatalf("expected columns bottom bar to include v:sel-list hint, got %q", bottom)
 	}
 }
 
