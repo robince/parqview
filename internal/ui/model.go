@@ -1540,8 +1540,7 @@ func (m *Model) clampTableRowCursor() {
 	}
 }
 
-// Render a footer when there is space for it.
-// Keep the only visible data row when rows exist; still show footer for empty results.
+// Show footer unless doing so would crowd out the only visible data row.
 func shouldRenderFooter(maxRows, dataLen int) bool {
 	return maxRows > 0 && (dataLen == 0 || maxRows > 1)
 }
@@ -2527,49 +2526,55 @@ func rowHasMissing(row []string) bool {
 }
 
 func (m Model) viewTableFooter() string {
-	if len(m.tableData) == 0 {
-		return "No rows in current result"
-	}
-
 	var parts []string
+	if len(m.tableData) == 0 {
+		parts = append(parts, "No rows in current result")
+	} else {
+		// Clamp cursor defensively for transient states where
+		// tableData may have shrunk (e.g. after filter/resize).
+		rowCursor := m.tableRowCursor
+		if rowCursor < 0 {
+			rowCursor = 0
+		}
+		if rowCursor >= len(m.tableData) {
+			rowCursor = len(m.tableData) - 1
+		}
+		row := m.tableData[rowCursor]
+		missingCount := 0
+		for _, v := range row {
+			if missing.IsDisplayMissing(v) {
+				missingCount++
+			}
+		}
+		absRow := m.tableOffset + rowCursor + 1
+		parts = append(parts, fmt.Sprintf("Row %d: %d/%d missing (projected)", absRow, missingCount, len(row)))
 
-	// Clamp cursor defensively for transient states where
-	// tableData may have shrunk (e.g. after filter/resize).
-	rowCursor := m.tableRowCursor
-	if rowCursor < 0 {
-		rowCursor = 0
-	}
-	if rowCursor >= len(m.tableData) {
-		rowCursor = len(m.tableData) - 1
-	}
-	row := m.tableData[rowCursor]
-	missingCount := 0
-	for _, v := range row {
-		if missing.IsDisplayMissing(v) {
-			missingCount++
-		}
-	}
-	absRow := m.tableOffset + rowCursor + 1
-	parts = append(parts, fmt.Sprintf("Row %d: %d/%d missing (projected)", absRow, missingCount, len(row)))
+		if m.selectedColName != "" {
+			colName := truncateDisplayMiddle(m.selectedColName, 20)
+			if colIdx := m.tableColCursor(); colIdx >= 0 && colIdx < len(row) {
+				parts = append(parts, fmt.Sprintf("Cell %q=%s", colName, truncateDisplayMiddle(row[colIdx], 80)))
+			} else {
+				parts = append(parts, fmt.Sprintf("Cell %q=<not projected>", colName))
+			}
 
-	if m.selectedColName != "" {
-		colName := truncateDisplayMiddle(m.selectedColName, 20)
-		if colIdx := m.tableColCursor(); colIdx >= 0 && colIdx < len(row) {
-			parts = append(parts, fmt.Sprintf("Cell %q=%s", colName, truncateDisplayMiddle(row[colIdx], 80)))
-		} else {
-			parts = append(parts, fmt.Sprintf("Cell %q=<not projected>", colName))
+			colType := truncateDisplayMiddle(m.columnType(m.selectedColName), 20)
+			typeInfo := ""
+			if colType != "" {
+				typeInfo = fmt.Sprintf(" (%s)", colType)
+			}
+			if s, ok := m.summaries[m.selectedColName]; ok && s.Loaded {
+				parts = append(parts, fmt.Sprintf("Col %q%s: %d missing (%.1f%%)", colName, typeInfo, s.MissingCount, s.MissingPct))
+			} else {
+				parts = append(parts, fmt.Sprintf("Col %q%s: ...", colName, typeInfo))
+			}
 		}
-
-		colType := truncateDisplayMiddle(m.columnType(m.selectedColName), 20)
-		typeInfo := ""
-		if colType != "" {
-			typeInfo = fmt.Sprintf(" (%s)", colType)
+	}
+	if m.rowFilter != "" {
+		filterInfo := "Filter: rows with missing values"
+		if m.filterRows >= 0 {
+			filterInfo += fmt.Sprintf(" (%d rows)", m.filterRows)
 		}
-		if s, ok := m.summaries[m.selectedColName]; ok && s.Loaded {
-			parts = append(parts, fmt.Sprintf("Col %q%s: %d missing (%.1f%%)", colName, typeInfo, s.MissingCount, s.MissingPct))
-		} else {
-			parts = append(parts, fmt.Sprintf("Col %q%s: ...", colName, typeInfo))
-		}
+		parts = append(parts, filterInfo)
 	}
 
 	return strings.Join(parts, "    ")

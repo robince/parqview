@@ -1715,6 +1715,7 @@ func TestViewTableRendersFooterForZeroRows(t *testing.T) {
 	m.selectedColName = "a"
 	m.tableData = nil
 	m.width = 80
+	// height=7 leaves exactly one table row slot; with zero rows available, that slot is used by the footer.
 	m.height = 7
 
 	w, h := m.tablePaneDimensions()
@@ -1724,6 +1725,20 @@ func TestViewTableRendersFooterForZeroRows(t *testing.T) {
 	}
 	if !strings.Contains(out, "No rows in current result") {
 		t.Fatalf("expected zero-row footer message, got %q", out)
+	}
+}
+
+func TestViewTableFooterZeroRowsIncludesFilterContext(t *testing.T) {
+	m := newTestModel()
+	m.rowFilter = "a IS NULL"
+	m.filterRows = 0
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, "No rows in current result") {
+		t.Fatalf("expected zero-row footer message, got %q", footer)
+	}
+	if !strings.Contains(footer, "Filter: rows with missing values (0 rows)") {
+		t.Fatalf("expected filter context in zero-row footer, got %q", footer)
 	}
 }
 
