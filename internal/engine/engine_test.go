@@ -119,7 +119,7 @@ func TestProfileDetail(t *testing.T) {
 	}
 }
 
-func TestProfileDetailFloatAliasesAreNumeric(t *testing.T) {
+func TestProfileDetailTreatsProvidedFloatAliasesAsNumeric(t *testing.T) {
 	eng := openSampleParquet(t)
 	ctx := bg()
 
@@ -128,6 +128,12 @@ func TestProfileDetailFloatAliasesAreNumeric(t *testing.T) {
 			summary, err := eng.ProfileBasic(ctx, "score")
 			if err != nil {
 				t.Fatalf("ProfileBasic(score): %v", err)
+			}
+			if summary.Numeric != nil {
+				t.Fatalf("expected numeric stats to be empty before ProfileDetail for %s", duckType)
+			}
+			if summary.Hist != nil {
+				t.Fatalf("expected histogram to be empty before ProfileDetail for %s", duckType)
 			}
 			if err := eng.ProfileDetail(ctx, "score", summary, duckType); err != nil {
 				t.Fatalf("ProfileDetail(score): %v", err)
