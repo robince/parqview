@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/rivo/uniseg"
 
 	"github.com/robince/parqview/internal/clipboard"
 	"github.com/robince/parqview/internal/engine"
@@ -2982,31 +2983,37 @@ func truncateDisplayMiddle(s string, maxW int) string {
 	leftBudget := (maxW - 1) / 2
 	rightBudget := maxW - 1 - leftBudget
 
-	runes := []rune(s)
+	var clusters []string
+	var widths []int
+	g := uniseg.NewGraphemes(s)
+	for g.Next() {
+		cluster := g.Str()
+		clusters = append(clusters, cluster)
+		widths = append(widths, lipgloss.Width(cluster))
+	}
+
 	var left strings.Builder
 	cur := 0
 	leftIdx := 0
-	for ; leftIdx < len(runes); leftIdx++ {
-		rw := lipgloss.Width(string(runes[leftIdx]))
-		if cur+rw > leftBudget {
+	for ; leftIdx < len(clusters); leftIdx++ {
+		if cur+widths[leftIdx] > leftBudget {
 			break
 		}
-		left.WriteRune(runes[leftIdx])
-		cur += rw
+		left.WriteString(clusters[leftIdx])
+		cur += widths[leftIdx]
 	}
 
-	rightStart := len(runes)
+	rightStart := len(clusters)
 	cur = 0
-	for i := len(runes) - 1; i >= leftIdx; i-- {
-		rw := lipgloss.Width(string(runes[i]))
-		if cur+rw > rightBudget {
+	for i := len(clusters) - 1; i >= leftIdx; i-- {
+		if cur+widths[i] > rightBudget {
 			break
 		}
-		cur += rw
+		cur += widths[i]
 		rightStart = i
 	}
 
-	return left.String() + "…" + string(runes[rightStart:])
+	return left.String() + "…" + strings.Join(clusters[rightStart:], "")
 }
 
 func sanitizeInlineDisplay(s string) string {
@@ -3022,8 +3029,15 @@ func sanitizeInlineDisplay(s string) string {
 		case '\x1b':
 			b.WriteString(`\x1b`)
 		default:
-			if unicode.IsControl(r) {
-				b.WriteString(fmt.Sprintf(`\x%02x`, r))
+			if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+				switch {
+				case r <= 0xFF:
+					b.WriteString(fmt.Sprintf(`\x%02x`, r))
+				case r <= 0xFFFF:
+					b.WriteString(fmt.Sprintf(`\u%04x`, r))
+				default:
+					b.WriteString(fmt.Sprintf(`\U%08x`, r))
+				}
 			} else {
 				b.WriteRune(r)
 			}

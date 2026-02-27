@@ -3150,3 +3150,27 @@ func TestTruncateDisplayMiddle(t *testing.T) {
 		})
 	}
 }
+
+func TestTruncateDisplayMiddlePreservesGraphemeClusters(t *testing.T) {
+	if got := lipgloss.Width("👩‍💻"); got != 2 {
+		t.Skipf("test assumes lipgloss.Width(👩‍💻)=2, got %d", got)
+	}
+
+	got := truncateDisplayMiddle("👩‍💻👩‍💻👩‍💻", 5)
+	if got != "👩‍💻…👩‍💻" {
+		t.Fatalf("expected truncation on grapheme boundaries, got %q", got)
+	}
+
+	got = truncateDisplayMiddle("e\u0301e\u0301e\u0301e\u0301", 3)
+	if got != "e\u0301…e\u0301" {
+		t.Fatalf("expected combining sequence to stay intact, got %q", got)
+	}
+}
+
+func TestSanitizeInlineDisplayEscapesNonASCIIControlRunes(t *testing.T) {
+	got := sanitizeInlineDisplay("a\u202eb\U0001D173c")
+	want := `a\u202eb\U0001d173c`
+	if got != want {
+		t.Fatalf("sanitizeInlineDisplay non-ascii control escaping = %q, want %q", got, want)
+	}
+}
