@@ -382,6 +382,86 @@ func TestDefaultDetailTab(t *testing.T) {
 	}
 }
 
+func TestViewportStartForCursor(t *testing.T) {
+	cases := []struct {
+		name         string
+		tableCols    []string
+		tableColW    map[string]int
+		cursor       int
+		colAreaWidth int
+		wantStart    int
+	}{
+		{
+			name:         "cursor at first column",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       0,
+			colAreaWidth: 15,
+			wantStart:    0,
+		},
+		{
+			name:         "cursor at last column packs left",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       3,
+			colAreaWidth: 15,
+			wantStart:    2,
+		},
+		{
+			name:         "middle cursor packs as far left as possible",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       2,
+			colAreaWidth: 15,
+			wantStart:    1,
+		},
+		{
+			name:         "cursor below range clamps to zero",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       -1,
+			colAreaWidth: 15,
+			wantStart:    0,
+		},
+		{
+			name:         "cursor above range clamps to last",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       99,
+			colAreaWidth: 15,
+			wantStart:    2,
+		},
+		{
+			name:         "narrow viewport returns clamped cursor",
+			tableCols:    []string{"c0", "c1", "c2", "c3"},
+			tableColW:    map[string]int{"c0": 5, "c1": 6, "c2": 7, "c3": 8},
+			cursor:       2,
+			colAreaWidth: tableColMinWidth - 1,
+			wantStart:    2,
+		},
+		{
+			name:         "active column wider than viewport stays anchored",
+			tableCols:    []string{"c0", "c1", "c2"},
+			tableColW:    map[string]int{"c0": 5, "c1": 100, "c2": 5},
+			cursor:       1,
+			colAreaWidth: 10,
+			wantStart:    1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel()
+			m.tableCols = tc.tableCols
+			m.tableColWidths = tc.tableColW
+
+			if got := m.viewportStartForCursor(tc.cursor, tc.colAreaWidth); got != tc.wantStart {
+				t.Fatalf("viewportStartForCursor(%d, %d) = %d, want %d", tc.cursor, tc.colAreaWidth, got, tc.wantStart)
+			}
+		})
+	}
+}
+
 func TestHandleTableKeyHorizontalNavigationTracksViewportPaging(t *testing.T) {
 	m := newTestModel()
 	m.width = 100
