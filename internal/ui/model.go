@@ -2531,7 +2531,7 @@ func (m Model) viewTableFooter() string {
 		parts = append(parts, "No rows in current result")
 		if m.rowFilter != "" {
 			filterInfo := "Filter: rows with missing values"
-			// filterRows uses -1 while the filtered row count is unavailable.
+			// -1 sentinel means filtered row count is unavailable.
 			if m.filterRows >= 0 {
 				filterInfo += fmt.Sprintf(" (%d rows)", m.filterRows)
 			}
