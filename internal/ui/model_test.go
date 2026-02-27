@@ -3140,6 +3140,9 @@ func TestNewModelWithoutFileStartsEmpty(t *testing.T) {
 	root := t.TempDir()
 	m := NewModel(nil, "", root)
 
+	if m.sel == nil {
+		t.Fatal("expected selection set to be initialized")
+	}
 	if m.engine != nil {
 		t.Fatal("expected no engine when starting without a file")
 	}
@@ -3475,6 +3478,31 @@ func TestOpenFileDoneCurrentRequestErrorPreservesLoadedFile(t *testing.T) {
 	}
 	if got := m.statusMsg; got != "Error opening file: boom" {
 		t.Fatalf("expected error status for current request, got %q", got)
+	}
+}
+
+func TestApplyEngineResetsTableColWidths(t *testing.T) {
+	m := NewModel(nil, "", t.TempDir())
+	m.tableColWidths["a"] = 42
+	m.tableWide = true
+
+	path := filepath.Join(t.TempDir(), "data.csv")
+	if err := os.WriteFile(path, []byte("a,b\n1,2\n"), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+	eng, err := engine.New(path)
+	if err != nil {
+		t.Fatalf("engine.New(%q): %v", path, err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	m.applyEngine(eng, filepath.Base(path))
+
+	if len(m.tableColWidths) != 0 {
+		t.Fatalf("expected tableColWidths cleared on engine apply, got %v", m.tableColWidths)
+	}
+	if m.tableWide {
+		t.Fatal("expected tableWide reset on engine apply")
 	}
 }
 
