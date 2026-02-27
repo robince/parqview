@@ -2307,52 +2307,52 @@ func TestViewTableFooterStaysSingleLineWithLongColumnType(t *testing.T) {
 	}
 }
 
-func TestViewTableFooterClarifiesProjectedMissingCounts(t *testing.T) {
+func TestViewTableFooterBlankWhenNoColumnSelected(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "missing (projected)") {
-		t.Fatalf("expected footer to clarify projected-column missing count, got %q", footer)
+	if footer != "" {
+		t.Fatalf("expected blank footer when no column selected, got %q", footer)
 	}
 }
 
-func TestViewTableFooterIncludesCellInspector(t *testing.T) {
+func TestViewTableFooterIncludesCellValue(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
 	m.selectedColName = "a"
 	m.tableData = [][]string{{strings.Repeat("x", 120)}}
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, `Cell "a"=`) {
-		t.Fatalf("expected footer to include cell inspector, got %q", footer)
+	if !strings.Contains(footer, "a:") {
+		t.Fatalf("expected footer to include column name, got %q", footer)
 	}
 	if !strings.Contains(footer, "…") {
 		t.Fatalf("expected long cell value to be truncated with ellipsis, got %q", footer)
 	}
 }
 
-func TestViewTableFooterCellInspectorNotProjected(t *testing.T) {
+func TestViewTableFooterBlankWhenNotProjected(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
 	m.selectedColName = "b"
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, `Cell "b"=<not projected>`) {
-		t.Fatalf("expected footer to mark non-projected cell inspector, got %q", footer)
+	if footer != "" {
+		t.Fatalf("expected blank footer when column not projected, got %q", footer)
 	}
 }
 
-func TestViewTableFooterCellInspectorSanitizesControlChars(t *testing.T) {
+func TestViewTableFooterSanitizesControlChars(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
 	m.selectedColName = "a"
 	m.tableData = [][]string{{"line1\nline2\r\x1b[31mred\tx"}}
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, `Cell "a"=line1\nline2\r\x1b[31mred\tx`) {
+	if !strings.Contains(footer, `a: line1\nline2\r\x1b[31mred\tx`) {
 		t.Fatalf("expected footer to sanitize control characters, got %q", footer)
 	}
 }
@@ -2392,9 +2392,8 @@ func TestViewTableMinimalHeightFooterBehavior(t *testing.T) {
 	if !strings.Contains(out, "x") {
 		t.Fatalf("expected data row content at minimal height, got %q", out)
 	}
-	if strings.Contains(out, "Row 1:") {
-		t.Fatalf("expected footer not to replace the only visible data row, got %q", out)
-	}
+	// Footer is now blank when no column is selected, so just verify
+	// the data row is present and no "too small" message appears.
 
 	m.height = 8
 	if m.visibleTableRows() == 0 {
@@ -2404,9 +2403,6 @@ func TestViewTableMinimalHeightFooterBehavior(t *testing.T) {
 	out = m.viewTable(w, h)
 	if strings.Contains(out, "Terminal too small to display rows") {
 		t.Fatalf("expected table output when one data row fits, got %q", out)
-	}
-	if !strings.Contains(out, "Row 1:") {
-		t.Fatalf("expected footer when one data row fits, got %q", out)
 	}
 }
 
@@ -2446,13 +2442,14 @@ func TestViewTableFooterZeroRowsIncludesFilterContext(t *testing.T) {
 func TestViewTableFooterNonEmptyOmitsFilterContext(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
 	m.tableData = [][]string{{"x"}}
 	m.rowFilter = "a IS NULL"
 	m.filterRows = 1
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "Row 1:") {
-		t.Fatalf("expected row context in non-empty footer, got %q", footer)
+	if !strings.Contains(footer, "a:") {
+		t.Fatalf("expected column info in non-empty footer, got %q", footer)
 	}
 	if strings.Contains(footer, "Filter active") {
 		t.Fatalf("expected non-empty footer to omit filter context, got %q", footer)
