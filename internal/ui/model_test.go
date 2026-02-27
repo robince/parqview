@@ -3224,3 +3224,12 @@ func BenchmarkTruncateDisplayMiddleLong(b *testing.B) {
 		_ = truncateDisplayMiddle(s, 48)
 	}
 }
+
+func BenchmarkTruncateDisplayMiddleLongASCII(b *testing.B) {
+	s := strings.Repeat("abcdefghijklmnop", 64)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = truncateDisplayMiddle(s, 48)
+	}
+}
