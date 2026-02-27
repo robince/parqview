@@ -330,6 +330,9 @@ func TestHandleKeyToggleShowSelectedInColumnsDoesNotLoadPreview(t *testing.T) {
 			if !m.showSelectedInCols {
 				t.Fatal("expected showSelectedInCols enabled after v")
 			}
+			if tc.focus == FocusTable && m.statusMsg == "" {
+				t.Fatal("expected status message when toggling v from table focus")
+			}
 			if len(m.filteredCols) != 1 || m.filteredCols[0].Name != "alpha" {
 				t.Fatalf("expected filtered list to show selected columns only, got %#v", m.filteredCols)
 			}
@@ -342,8 +345,88 @@ func TestHandleKeyToggleShowSelectedInColumnsDoesNotLoadPreview(t *testing.T) {
 			if m.showSelectedInCols {
 				t.Fatal("expected showSelectedInCols disabled after V")
 			}
+			if tc.focus == FocusTable && m.statusMsg == "" {
+				t.Fatal("expected status message when toggling V from table focus")
+			}
 			if len(m.filteredCols) != 2 {
 				t.Fatalf("expected all columns visible after V, got %d", len(m.filteredCols))
+			}
+		})
+	}
+}
+
+func TestColumnsBulkOpsWithBothSelectedTogglesEnabled(t *testing.T) {
+	cases := []struct {
+		name          string
+		key           string
+		wantSelCount  int
+		wantFiltCount int
+		wantDataSel   bool
+		wantColsSel   bool
+		wantCmd       bool
+	}{
+		{
+			name:          "A selects all and keeps both toggles on",
+			key:           "A",
+			wantSelCount:  3,
+			wantFiltCount: 3,
+			wantDataSel:   true,
+			wantColsSel:   true,
+			wantCmd:       true,
+		},
+		{
+			name:          "d clears selection and turns off both toggles",
+			key:           "d",
+			wantSelCount:  0,
+			wantFiltCount: 3,
+			wantDataSel:   false,
+			wantColsSel:   false,
+			wantCmd:       true,
+		},
+		{
+			name:          "X clears selection and turns off both toggles",
+			key:           "X",
+			wantSelCount:  0,
+			wantFiltCount: 3,
+			wantDataSel:   false,
+			wantColsSel:   false,
+			wantCmd:       true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newCmdTestModel()
+			m.focus = FocusColumns
+			m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}, {Name: "gamma"}}
+			m.sel = selection.New([]string{"alpha", "beta", "gamma"})
+			m.sel.Add("alpha")
+			m.showSelected = true
+			m.showSelectedInCols = true
+			m.updateFilteredCols()
+			if len(m.filteredCols) != 1 {
+				t.Fatalf("expected initial cols filter to show selected columns only, got %d", len(m.filteredCols))
+			}
+
+			updated, cmd := m.handleColumnsKey(tc.key)
+			m = updated.(Model)
+			if tc.wantCmd && cmd == nil {
+				t.Fatalf("expected command for %q", tc.key)
+			}
+			if !tc.wantCmd && cmd != nil {
+				t.Fatalf("expected no command for %q, got %v", tc.key, cmd)
+			}
+			if got := m.sel.Count(); got != tc.wantSelCount {
+				t.Fatalf("expected selection count %d after %q, got %d", tc.wantSelCount, tc.key, got)
+			}
+			if m.showSelected != tc.wantDataSel {
+				t.Fatalf("expected showSelected=%v after %q, got %v", tc.wantDataSel, tc.key, m.showSelected)
+			}
+			if m.showSelectedInCols != tc.wantColsSel {
+				t.Fatalf("expected showSelectedInCols=%v after %q, got %v", tc.wantColsSel, tc.key, m.showSelectedInCols)
+			}
+			if got := len(m.filteredCols); got != tc.wantFiltCount {
+				t.Fatalf("expected filteredCols len %d after %q, got %d", tc.wantFiltCount, tc.key, got)
 			}
 		})
 	}

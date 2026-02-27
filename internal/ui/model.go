@@ -862,6 +862,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.nextPreviewCmd()
 	case "v", "V":
 		m.showSelectedInCols = !m.showSelectedInCols
+		if m.focus == FocusTable {
+			if m.showSelectedInCols {
+				m.statusMsg = "cols selected-list on"
+			} else {
+				m.statusMsg = "cols selected-list off"
+			}
+		}
 		m.updateFilteredCols()
 		return m, nil
 	case "enter":
@@ -1561,14 +1568,23 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		targetCol := m.columnsActiveColName()
 		if targetCol != "" {
 			dataShowSelectedWasOn := m.showSelected
+			colsShowSelectedWasOn := m.showSelectedInCols
 			m.sel.Toggle(targetCol)
-			if m.showSelectedInCols {
+			if m.sel.Count() == 0 && colsShowSelectedWasOn {
+				m.showSelectedInCols = false
+				m.statusMsg = "cols selected-list off (no columns selected)"
+			}
+			if colsShowSelectedWasOn {
 				m.updateFilteredCols()
 			}
 			if dataShowSelectedWasOn {
 				if m.sel.Count() == 0 {
 					m.showSelected = false
-					m.statusMsg = "show-selected off (no columns selected)"
+					if m.statusMsg == "" {
+						m.statusMsg = "show-selected off (no columns selected)"
+					} else {
+						m.statusMsg += "; show-selected off (no columns selected)"
+					}
 				}
 				return m, m.nextPreviewCmd()
 			}
@@ -1583,18 +1599,27 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			return m, m.nextPreviewCmd()
 		}
 	case "d":
+		colsShowSelectedWasOn := m.showSelectedInCols
 		names := make([]string, len(m.filteredCols))
 		for i, c := range m.filteredCols {
 			names[i] = c.Name
 		}
 		m.sel.RemoveAll(names)
-		if m.showSelectedInCols {
+		if m.sel.Count() == 0 && colsShowSelectedWasOn {
+			m.showSelectedInCols = false
+			m.statusMsg = "cols selected-list off (no columns selected)"
+		}
+		if colsShowSelectedWasOn {
 			m.updateFilteredCols()
 		}
 		if m.showSelected {
 			if m.sel.Count() == 0 {
 				m.showSelected = false
-				m.statusMsg = "show-selected off (no columns selected)"
+				if m.statusMsg == "" {
+					m.statusMsg = "show-selected off (no columns selected)"
+				} else {
+					m.statusMsg += "; show-selected off (no columns selected)"
+				}
 			}
 			return m, m.nextPreviewCmd()
 		}
@@ -1607,13 +1632,22 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			return m, m.nextPreviewCmd()
 		}
 	case "X":
+		colsShowSelectedWasOn := m.showSelectedInCols
 		m.sel.Clear()
-		if m.showSelectedInCols {
+		if colsShowSelectedWasOn {
+			m.showSelectedInCols = false
+			m.statusMsg = "cols selected-list off (no columns selected)"
+		}
+		if colsShowSelectedWasOn {
 			m.updateFilteredCols()
 		}
 		if m.showSelected {
 			m.showSelected = false
-			m.statusMsg = "show-selected off (no columns selected)"
+			if m.statusMsg == "" {
+				m.statusMsg = "show-selected off (no columns selected)"
+			} else {
+				m.statusMsg += "; show-selected off (no columns selected)"
+			}
 			return m, m.nextPreviewCmd()
 		}
 	case "y":
