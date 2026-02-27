@@ -2663,15 +2663,15 @@ func (m Model) viewTableFooter() string {
 			value := sanitizeInlineDisplayPreview(row[colIdx], 80)
 
 			if s, ok := m.summaries[m.selectedColName]; ok && s.Loaded {
-				parts = append(parts, fmt.Sprintf("R%d %s%s: %s (%d missing, %.1f%%)",
+				parts = append(parts, fmt.Sprintf("R%d %q%s: %s (%d missing, %.1f%%)",
 					absRow, colName, typeInfo, value, s.MissingCount, s.MissingPct))
 			} else {
-				parts = append(parts, fmt.Sprintf("R%d %s%s: %s", absRow, colName, typeInfo, value))
+				parts = append(parts, fmt.Sprintf("R%d %q%s: %s", absRow, colName, typeInfo, value))
 			}
 		} else {
 			// Column selected but not projected.
 			colName := truncateDisplayMiddle(m.selectedColName, 20)
-			parts = append(parts, fmt.Sprintf("R%d %s: <not projected>", absRow, colName))
+			parts = append(parts, fmt.Sprintf("R%d %q: <not projected>", absRow, colName))
 		}
 	}
 	return strings.Join(parts, "    ")
