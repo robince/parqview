@@ -2654,22 +2654,17 @@ func (m Model) viewTableFooter() string {
 		if m.selectedColName != "" && colIdx >= 0 && colIdx < len(row) {
 			colName := truncateDisplayMiddle(m.selectedColName, 20)
 			colNameQ := fmt.Sprintf("%q", colName)
-			colType := truncateDisplayMiddle(m.columnType(m.selectedColName), 20)
-			typeInfo := ""
-			if colType != "" {
-				typeInfo = fmt.Sprintf(" (%s)", colType)
-			}
 
 			value := sanitizeInlineDisplayPreview(row[colIdx], 80)
 
 			if s, ok := m.summaries[m.selectedColName]; ok && s.Loaded {
-				parts = append(parts, fmt.Sprintf("R%d %s%s: %s (%d missing, %.1f%%)",
-					absRow, colNameQ, typeInfo, value, s.MissingCount, s.MissingPct))
+				parts = append(parts, fmt.Sprintf("R%d %s: %s (%d missing, %.1f%%)",
+					absRow, colNameQ, value, s.MissingCount, s.MissingPct))
 			} else if ok {
 				// Summary entry exists but profiling still in progress.
-				parts = append(parts, fmt.Sprintf("R%d %s%s: %s …", absRow, colNameQ, typeInfo, value))
+				parts = append(parts, fmt.Sprintf("R%d %s: %s …", absRow, colNameQ, value))
 			} else {
-				parts = append(parts, fmt.Sprintf("R%d %s%s: %s", absRow, colNameQ, typeInfo, value))
+				parts = append(parts, fmt.Sprintf("R%d %s: %s", absRow, colNameQ, value))
 			}
 		} else {
 			parts = append(parts, fmt.Sprintf("R%d", absRow))

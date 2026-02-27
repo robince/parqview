@@ -2283,7 +2283,7 @@ func TestViewTableUnicodeDoesNotOverflowPaneWidth(t *testing.T) {
 	}
 }
 
-func TestViewTableFooterStaysSingleLineWithLongColumnType(t *testing.T) {
+func TestViewTableFooterOmitsColumnTypeAndStaysSingleLine(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"nested"}
 	m.selectedColName = "nested"
@@ -2304,6 +2304,9 @@ func TestViewTableFooterStaysSingleLineWithLongColumnType(t *testing.T) {
 	}
 	if got := lipgloss.Width(footer); got > w {
 		t.Fatalf("expected footer width <= %d, got %d: %q", w, got, footer)
+	}
+	if strings.Contains(footer, "STRUCT(") {
+		t.Fatalf("expected footer to omit column type, got %q", footer)
 	}
 }
 
