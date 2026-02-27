@@ -1540,6 +1540,8 @@ func (m *Model) clampTableRowCursor() {
 	}
 }
 
+// Render a footer whenever there's at least one screen row and one data row.
+// This intentionally allows the 1x1 case to show only the footer (no data row).
 func shouldRenderFooter(maxRows, dataLen int) bool {
 	return maxRows > 0 && dataLen > 0
 }
