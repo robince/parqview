@@ -338,6 +338,32 @@ func TestHandleKeyToggleShowSelectedInColumnsDoesNotLoadPreview(t *testing.T) {
 	}
 }
 
+func TestToggleShowSelectedInColumnsPreservesActiveTableColumnWhenListBecomesEmpty(t *testing.T) {
+	m := newCmdTestModel()
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
+	m.sel = selection.New([]string{"alpha", "beta"})
+	m.tableCols = []string{"alpha", "beta"}
+	m.selectedColName = "beta"
+	m.updateFilteredCols()
+
+	updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	if cmd != nil {
+		t.Fatalf("expected no load command when toggling columns-list selected-only with v, got %v", cmd)
+	}
+	m = updated.(Model)
+
+	if !m.showSelectedInCols {
+		t.Fatal("expected showSelectedInCols enabled after v")
+	}
+	if len(m.filteredCols) != 0 {
+		t.Fatalf("expected empty filtered list with no selections, got %d columns", len(m.filteredCols))
+	}
+	if m.selectedColName != "beta" {
+		t.Fatalf("expected active table column to remain beta, got %q", m.selectedColName)
+	}
+}
+
 func TestHandleKeyToggleShowSelectedInColumnsIgnoredInTableFocus(t *testing.T) {
 	m := newCmdTestModel()
 	m.focus = FocusTable

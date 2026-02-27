@@ -596,7 +596,11 @@ func (m *Model) updateFilteredCols() {
 		if len(m.filteredCols) > 0 {
 			m.selectedColName = m.filteredCols[m.colCursor].Name
 		} else {
-			m.selectedColName = ""
+			// Keep the table crosshair stable when the columns list is intentionally
+			// narrowed to selected-only and the selection is empty.
+			if !(m.showSelectedInCols && !m.columnsSearchActive()) {
+				m.selectedColName = ""
+			}
 		}
 	}
 	m.clampColumnsListState()
