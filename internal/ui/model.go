@@ -712,12 +712,10 @@ func (m *Model) updateFilteredCols() {
 		}
 		if len(m.filteredCols) > 0 {
 			m.selectedColName = m.filteredCols[m.colCursor].Name
-		} else {
+		} else if !m.showSelectedInCols || m.columnsSearchActive() {
 			// Keep the table crosshair stable when the columns list is intentionally
 			// narrowed to selected-only and the selection is empty.
-			if !(m.showSelectedInCols && !m.columnsSearchActive()) {
-				m.selectedColName = ""
-			}
+			m.selectedColName = ""
 		}
 	}
 	m.clampColumnsListState()
@@ -1022,7 +1020,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if (m.overlay != OverlayNone || m.searchFocused) && !(m.draggingDivider && msg.Action == tea.MouseActionRelease) {
+	if (m.overlay != OverlayNone || m.searchFocused) && (!m.draggingDivider || msg.Action != tea.MouseActionRelease) {
 		return m, nil
 	}
 
@@ -2110,7 +2108,7 @@ func (m Model) pageColumnsHorizontal(direction int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	visibleCols := endCol - startCol
-	newStart := startCol
+	var newStart int
 	switch {
 	case direction < 0:
 		newStart = max(0, startCol-visibleCols)
@@ -3141,11 +3139,11 @@ func sanitizeInlineDisplay(s string) string {
 			if unicode.IsControl(r) || (unicode.Is(unicode.Cf, r) && r != '\u200c' && r != '\u200d') {
 				switch {
 				case r <= 0xFF:
-					b.WriteString(fmt.Sprintf(`\x%02x`, r))
+					fmt.Fprintf(&b, `\x%02x`, r)
 				case r <= 0xFFFF:
-					b.WriteString(fmt.Sprintf(`\u%04x`, r))
+					fmt.Fprintf(&b, `\u%04x`, r)
 				default:
-					b.WriteString(fmt.Sprintf(`\U%08x`, r))
+					fmt.Fprintf(&b, `\U%08x`, r)
 				}
 			} else {
 				b.WriteRune(r)
