@@ -2307,14 +2307,14 @@ func TestViewTableFooterStaysSingleLineWithLongColumnType(t *testing.T) {
 	}
 }
 
-func TestViewTableFooterBlankWhenNoColumnSelected(t *testing.T) {
+func TestViewTableFooterShowsRowWhenNoColumnSelected(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
-	if footer != "" {
-		t.Fatalf("expected blank footer when no column selected, got %q", footer)
+	if !strings.Contains(footer, "Row 1") {
+		t.Fatalf("expected footer to show row number when no column selected, got %q", footer)
 	}
 }
 
@@ -2333,15 +2333,15 @@ func TestViewTableFooterIncludesCellValue(t *testing.T) {
 	}
 }
 
-func TestViewTableFooterBlankWhenNotProjected(t *testing.T) {
+func TestViewTableFooterShowsRowWhenNotProjected(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
 	m.selectedColName = "b"
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
-	if footer != "" {
-		t.Fatalf("expected blank footer when column not projected, got %q", footer)
+	if !strings.Contains(footer, "Row 1") {
+		t.Fatalf("expected footer to show row number when column not projected, got %q", footer)
 	}
 }
 

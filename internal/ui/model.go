@@ -2649,8 +2649,8 @@ func (m Model) viewTableFooter() string {
 		}
 		row := m.tableData[rowCursor]
 
-		colIdx := m.tableColCursor()
-		if m.selectedColName != "" && colIdx >= 0 && colIdx < len(row) {
+		absRow := m.tableOffset + rowCursor + 1
+		if colIdx := m.tableColCursor(); m.selectedColName != "" && colIdx >= 0 && colIdx < len(row) {
 			colName := truncateDisplayMiddle(m.selectedColName, 20)
 			colType := truncateDisplayMiddle(m.columnType(m.selectedColName), 20)
 			typeInfo := ""
@@ -2666,6 +2666,8 @@ func (m Model) viewTableFooter() string {
 			} else {
 				parts = append(parts, fmt.Sprintf("%s%s: %s", colName, typeInfo, value))
 			}
+		} else {
+			parts = append(parts, fmt.Sprintf("Row %d", absRow))
 		}
 	}
 	return strings.Join(parts, "    ")
