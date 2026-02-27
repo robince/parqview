@@ -1361,6 +1361,9 @@ func TestHandleKeyCtrlUThenEnterRestoresColsSelectedOnlyMode(t *testing.T) {
 	m.searchQuery = "beta"
 	m.searchFocused = true
 	m.updateFilteredCols()
+	if len(m.filteredCols) != 1 || m.filteredCols[0].Name != "beta" {
+		t.Fatalf("expected setup to narrow search to beta, got %#v", m.filteredCols)
+	}
 
 	updated, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlU})
 	m = updated.(Model)
