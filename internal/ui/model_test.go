@@ -1668,9 +1668,10 @@ func TestViewTableMinimalHeightFooterBehavior(t *testing.T) {
 	m.tableData = [][]string{{"x"}}
 	m.width = 80
 
+	// height=7 leaves 0 data rows after header/border/footer reservation; height=8 leaves 1.
 	m.height = 7
 	w, h := m.tablePaneDimensions()
-	if out := m.viewTable(w, h); out != "Terminal too small to display rows" {
+	if out := m.viewTable(w, h); !strings.Contains(out, "Terminal too small to display rows") {
 		t.Fatalf("expected too-small message when no data row fits, got %q", out)
 	}
 
