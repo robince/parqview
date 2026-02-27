@@ -516,6 +516,10 @@ func (m Model) tableViewport() (startCol, endCol int) {
 	}
 
 	if h := m.tableColOffHint; h >= 0 && h < len(m.tableCols) {
+		maxStart := m.maxViewportStart(colAreaWidth)
+		if h > maxStart {
+			h = maxStart
+		}
 		hEnd := m.viewportEndFromStart(h, colAreaWidth)
 		if hEnd > h && cursor >= h && cursor < hEnd {
 			return h, hEnd
@@ -1882,7 +1886,8 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 					m.tableColOffHint = startCol
 				} else {
 					// Cursor is at the right edge; now shift viewport right with it.
-					m.tableColOffHint = min(len(m.tableCols)-1, startCol+1)
+					maxStart := m.maxViewportStart(m.tableColAreaWidth())
+					m.tableColOffHint = min(maxStart, startCol+1)
 				}
 			}
 			m.selectedColName = m.tableCols[nextIdx]
