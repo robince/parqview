@@ -3184,3 +3184,43 @@ func TestSanitizeInlineDisplayEscapesNonASCIIControlRunes(t *testing.T) {
 		t.Fatalf("sanitizeInlineDisplay should preserve ZWJ emoji sequence, got %q", got)
 	}
 }
+
+func BenchmarkViewTableUnicodeWide(b *testing.B) {
+	m := newTestModel()
+	m.width = 160
+	m.height = 28
+	m.tableWide = true
+
+	cols := make([]string, 24)
+	for i := range cols {
+		cols[i] = fmt.Sprintf("c%02d_👩‍💻_世界", i)
+	}
+	m.tableCols = cols
+	m.selectedColName = cols[0]
+
+	cell := strings.Repeat("👩‍💻数据e\u0301", 8)
+	m.tableData = make([][]string, 40)
+	for r := range m.tableData {
+		row := make([]string, len(cols))
+		for c := range cols {
+			row[c] = cell
+		}
+		m.tableData[r] = row
+	}
+
+	w, h := m.tablePaneDimensions()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = m.viewTable(w, h)
+	}
+}
+
+func BenchmarkTruncateDisplayMiddleLong(b *testing.B) {
+	s := strings.Repeat("prefix-👩‍💻-e\u0301-世界-", 64)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = truncateDisplayMiddle(s, 48)
+	}
+}

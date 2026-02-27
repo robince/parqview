@@ -1539,18 +1539,12 @@ func (m Model) tableDataRowsHeight(h int) int {
 
 func (m Model) visibleTableRows() int {
 	_, h := m.tablePaneDimensions()
-	rows := m.tableDataRowsHeight(h)
-	if shouldRenderFooter(rows, len(m.tableData)) {
-		rows-- // reserve one line for the footer
-	}
+	rows, _ := tableDataRowsLayout(m.tableDataRowsHeight(h), len(m.tableData))
 	return rows
 }
 
 func (m *Model) clampTableRowCursor() {
-	maxRows := m.visibleTableRows()
-	if len(m.tableData) < maxRows {
-		maxRows = len(m.tableData)
-	}
+	maxRows := m.visibleTableDataRows()
 	maxCursor := maxRows - 1
 	if maxCursor < 0 {
 		maxCursor = 0
@@ -1566,6 +1560,18 @@ func (m *Model) clampTableRowCursor() {
 // Show footer unless doing so would crowd out the only visible data row.
 func shouldRenderFooter(maxRows, dataLen int) bool {
 	return maxRows > 0 && (dataLen == 0 || maxRows > 1)
+}
+
+func tableDataRowsLayout(maxRows, dataLen int) (dataRows int, renderFooter bool) {
+	renderFooter = shouldRenderFooter(maxRows, dataLen)
+	dataRows = maxRows
+	if renderFooter {
+		dataRows--
+	}
+	if dataRows < 0 {
+		dataRows = 0
+	}
+	return dataRows, renderFooter
 }
 
 func (m *Model) reconcileSelectedColNameWithTableCols() {
@@ -1764,18 +1770,11 @@ func (m Model) pageTableOffset(delta int) (tea.Model, tea.Cmd) {
 
 func (m Model) visibleTableDataRows() int {
 	_, h := m.tablePaneDimensions()
-	maxRows := m.tableDataRowsHeight(h)
-	renderFooter := shouldRenderFooter(maxRows, len(m.tableData))
-	if renderFooter {
-		maxRows-- // reserve one line for footer
-	}
-	if maxRows < 0 {
-		return 0
-	}
-	if maxRows > len(m.tableData) {
+	dataRows, _ := tableDataRowsLayout(m.tableDataRowsHeight(h), len(m.tableData))
+	if dataRows > len(m.tableData) {
 		return len(m.tableData)
 	}
-	return maxRows
+	return dataRows
 }
 
 func (m Model) fitWidthForActiveColumn() (int, bool) {
@@ -1791,7 +1790,8 @@ func (m Model) fitWidthForActiveColumn() (int, bool) {
 		return 0, false
 	}
 	maxValueW := 0
-	for r := 0; r < m.visibleTableDataRows(); r++ {
+	visibleRows := m.visibleTableDataRows()
+	for r := 0; r < visibleRows; r++ {
 		if colIdx >= len(m.tableData[r]) {
 			continue
 		}
@@ -2445,11 +2445,7 @@ func (m Model) viewTable(w, h int) string {
 	lines = append(lines, header)
 
 	// Data rows — footer is only rendered when there's room for it.
-	maxRows := m.tableDataRowsHeight(h)
-	renderFooter := shouldRenderFooter(maxRows, len(m.tableData))
-	if renderFooter {
-		maxRows-- // reserve one line for the footer
-	}
+	maxRows, renderFooter := tableDataRowsLayout(m.tableDataRowsHeight(h), len(m.tableData))
 	// Clamp cursor for rendering in case data hasn't loaded yet after navigation
 	renderCursor := m.tableRowCursor
 	if renderCursor >= maxRows {
@@ -2973,6 +2969,24 @@ func truncateDisplay(s string, maxW int) string {
 func truncateDisplayMiddle(s string, maxW int) string {
 	if maxW <= 0 {
 		return ""
+	}
+	asciiPrintable := true
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] > 0x7e {
+			asciiPrintable = false
+			break
+		}
+	}
+	if asciiPrintable {
+		if len(s) <= maxW {
+			return s
+		}
+		if maxW == 1 {
+			return "…"
+		}
+		leftBudget := (maxW - 1) / 2
+		rightBudget := maxW - 1 - leftBudget
+		return s[:leftBudget] + "…" + s[len(s)-rightBudget:]
 	}
 	if lipgloss.Width(s) <= maxW {
 		return s
