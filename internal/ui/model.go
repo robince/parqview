@@ -1649,7 +1649,6 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		colsShowSelectedWasOn := m.showSelectedInCols
 		m.sel.Clear()
 		colsAutoOff := colsShowSelectedWasOn
-		dataAutoOff := m.showSelected
 		if colsAutoOff {
 			m.showSelectedInCols = false
 			m.updateFilteredCols()
@@ -1660,9 +1659,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			if colsAutoOff {
 				parts = append(parts, "cols selected-list off (no columns selected)")
 			}
-			if dataAutoOff {
-				parts = append(parts, "show-selected off (no columns selected)")
-			}
+			parts = append(parts, "show-selected off (no columns selected)")
 			if len(parts) > 0 {
 				m.statusMsg = strings.Join(parts, "; ")
 			}

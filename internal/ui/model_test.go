@@ -357,7 +357,7 @@ func TestHandleKeyToggleShowSelectedInColumnsDoesNotLoadPreview(t *testing.T) {
 
 func TestHandleKeyToggleShowSelectedInColumnsWithNilSelectionDoesNotPanic(t *testing.T) {
 	m := Model{
-		focus:   FocusTable,
+		focus:   FocusColumns,
 		columns: []types.ColumnInfo{{Name: "alpha"}},
 		sel:     nil,
 	}
