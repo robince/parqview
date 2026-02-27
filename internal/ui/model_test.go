@@ -355,6 +355,29 @@ func TestHandleKeyToggleShowSelectedInColumnsDoesNotLoadPreview(t *testing.T) {
 	}
 }
 
+func TestHandleKeyToggleShowSelectedInColumnsWithNilSelectionDoesNotPanic(t *testing.T) {
+	m := Model{
+		focus:   FocusTable,
+		columns: []types.ColumnInfo{{Name: "alpha"}},
+		sel:     nil,
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("unexpected panic: %v", r)
+		}
+	}()
+
+	updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	if cmd != nil {
+		t.Fatalf("expected no command, got %v", cmd)
+	}
+	m = updated.(Model)
+	if !m.showSelectedInCols {
+		t.Fatal("expected showSelectedInCols enabled after v")
+	}
+}
+
 func TestColumnsBulkOpsWithBothSelectedTogglesEnabled(t *testing.T) {
 	cases := []struct {
 		name          string
@@ -1392,6 +1415,35 @@ func TestShowSelectedInColumnsIgnoredWhileSearchingAndRestoredAfterClear(t *test
 	}
 	if len(m.filteredCols) != 1 || m.filteredCols[0].Name != "alpha" {
 		t.Fatalf("expected selected-only list restored after search clear, got %#v", m.filteredCols)
+	}
+}
+
+func TestTypingVWhileSearchFocusedDoesNotToggleColsSelectedOnly(t *testing.T) {
+	m := newTestModel()
+	m.focus = FocusColumns
+	m.searchInput = textinput.New()
+	m.searchInput.Prompt = "/ "
+	m.searchInput.PromptStyle = searchPromptStyle
+	m.searchInput.Focus()
+	m.searchFocused = true
+	m.columns = []types.ColumnInfo{
+		{Name: "alpha"},
+		{Name: "beta"},
+	}
+	m.sel = selection.New([]string{"alpha", "beta"})
+	m.showSelectedInCols = true
+	m.updateFilteredCols()
+
+	updated, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m = updated.(Model)
+	if !m.searchFocused {
+		t.Fatal("expected search to remain focused while typing")
+	}
+	if m.searchQuery != "v" {
+		t.Fatalf("expected search query v, got %q", m.searchQuery)
+	}
+	if !m.showSelectedInCols {
+		t.Fatal("expected showSelectedInCols unchanged while search is focused")
 	}
 }
 

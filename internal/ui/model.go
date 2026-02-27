@@ -573,7 +573,7 @@ func (m *Model) updateFilteredCols() {
 		if !util.FuzzyMatch(c.Name, m.searchQuery) {
 			continue
 		}
-		if filterSelectedOnly && !m.sel.IsSelected(c.Name) {
+		if filterSelectedOnly && (m.sel == nil || !m.sel.IsSelected(c.Name)) {
 			continue
 		}
 		filtered = append(filtered, c)
@@ -1570,23 +1570,32 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			dataShowSelectedWasOn := m.showSelected
 			colsShowSelectedWasOn := m.showSelectedInCols
 			m.sel.Toggle(targetCol)
-			if m.sel.Count() == 0 && colsShowSelectedWasOn {
+			colsAutoOff := m.sel.Count() == 0 && colsShowSelectedWasOn
+			dataAutoOff := m.sel.Count() == 0 && dataShowSelectedWasOn
+			if colsAutoOff {
 				m.showSelectedInCols = false
-				m.statusMsg = "cols selected-list off (no columns selected)"
 			}
 			if colsShowSelectedWasOn {
 				m.updateFilteredCols()
 			}
 			if dataShowSelectedWasOn {
-				if m.sel.Count() == 0 {
+				if dataAutoOff {
 					m.showSelected = false
-					if m.statusMsg == "" {
-						m.statusMsg = "show-selected off (no columns selected)"
-					} else {
-						m.statusMsg += "; show-selected off (no columns selected)"
-					}
+				}
+				var parts []string
+				if colsAutoOff {
+					parts = append(parts, "cols selected-list off (no columns selected)")
+				}
+				if dataAutoOff {
+					parts = append(parts, "show-selected off (no columns selected)")
+				}
+				if len(parts) > 0 {
+					m.statusMsg = strings.Join(parts, "; ")
 				}
 				return m, m.nextPreviewCmd()
+			}
+			if colsAutoOff {
+				m.statusMsg = "cols selected-list off (no columns selected)"
 			}
 		}
 	case "a":
@@ -1605,23 +1614,28 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			names[i] = c.Name
 		}
 		m.sel.RemoveAll(names)
-		if m.sel.Count() == 0 && colsShowSelectedWasOn {
+		colsAutoOff := m.sel.Count() == 0 && colsShowSelectedWasOn
+		dataAutoOff := m.sel.Count() == 0 && m.showSelected
+		if colsAutoOff {
 			m.showSelectedInCols = false
-			m.statusMsg = "cols selected-list off (no columns selected)"
 		}
 		if colsShowSelectedWasOn {
 			m.updateFilteredCols()
 		}
 		if m.showSelected {
-			if m.sel.Count() == 0 {
+			if dataAutoOff {
 				m.showSelected = false
-				if m.statusMsg == "" {
-					m.statusMsg = "show-selected off (no columns selected)"
-				} else {
-					m.statusMsg += "; show-selected off (no columns selected)"
+				var parts []string
+				if colsAutoOff {
+					parts = append(parts, "cols selected-list off (no columns selected)")
 				}
+				parts = append(parts, "show-selected off (no columns selected)")
+				m.statusMsg = strings.Join(parts, "; ")
 			}
 			return m, m.nextPreviewCmd()
+		}
+		if colsAutoOff {
+			m.statusMsg = "cols selected-list off (no columns selected)"
 		}
 	case "A":
 		m.sel.SelectAll()
@@ -1634,19 +1648,28 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 	case "X":
 		colsShowSelectedWasOn := m.showSelectedInCols
 		m.sel.Clear()
-		if colsShowSelectedWasOn {
+		colsAutoOff := colsShowSelectedWasOn
+		dataAutoOff := m.showSelected
+		if colsAutoOff {
 			m.showSelectedInCols = false
-			m.statusMsg = "cols selected-list off (no columns selected)"
 			m.updateFilteredCols()
 		}
 		if m.showSelected {
 			m.showSelected = false
-			if m.statusMsg == "" {
-				m.statusMsg = "show-selected off (no columns selected)"
-			} else {
-				m.statusMsg += "; show-selected off (no columns selected)"
+			var parts []string
+			if colsAutoOff {
+				parts = append(parts, "cols selected-list off (no columns selected)")
+			}
+			if dataAutoOff {
+				parts = append(parts, "show-selected off (no columns selected)")
+			}
+			if len(parts) > 0 {
+				m.statusMsg = strings.Join(parts, "; ")
 			}
 			return m, m.nextPreviewCmd()
+		}
+		if colsAutoOff {
+			m.statusMsg = "cols selected-list off (no columns selected)"
 		}
 	case "y":
 		selected := m.sel.Selected()
@@ -2200,7 +2223,10 @@ func (m Model) viewTopBar() string {
 }
 
 func (m Model) viewBottomBar() string {
-	selCount := m.sel.Count()
+	selCount := 0
+	if m.sel != nil {
+		selCount = m.sel.Count()
+	}
 	var hints string
 	if m.focus == FocusColumns {
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  /:search  v:sel-list  x:toggle  a/d/y:sel"
@@ -2212,7 +2238,11 @@ func (m Model) viewBottomBar() string {
 		status += "  [data:sel]"
 	}
 	if m.showSelectedInCols {
-		status += "  [cols:sel]"
+		if m.columnsSearchActive() {
+			status += "  [cols:sel*]"
+		} else {
+			status += "  [cols:sel]"
+		}
 	}
 	if m.statusMsg != "" {
 		status += "  " + m.statusMsg
@@ -2503,7 +2533,7 @@ func (m Model) viewColumns(w, h int) string {
 		if isHighlighted {
 			// Build line from plain text so highlight style controls the whole row
 			markChar := unselectedMarkGlyph
-			if m.sel.IsSelected(col.Name) {
+			if m.sel != nil && m.sel.IsSelected(col.Name) {
 				markChar = selectedMarkGlyph
 			}
 			// Highlighted rows are rendered as one full-width styled string, so this
@@ -2520,7 +2550,7 @@ func (m Model) viewColumns(w, h int) string {
 			}
 		} else {
 			mark := unselectedMark
-			if m.sel.IsSelected(col.Name) {
+			if m.sel != nil && m.sel.IsSelected(col.Name) {
 				mark = selectedMark
 			}
 			typeBadge := typeBadgeStyle.Render(typeStr)
