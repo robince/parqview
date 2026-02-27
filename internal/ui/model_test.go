@@ -432,6 +432,84 @@ func TestColumnsBulkOpsWithBothSelectedTogglesEnabled(t *testing.T) {
 	}
 }
 
+func TestColumnsBulkOpsAutoDisablesColsSelectedOnlyWithoutDataSelected(t *testing.T) {
+	cases := []struct {
+		key  string
+		name string
+	}{
+		{key: "d", name: "d removes and disables cols selected-only"},
+		{key: "X", name: "X clears and disables cols selected-only"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newCmdTestModel()
+			m.focus = FocusColumns
+			m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}, {Name: "gamma"}}
+			m.sel = selection.New([]string{"alpha", "beta", "gamma"})
+			m.sel.Add("alpha")
+			m.showSelectedInCols = true
+			m.updateFilteredCols()
+			if len(m.filteredCols) != 1 {
+				t.Fatalf("expected initial cols filter to show selected columns only, got %d", len(m.filteredCols))
+			}
+
+			updated, cmd := m.handleColumnsKey(tc.key)
+			m = updated.(Model)
+			if cmd != nil {
+				t.Fatalf("expected no command for %q, got %v", tc.key, cmd)
+			}
+			if m.showSelected {
+				t.Fatalf("expected showSelected=false after %q", tc.key)
+			}
+			if m.showSelectedInCols {
+				t.Fatalf("expected showSelectedInCols=false after %q", tc.key)
+			}
+			if got := m.sel.Count(); got != 0 {
+				t.Fatalf("expected selection count 0 after %q, got %d", tc.key, got)
+			}
+			if got := len(m.filteredCols); got != 3 {
+				t.Fatalf("expected filteredCols len 3 after %q, got %d", tc.key, got)
+			}
+			if m.statusMsg != "cols selected-list off (no columns selected)" {
+				t.Fatalf("expected status message to mention cols selected-list auto-off after %q, got %q", tc.key, m.statusMsg)
+			}
+		})
+	}
+}
+
+func TestColumnsSingleDeselectAutoDisablesColsSelectedOnly(t *testing.T) {
+	m := newCmdTestModel()
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}, {Name: "gamma"}}
+	m.sel = selection.New([]string{"alpha", "beta", "gamma"})
+	m.sel.Add("alpha")
+	m.showSelectedInCols = true
+	m.selectedColName = "alpha"
+	m.updateFilteredCols()
+	if len(m.filteredCols) != 1 || m.filteredCols[0].Name != "alpha" {
+		t.Fatalf("expected initial cols filter to show alpha only, got %#v", m.filteredCols)
+	}
+
+	updated, cmd := m.handleColumnsKey("x")
+	m = updated.(Model)
+	if cmd != nil {
+		t.Fatalf("expected no command for %q, got %v", "x", cmd)
+	}
+	if m.showSelectedInCols {
+		t.Fatal("expected showSelectedInCols disabled after deselecting last column")
+	}
+	if got := m.sel.Count(); got != 0 {
+		t.Fatalf("expected selection count 0 after %q, got %d", "x", got)
+	}
+	if got := len(m.filteredCols); got != 3 {
+		t.Fatalf("expected filteredCols len 3 after %q, got %d", "x", got)
+	}
+	if m.statusMsg != "cols selected-list off (no columns selected)" {
+		t.Fatalf("expected status message to mention cols selected-list auto-off after %q, got %q", "x", m.statusMsg)
+	}
+}
+
 func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	t.Run("table focus uses selected column", func(t *testing.T) {
 		m := newCmdTestModel()

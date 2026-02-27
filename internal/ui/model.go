@@ -1637,8 +1637,6 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		if colsShowSelectedWasOn {
 			m.showSelectedInCols = false
 			m.statusMsg = "cols selected-list off (no columns selected)"
-		}
-		if colsShowSelectedWasOn {
 			m.updateFilteredCols()
 		}
 		if m.showSelected {
