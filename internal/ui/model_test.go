@@ -3114,16 +3114,17 @@ func TestTruncateDisplayMiddle(t *testing.T) {
 		in              string
 		w               int
 		want            string
+		skipExact       bool
 		wantTruncated   bool
 		requireZWJWidth bool
 	}{
 		{name: "fits", in: "abcdef", w: 6, want: "abcdef"},
 		{name: "single width", in: "abcdef", w: 1, want: "…"},
 		{name: "middle truncation", in: "abcdefghijklmnop", w: 12, want: "abcde…klmnop"},
-		{name: "cjk truncation", in: "你好世界你好世界", w: 5, wantTruncated: true},
-		{name: "emoji truncation", in: "😀😃😄😁😆", w: 5, wantTruncated: true},
+		{name: "cjk truncation", in: "你好世界你好世界", w: 5, skipExact: true, wantTruncated: true},
+		{name: "emoji truncation", in: "😀😃😄😁😆", w: 5, skipExact: true, wantTruncated: true},
 		{name: "zwj fits", in: "👩‍💻dev", w: 5, want: "👩‍💻dev", requireZWJWidth: true},
-		{name: "zwj truncation", in: "👩‍💻👩‍💻👩‍💻", w: 5, wantTruncated: true},
+		{name: "zwj truncation", in: "👩‍💻👩‍💻👩‍💻", w: 5, skipExact: true, wantTruncated: true, requireZWJWidth: true},
 		{name: "combining accent fits", in: "Cafe\u0301", w: 4, want: "Cafe\u0301"},
 	}
 	for _, tc := range cases {
@@ -3135,7 +3136,7 @@ func TestTruncateDisplayMiddle(t *testing.T) {
 			}
 
 			got := truncateDisplayMiddle(tc.in, tc.w)
-			if tc.want != "" && got != tc.want {
+			if !tc.skipExact && got != tc.want {
 				t.Fatalf("truncateDisplayMiddle(%q,%d)=%q want %q", tc.in, tc.w, got, tc.want)
 			}
 			if tc.wantTruncated {
