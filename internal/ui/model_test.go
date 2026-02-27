@@ -2340,8 +2340,8 @@ func TestViewTableFooterShowsRowWhenNotProjected(t *testing.T) {
 	m.tableData = [][]string{{"x"}}
 
 	footer := m.viewTableFooter()
-	if !strings.Contains(footer, "Row 1") {
-		t.Fatalf("expected footer to show row number when column not projected, got %q", footer)
+	if !strings.Contains(footer, "R1 b: <not projected>") {
+		t.Fatalf("expected footer to show column as not projected, got %q", footer)
 	}
 }
 
