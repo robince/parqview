@@ -14,6 +14,7 @@ import (
 	_ "github.com/marcboeker/go-duckdb"
 
 	"github.com/robince/parqview/internal/engine"
+	"github.com/robince/parqview/internal/missing"
 	"github.com/robince/parqview/internal/selection"
 	"github.com/robince/parqview/internal/types"
 )
@@ -73,6 +74,105 @@ func TestHandleTableKeyDownCanReachFinalRowWithSmallViewport(t *testing.T) {
 	absRow := m.tableOffset + m.tableRowCursor + 1
 	if absRow != int(m.totalRows) {
 		t.Fatalf("expected to reach final row %d, got %d (offset=%d cursor=%d)", m.totalRows, absRow, m.tableOffset, m.tableRowCursor)
+	}
+}
+
+func TestHandleTableKeyRFindsNextMissingIncludingNaN(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a", "b", "c"}
+	m.filteredCols = []types.ColumnInfo{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"1", "NaN", "NULL"}}
+	m.tableRowCursor = 0
+
+	updated, cmd := m.handleTableKey("r")
+	if cmd != nil {
+		t.Fatalf("expected no command for row-local missing jump, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.selectedColName != "b" {
+		t.Fatalf("expected first r to land on NaN column b, got %q", m.selectedColName)
+	}
+
+	updated, cmd = m.handleTableKey("r")
+	if cmd != nil {
+		t.Fatalf("expected no command for row-local missing jump, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.selectedColName != "c" {
+		t.Fatalf("expected second r to land on NULL column c, got %q", m.selectedColName)
+	}
+
+	updated, cmd = m.handleTableKey("R")
+	if cmd != nil {
+		t.Fatalf("expected no command for reverse row-local missing jump, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.selectedColName != "b" {
+		t.Fatalf("expected R to land back on NaN column b, got %q", m.selectedColName)
+	}
+}
+
+func TestHandleTableKeyRNoMissingSetsStatus(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a", "b"}
+	m.filteredCols = []types.ColumnInfo{{Name: "a"}, {Name: "b"}}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"1", "2"}}
+	m.tableRowCursor = 0
+
+	updated, cmd := m.handleTableKey("r")
+	if cmd != nil {
+		t.Fatalf("expected no command when no row-missing exists, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.statusMsg != "No missing values in this row" {
+		t.Fatalf("unexpected status: %q", m.statusMsg)
+	}
+}
+
+func TestHandleTableKeyRDoesNotTreatCurrentCellAsNextMissing(t *testing.T) {
+	if !missing.IsDisplayMissing("NULL") {
+		t.Fatal(`test setup invalid: expected "NULL" to be treated as missing`)
+	}
+
+	m := newTestModel()
+	m.tableCols = []string{"a", "b", "c"}
+	m.filteredCols = []types.ColumnInfo{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+	m.selectedColName = "b"
+	m.tableData = [][]string{{"1", "NULL", "2"}}
+	m.tableRowCursor = 0
+
+	updated, cmd := m.handleTableKey("r")
+	if cmd != nil {
+		t.Fatalf("expected no command when no other row-missing exists, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.selectedColName != "b" {
+		t.Fatalf("expected selected column to stay on b, got %q", m.selectedColName)
+	}
+	if m.statusMsg != "No missing values in this row" {
+		t.Fatalf("unexpected status: %q", m.statusMsg)
+	}
+}
+
+func TestHandleTableKeyCReturnsCommandWhenColumnSelected(t *testing.T) {
+	m := newCmdTestModel()
+	m.selectedColName = "alpha"
+	m.tableCols = []string{"alpha"}
+	m.tableData = [][]string{{"1"}}
+	m.totalRows = 10
+
+	updated, cmd := m.handleTableKey("c")
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected command for column-missing jump")
+	}
+
+	updated, cmd = m.handleTableKey("C")
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected command for reverse column-missing jump")
 	}
 }
 
@@ -1099,7 +1199,7 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 		{"NULL", "x"},
 		{"y", "z"},
 	}
-	m.tableRowHasNull = rowHasNullFlags(m.tableData)
+	m.tableRowHasMissing = rowHasMissingFlags(m.tableData)
 	m.summaries["a"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
 	m.summaries["b"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
 
@@ -1210,7 +1310,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 	})
 
 	t.Run("name truncated to make room for dot", func(t *testing.T) {
-		// With w=20: nameWidth = max(0, 20-12) = 8; with hasNulls: 8-inlineNullDotWidth = 6.
+		// With w=20: nameWidth = max(0, 20-12) = 8; with hasMissing: 8-inlineNullDotWidth = 6.
 		// truncate("verylongcolumnname", 6) = "veryl…" (5 chars + ellipsis).
 		// Without the -inlineNullDotWidth adjustment nameWidth stays 8, giving "verylo…",
 		// and the line would be 2 cells wider than w (hidden by clampLineWidth).
@@ -1237,7 +1337,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 	})
 
 	t.Run("nameWidth zero suppresses dot and does not panic", func(t *testing.T) {
-		// w=14: nameWidth = max(0, 14-12) = 2; with hasNulls: max(0, 2-2) = 0.
+		// w=14: nameWidth = max(0, 14-12) = 2; with hasMissing: max(0, 2-2) = 0.
 		// dot must be suppressed, name truncated to "", line must not exceed w.
 		m := newTestModel()
 		m.columns = []types.ColumnInfo{{Name: "alpha", DuckType: "BIGINT"}}
@@ -1268,36 +1368,36 @@ func TestRowHasNullAtFallbackPath(t *testing.T) {
 	t.Run("mismatched cache triggers live scan", func(t *testing.T) {
 		m := newTestModel()
 		m.tableData = data
-		m.tableRowHasNull = nil // length mismatch
+		m.tableRowHasMissing = nil // length mismatch
 
-		if !m.rowHasNullAt(0) {
-			t.Error("expected rowHasNullAt(0) to return true via fallback scan")
+		if !m.rowHasMissingAt(0) {
+			t.Error("expected rowHasMissingAt(0) to return true via fallback scan")
 		}
-		if m.rowHasNullAt(1) {
-			t.Error("expected rowHasNullAt(1) to return false via fallback scan")
+		if m.rowHasMissingAt(1) {
+			t.Error("expected rowHasMissingAt(1) to return false via fallback scan")
 		}
-		if m.rowHasNullAt(-1) {
-			t.Error("expected rowHasNullAt(-1) to return false")
+		if m.rowHasMissingAt(-1) {
+			t.Error("expected rowHasMissingAt(-1) to return false")
 		}
-		if m.rowHasNullAt(99) {
-			t.Error("expected rowHasNullAt(99) to return false for out-of-range index")
+		if m.rowHasMissingAt(99) {
+			t.Error("expected rowHasMissingAt(99) to return false for out-of-range index")
 		}
 	})
 
 	t.Run("synced cache is consulted directly", func(t *testing.T) {
 		m := newTestModel()
 		m.tableData = data
-		m.tableRowHasNull = rowHasNullFlags(m.tableData)
+		m.tableRowHasMissing = rowHasMissingFlags(m.tableData)
 
-		if !m.rowHasNullAt(0) {
-			t.Error("expected rowHasNullAt(0) to return true from cache")
+		if !m.rowHasMissingAt(0) {
+			t.Error("expected rowHasMissingAt(0) to return true from cache")
 		}
-		if m.rowHasNullAt(1) {
-			t.Error("expected rowHasNullAt(1) to return false from cache")
+		if m.rowHasMissingAt(1) {
+			t.Error("expected rowHasMissingAt(1) to return false from cache")
 		}
 		// Out-of-range with synced cache: no live scan, just false.
-		if m.rowHasNullAt(99) {
-			t.Error("expected rowHasNullAt(99) to return false for out-of-range with synced cache")
+		if m.rowHasMissingAt(99) {
+			t.Error("expected rowHasMissingAt(99) to return false for out-of-range with synced cache")
 		}
 	})
 }
@@ -1749,7 +1849,7 @@ func TestPreviewDoneMsgIgnoresStaleSequence(t *testing.T) {
 	m.latestPreviewSeq = 5
 	m.tableCols = []string{"new_col"}
 	m.tableData = [][]string{{"new"}}
-	m.tableRowHasNull = []bool{false}
+	m.tableRowHasMissing = []bool{false}
 	m.totalRows = 10
 
 	stale := previewDoneMsg{

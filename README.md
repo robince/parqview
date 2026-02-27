@@ -8,6 +8,20 @@ Terminal UI for exploring Parquet and CSV files with DuckDB-backed preview and p
 go run ./cmd/parqview <file.parquet|file.csv>
 ```
 
+## Missing-Value Policy
+
+By default, parqview treats both `NULL` and `NaN` as missing values for:
+
+- Missing indicators (orange dots/marker styles)
+- Missing-row filter (`f`)
+- Missing navigation (`n`, `r`/`R`, `c`/`C`)
+- Missing counts in profiling/footers
+
+This behavior is controlled by [`internal/missing/policy.go`](internal/missing/policy.go):
+
+- `IncludeNaNAsMissing = true` (default): `NULL` + `NaN`
+- `IncludeNaNAsMissing = false`: `NULL` only
+
 ## Keyboard Shortcuts
 
 Shortcuts below describe app-specific behavior. When the column search input is focused, normal text editing keys are handled by Bubble `textinput`.
@@ -66,7 +80,11 @@ Shortcuts below describe app-specific behavior. When the column search input is 
 | `Ctrl+B` | Page up |
 | `Ctrl+D` | Half-page down |
 | `Ctrl+U` | Half-page up |
-| `f` | Toggle null-row filter |
+| `r` | Jump to next missing value in current row |
+| `R` | Jump to previous missing value in current row |
+| `c` | Jump to next row with missing value in selected column |
+| `C` | Jump to previous row with missing value in selected column |
+| `f` | Toggle missing-row filter |
 | `Enter` | Open detail panel for selected column |
 
 ### Search Input Mode (columns search focused)
@@ -89,7 +107,7 @@ Shortcuts below describe app-specific behavior. When the column search input is 
 | Key | Action |
 | --- | --- |
 | `t` | Cycle tabs (Top Values, Stats, Histogram) |
-| `n` | Jump to first null for detail column |
+| `n` | Jump to first missing value for detail column |
 | `Esc`, `q` | Close detail panel |
 
 ### Mouse

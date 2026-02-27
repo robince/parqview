@@ -11,6 +11,8 @@ import (
 	"time"
 
 	_ "github.com/marcboeker/go-duckdb"
+
+	"github.com/robince/parqview/internal/missing"
 )
 
 func testdataDir() string {
@@ -133,7 +135,7 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	}
 
 	var expectedRowID int64
-	q := `SELECT min(` + quoteIdent(eng.internalRowIDCol) + `) FROM t_base WHERE "score" IS NULL AND (` + filter + `)`
+	q := `SELECT min(` + quoteIdent(eng.internalRowIDCol) + `) FROM t_base WHERE ` + missing.SQLPredicate(`"score"`) + ` AND (` + filter + `)`
 	if err := eng.db.QueryRowContext(ctx, q).Scan(&expectedRowID); err != nil {
 		t.Fatalf("query expected row id: %v", err)
 	}
@@ -403,5 +405,227 @@ func TestParseNullFilterColumnsQuotedIdentifiers(t *testing.T) {
 				t.Fatalf("columns mismatch: got %v want %v", gotCols, tc.wantCols)
 			}
 		})
+	}
+}
+
+func TestParseNullFilterColumnsWithNaNPredicate(t *testing.T) {
+	filter := BuildNullFilter([]string{"score", "A OR B"})
+	gotCols, err := parseNullFilterColumns(filter)
+	if err != nil {
+		t.Fatalf("parseNullFilterColumns: %v", err)
+	}
+	wantCols := []string{"score", "A OR B"}
+	if !slices.Equal(gotCols, wantCols) {
+		t.Fatalf("columns mismatch: got %v want %v", gotCols, wantCols)
+	}
+}
+
+func TestParseNullFilterColumnsQuotedIdentifierContainingIsNull(t *testing.T) {
+	col := "foo IS NULL bar"
+	filter := BuildNullFilter([]string{col})
+	if filter == "" || strings.Count(filter, "IS NULL") < 2 {
+		t.Fatalf("expected non-trivial filter containing IS NULL: %q", filter)
+	}
+	gotCols, err := parseNullFilterColumns(filter)
+	if err != nil {
+		t.Fatalf("parseNullFilterColumns: %v", err)
+	}
+	wantCols := []string{col}
+	if !slices.Equal(gotCols, wantCols) {
+		t.Fatalf("columns mismatch: got %v want %v", gotCols, wantCols)
+	}
+}
+
+func TestParseNullFilterColumnsRejectsIsNullable(t *testing.T) {
+	filter := BuildNullFilter([]string{"foo"})
+	filter = strings.Replace(filter, " IS NULL", " IS NULLABLE", 1)
+	_, err := parseNullFilterColumns(filter)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+}
+
+func TestProfileBasicUsesMissingPredicate(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "nan.csv", "score\n1.0\nNaN\n\n2.5\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "score")
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+
+	var expected int64
+	q := `SELECT sum(CASE WHEN ` + missing.SQLPredicate(`"score"`) + ` THEN 1 ELSE 0 END)::BIGINT FROM t_base`
+	if err := eng.db.QueryRowContext(bg(), q).Scan(&expected); err != nil {
+		t.Fatalf("expected missing count query: %v", err)
+	}
+	if summary.MissingCount != expected {
+		t.Fatalf("missing count mismatch: got %d want %d", summary.MissingCount, expected)
+	}
+}
+
+func TestProfileDetailExcludesMissingPredicate(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "nan_detail.csv", "category\nalpha\nNaN\n\nbeta\nalpha\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "category")
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if !summary.IsDiscrete {
+		t.Fatal("expected category to be discrete")
+	}
+	if err := eng.ProfileDetail(bg(), "category", summary, "VARCHAR"); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if len(summary.Top3) == 0 {
+		t.Fatal("expected Top3 values when discrete profiling is enabled")
+	}
+
+	for _, tv := range summary.Top3 {
+		if strings.EqualFold(strings.TrimSpace(tv.Value), "nan") {
+			t.Fatalf("unexpected NaN top value when NaN is configured as missing: %+v", tv)
+		}
+	}
+}
+
+func TestProfileDetailNumericExcludesMissingPredicate(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "nan_detail_numeric.csv", "score\n1.0\nNaN\n\n2.5\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "score")
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if summary.IsDiscrete {
+		t.Skip("score column unexpectedly classified as discrete; numeric path not exercised")
+	}
+	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE"); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if summary.Numeric == nil {
+		t.Fatal("expected numeric stats")
+	}
+	if summary.Numeric.Min != summary.Numeric.Min || summary.Numeric.Max != summary.Numeric.Max {
+		t.Fatalf("expected finite min/max, got min=%v max=%v", summary.Numeric.Min, summary.Numeric.Max)
+	}
+	if summary.Numeric.Min < 0.99 || summary.Numeric.Min > 1.01 {
+		t.Fatalf("unexpected min: got %v", summary.Numeric.Min)
+	}
+	if summary.Numeric.Max < 2.49 || summary.Numeric.Max > 2.51 {
+		t.Fatalf("unexpected max: got %v", summary.Numeric.Max)
+	}
+}
+
+func TestNextNullRowWrapAndRowIDForOffset(t *testing.T) {
+	eng := openSampleParquet(t)
+	ctx := bg()
+
+	first, err := eng.FirstNullRow(ctx, "score", "")
+	if err != nil {
+		t.Fatalf("FirstNullRow: %v", err)
+	}
+	if first == 0 {
+		t.Fatal("expected at least one missing score row")
+	}
+
+	rowIDAtZero, err := eng.RowIDForOffset(ctx, 0, "")
+	if err != nil {
+		t.Fatalf("RowIDForOffset(0): %v", err)
+	}
+	if rowIDAtZero == 0 {
+		t.Fatal("expected a row id at offset 0")
+	}
+
+	next, wrapped, err := eng.NextNullRow(ctx, "score", "", eng.TotalRows()+1)
+	if err != nil {
+		t.Fatalf("NextNullRow(wrap): %v", err)
+	}
+	if !wrapped {
+		t.Fatal("expected wrapped=true when searching after final row")
+	}
+	if next != first {
+		t.Fatalf("wrapped row mismatch: got %d want %d", next, first)
+	}
+}
+
+func TestPrevNullRowWrap(t *testing.T) {
+	eng := openSampleParquet(t)
+	ctx := bg()
+
+	var last int64
+	q := `SELECT max(` + quoteIdent(eng.internalRowIDCol) + `) FROM t_base WHERE ` + missing.SQLPredicate(`"score"`)
+	if err := eng.db.QueryRowContext(ctx, q).Scan(&last); err != nil {
+		t.Fatalf("query last missing row: %v", err)
+	}
+	if last == 0 {
+		t.Fatal("expected at least one missing score row")
+	}
+
+	prev, wrapped, err := eng.PrevNullRow(ctx, "score", "", 1)
+	if err != nil {
+		t.Fatalf("PrevNullRow(wrap): %v", err)
+	}
+	if !wrapped {
+		t.Fatal("expected wrapped=true when searching before first row")
+	}
+	if prev != last {
+		t.Fatalf("wrapped row mismatch: got %d want %d", prev, last)
+	}
+}
+
+func TestNextPrevNullRowSingleMissingDoNotWrapToSameRow(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "single_missing.csv", "score\n1\n\n2\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	ctx := bg()
+
+	rowID, err := eng.FirstNullRow(ctx, "score", "")
+	if err != nil {
+		t.Fatalf("FirstNullRow: %v", err)
+	}
+	if rowID == 0 {
+		t.Fatal("expected one missing row")
+	}
+
+	next, wrapped, err := eng.NextNullRow(ctx, "score", "", rowID)
+	if err != nil {
+		t.Fatalf("NextNullRow: %v", err)
+	}
+	if wrapped {
+		t.Fatal("expected wrapped=false when only current row is missing")
+	}
+	if next != 0 {
+		t.Fatalf("expected no next missing row, got %d", next)
+	}
+
+	prev, wrapped, err := eng.PrevNullRow(ctx, "score", "", rowID)
+	if err != nil {
+		t.Fatalf("PrevNullRow: %v", err)
+	}
+	if wrapped {
+		t.Fatal("expected wrapped=false when only current row is missing")
+	}
+	if prev != 0 {
+		t.Fatalf("expected no previous missing row, got %d", prev)
 	}
 }
