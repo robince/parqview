@@ -1,0 +1,239 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            runner: ubuntu-latest
+          - goarch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build and package
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          mkdir -p dist
+          LDFLAGS="-s -w -X github.com/robince/parqview/internal/version.Version=v${VERSION} -X github.com/robince/parqview/internal/version.Commit=${GITHUB_SHA} -X github.com/robince/parqview/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          go build -trimpath -ldflags="$LDFLAGS" -o dist/parqview ./cmd/parqview
+
+          SMOKE_OUT="$(dist/parqview --version 2>&1)"
+          echo "$SMOKE_OUT"
+          echo "$SMOKE_OUT" | grep -q "v${VERSION}" || { echo "version output mismatch"; exit 1; }
+
+          ARCHIVE="parqview_${VERSION}_linux_${GOARCH}.tar.gz"
+          tar czf "dist/${ARCHIVE}" -C dist parqview
+          rm dist/parqview
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parqview-linux-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+
+  build-darwin:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            runner: macos-13
+          - goarch: arm64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build and package
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          mkdir -p dist
+          LDFLAGS="-s -w -X github.com/robince/parqview/internal/version.Version=v${VERSION} -X github.com/robince/parqview/internal/version.Commit=${GITHUB_SHA} -X github.com/robince/parqview/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          go build -trimpath -ldflags="$LDFLAGS" -o dist/parqview ./cmd/parqview
+
+          SMOKE_OUT="$(dist/parqview --version 2>&1)"
+          echo "$SMOKE_OUT"
+          echo "$SMOKE_OUT" | grep -q "v${VERSION}" || { echo "version output mismatch"; exit 1; }
+
+          ARCHIVE="parqview_${VERSION}_darwin_${GOARCH}.tar.gz"
+          tar czf "dist/${ARCHIVE}" -C dist parqview
+          rm dist/parqview
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parqview-darwin-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+
+  release:
+    needs: [build-linux, build-darwin]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Verify annotated tag and extract body
+        id: tag_meta
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          TAG_TYPE="$(git cat-file -t "$TAG_NAME" 2>/dev/null || true)"
+          if [ -z "$TAG_TYPE" ]; then
+            echo "Could not resolve tag object for ${TAG_NAME}"
+            exit 1
+          fi
+          if [ "$TAG_TYPE" != "tag" ]; then
+            echo "Expected annotated tag; got ${TAG_TYPE}"
+            exit 1
+          fi
+          TAG_MSG="$(git tag -l --format='%(contents:body)' "$TAG_NAME")"
+          DELIM="TAGMSG_$(date +%s%N)"
+          echo "body<<$DELIM" >> "$GITHUB_OUTPUT"
+          echo "$TAG_MSG" >> "$GITHUB_OUTPUT"
+          echo "$DELIM" >> "$GITHUB_OUTPUT"
+      - name: Validate artifacts
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          for platform in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
+            FILE="artifacts/parqview_${VERSION}_${platform}.tar.gz"
+            test -f "$FILE" || { echo "Missing artifact $FILE"; exit 1; }
+          done
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum *.tar.gz > SHA256SUMS
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.tar.gz
+            artifacts/SHA256SUMS
+          body: ${{ steps.tag_meta.outputs.body }}
+
+  update-homebrew:
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Compute checksums
+        id: sha
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          MAC_AMD64="artifacts/parqview_${VERSION}_darwin_amd64.tar.gz"
+          MAC_ARM64="artifacts/parqview_${VERSION}_darwin_arm64.tar.gz"
+          LINUX_AMD64="artifacts/parqview_${VERSION}_linux_amd64.tar.gz"
+          LINUX_ARM64="artifacts/parqview_${VERSION}_linux_arm64.tar.gz"
+
+          for f in "$MAC_AMD64" "$MAC_ARM64" "$LINUX_AMD64" "$LINUX_ARM64"; do
+            test -f "$f" || { echo "Missing $f"; exit 1; }
+          done
+
+          echo "darwin_amd64=$(sha256sum "$MAC_AMD64" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "darwin_arm64=$(sha256sum "$MAC_ARM64" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "linux_amd64=$(sha256sum "$LINUX_AMD64" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "linux_arm64=$(sha256sum "$LINUX_ARM64" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Checkout tap repo
+        uses: actions/checkout@v4
+        with:
+          repository: robince/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+      - name: Update formula
+        env:
+          VERSION: ${{ steps.sha.outputs.version }}
+          DARWIN_AMD64_SHA: ${{ steps.sha.outputs.darwin_amd64 }}
+          DARWIN_ARM64_SHA: ${{ steps.sha.outputs.darwin_arm64 }}
+          LINUX_AMD64_SHA: ${{ steps.sha.outputs.linux_amd64 }}
+          LINUX_ARM64_SHA: ${{ steps.sha.outputs.linux_arm64 }}
+        run: |
+          cd homebrew-tap
+          mkdir -p Formula
+
+          cat > Formula/parqview.rb <<EOF
+          class Parqview < Formula
+            desc "Terminal UI for exploring Parquet and CSV files"
+            homepage "https://github.com/robince/parqview"
+            license "MIT"
+            version "${VERSION}"
+
+            on_macos do
+              if Hardware::CPU.intel?
+                url "https://github.com/robince/parqview/releases/download/v#{version}/parqview_#{version}_darwin_amd64.tar.gz"
+                sha256 "${DARWIN_AMD64_SHA}"
+              end
+              if Hardware::CPU.arm?
+                url "https://github.com/robince/parqview/releases/download/v#{version}/parqview_#{version}_darwin_arm64.tar.gz"
+                sha256 "${DARWIN_ARM64_SHA}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.intel?
+                url "https://github.com/robince/parqview/releases/download/v#{version}/parqview_#{version}_linux_amd64.tar.gz"
+                sha256 "${LINUX_AMD64_SHA}"
+              end
+              if Hardware::CPU.arm?
+                url "https://github.com/robince/parqview/releases/download/v#{version}/parqview_#{version}_linux_arm64.tar.gz"
+                sha256 "${LINUX_ARM64_SHA}"
+              end
+            end
+
+            def install
+              bin.install "parqview"
+            end
+
+            test do
+              assert_match "v#{version}", shell_output("#{bin}/parqview --version")
+            end
+          end
+          EOF
+
+          if [ ! -f README.md ]; then
+            cat > README.md <<EOF
+          # homebrew-tap
+
+          \`\`\`bash
+          brew install robince/tap/parqview
+          \`\`\`
+          EOF
+          fi
+      - name: Commit and push formula changes
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/parqview.rb README.md
+          if git diff --cached --quiet; then
+            echo "No formula changes to commit."
+            exit 0
+          fi
+          git commit -m "Update parqview formula to v${{ steps.sha.outputs.version }}"
+          git push

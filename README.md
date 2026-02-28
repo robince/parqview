@@ -2,6 +2,43 @@
 
 Terminal UI for exploring Parquet and CSV files with DuckDB-backed preview and profiling.
 
+## Installation
+
+### Homebrew (recommended)
+
+```bash
+brew install robince/tap/parqview
+```
+
+### Direct download from GitHub Releases
+
+Download the archive for your platform from
+`https://github.com/robince/parqview/releases`.
+
+macOS arm64 example:
+
+```bash
+VERSION="1.0.0"
+curl -fL -o parqview.tar.gz "https://github.com/robince/parqview/releases/download/v${VERSION}/parqview_${VERSION}_darwin_arm64.tar.gz"
+tar -xzf parqview.tar.gz
+./parqview --version
+```
+
+Linux amd64 example:
+
+```bash
+VERSION="1.0.0"
+curl -fL -o parqview.tar.gz "https://github.com/robince/parqview/releases/download/v${VERSION}/parqview_${VERSION}_linux_amd64.tar.gz"
+tar -xzf parqview.tar.gz
+./parqview --version
+```
+
+Note for direct macOS downloads: if Gatekeeper blocks first run, remove quarantine:
+
+```bash
+xattr -dr com.apple.quarantine ./parqview
+```
+
 ## Run
 
 ```bash
