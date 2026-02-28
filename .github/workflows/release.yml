@@ -105,15 +105,17 @@ jobs:
 
           # Use GitHub API to resolve the tag ref — avoids actions/checkout
           # not fetching annotated tag objects reliably.
-          REF_TYPE=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG_NAME}" --jq '.object.type')
-          REF_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG_NAME}" --jq '.object.sha')
+          REF_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG_NAME}")
+          REF_TYPE=$(echo "$REF_JSON" | jq -r '.object.type')
+          REF_SHA=$(echo "$REF_JSON" | jq -r '.object.sha')
 
           if [ "$REF_TYPE" != "tag" ]; then
             echo "Expected annotated tag; got ${REF_TYPE}"
             exit 1
           fi
 
-          # Fetch the annotated tag object and extract body (skip subject line)
+          # Fetch the annotated tag object. The message format from release.sh
+          # is "Release X.Y.Z\n\n<changelog>", so strip the subject + blank line.
           TAG_MSG=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${REF_SHA}" --jq '.message' | tail -n +3)
 
           DELIM="TAGMSG_$(date +%s%N)"
