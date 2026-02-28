@@ -5,11 +5,10 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write
-
 jobs:
   build-linux:
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -48,6 +47,8 @@ jobs:
           path: dist/*.tar.gz
 
   build-darwin:
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -86,6 +87,8 @@ jobs:
           path: dist/*.tar.gz
 
   release:
+    permissions:
+      contents: write
     needs: [build-linux, build-darwin]
     runs-on: ubuntu-latest
     steps:
@@ -126,7 +129,7 @@ jobs:
           cd artifacts
           sha256sum *.tar.gz > SHA256SUMS
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@c95fe1c40e5a03b9d0e5f63a0c8d5cc21b3e1a05 # v2
         with:
           files: |
             artifacts/*.tar.gz
@@ -134,6 +137,8 @@ jobs:
           body: ${{ steps.tag_meta.outputs.body }}
 
   update-homebrew:
+    permissions:
+      contents: read
     needs: [release]
     runs-on: ubuntu-latest
     steps:

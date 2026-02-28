@@ -73,6 +73,10 @@ echo "Creating annotated tag $TAG"
 git tag -a "$TAG" -F "$TMP_MSG"
 
 echo "Pushing tag $TAG to origin"
-git push origin "$TAG"
+if ! git push origin "$TAG"; then
+  git tag -d "$TAG" >/dev/null 2>&1 || true
+  echo "Push failed; local tag $TAG was removed. Re-run the release command to retry."
+  exit 1
+fi
 
 echo "Done. GitHub Actions will publish the release for $TAG."
