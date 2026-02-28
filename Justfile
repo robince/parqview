@@ -47,7 +47,7 @@ lint:
     if command -v golangci-lint >/dev/null 2>&1; then \
       golangci-lint run ./...; \
     else \
-      echo "golangci-lint not found. Install from https://golangci-lint.run/usage/install/"; \
+      echo "golangci-lint not found. Install with: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.10.1"; \
       exit 1; \
     fi
 
