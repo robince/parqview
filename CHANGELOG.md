@@ -13,10 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-## [1.0.0] - YYYY-MM-DD
+## [1.0.0] - 2026-02-28
 
-### Added
+Initial public release of parqview.
 
-### Changed
-
-### Fixed
+This v1.0.0 milestone delivers the original MVP scope in a usable, shareable state, including:
+- Terminal UI for exploring Parquet and CSV data
+- DuckDB-backed table preview and profiling
+- Column browser, selection workflows, and search
+- Missing-value navigation and filtering
+- Column detail views (top values, stats, histogram)
+- Keyboard and mouse-driven navigation
