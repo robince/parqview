@@ -92,28 +92,30 @@ jobs:
     needs: [build-linux, build-darwin]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
-      - name: Verify annotated tag and extract body
+      - name: Extract tag message via GitHub API
         id: tag_meta
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           TAG_NAME="${GITHUB_REF#refs/tags/}"
-          TAG_TYPE="$(git cat-file -t "$TAG_NAME" 2>/dev/null || true)"
-          if [ -z "$TAG_TYPE" ]; then
-            echo "Could not resolve tag object for ${TAG_NAME}"
+
+          # Use GitHub API to resolve the tag ref — avoids actions/checkout
+          # not fetching annotated tag objects reliably.
+          REF_TYPE=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG_NAME}" --jq '.object.type')
+          REF_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG_NAME}" --jq '.object.sha')
+
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "Expected annotated tag; got ${REF_TYPE}"
             exit 1
           fi
-          if [ "$TAG_TYPE" != "tag" ]; then
-            echo "Expected annotated tag; got ${TAG_TYPE}"
-            exit 1
-          fi
-          TAG_MSG="$(git tag -l --format='%(contents:body)' "$TAG_NAME")"
+
+          # Fetch the annotated tag object and extract body (skip subject line)
+          TAG_MSG=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${REF_SHA}" --jq '.message' | tail -n +3)
+
           DELIM="TAGMSG_$(date +%s%N)"
           echo "body<<$DELIM" >> "$GITHUB_OUTPUT"
           echo "$TAG_MSG" >> "$GITHUB_OUTPUT"
