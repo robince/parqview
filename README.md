@@ -61,7 +61,7 @@ xattr -dr com.apple.quarantine ./parqview
 Open a file directly:
 
 ```bash
-parqview <file.parquet|file.csv>
+./parqview <file.parquet|file.csv>
 ```
 
 Or run from source:
@@ -74,7 +74,7 @@ If the app starts without a file, press `Ctrl+O` to open the file picker.
 
 ## Screens and Keys
 
-Shortcuts below describe app-specific behavior. When a search input is focused, normal text editing keys are handled by Bubble `textinput`.
+Shortcuts below describe app-specific behavior. When a search input is focused, normal text editing keys are handled by the Charmbracelet Bubbles `textinput` component.
 
 ### Main Workspace (Table + Columns)
 
@@ -88,7 +88,7 @@ This is the default screen with a data table on the left and columns list on the
 | `Ctrl+L` | Redraw screen |
 | `?` | Open/close help overlay |
 | `s`, `S` | Toggle selected-columns view in data table |
-| `v`, `V` | Toggle selected-columns view in columns pane |
+| `v`, `V` | Toggle selected-columns view in columns pane (columns focus) |
 | `Enter` | Open detail panel for active column |
 | `Space` | Page down in focused pane |
 
