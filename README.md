@@ -1,6 +1,23 @@
 # parqview
 
-Terminal UI for exploring Parquet and CSV files with DuckDB-backed preview and profiling.
+Keyboard-first terminal UI for exploring Parquet and CSV files with DuckDB-backed preview and profiling.
+
+## Why This Exists
+
+`parqview` is for fast inspection of data as it moves through a pipeline.
+
+Use it to quickly catch:
+
+- pipeline failures that produce unexpected null-heavy outputs,
+- join failures (duplicate columns, mismatched keys, broken join coverage),
+- `NaN`/missing value spikes in critical features,
+- out-of-distribution feature values before they break downstream models or checks.
+
+The goal is smooth, low-friction, interactive data browsing with familiar and intuitive keyboard navigation.
+
+## Screenshot
+
+![parqview main workspace](docs/images/parqview-screenshot.png)
 
 ## Installation
 
@@ -41,41 +58,43 @@ xattr -dr com.apple.quarantine ./parqview
 
 ## Run
 
+Open a file directly:
+
+```bash
+parqview <file.parquet|file.csv>
+```
+
+Or run from source:
+
 ```bash
 go run ./cmd/parqview <file.parquet|file.csv>
 ```
 
-## Missing-Value Policy
+If the app starts without a file, press `Ctrl+O` to open the file picker.
 
-By default, parqview treats both `NULL` and `NaN` as missing values for:
+## Screens and Keys
 
-- Missing indicators (orange dots/marker styles)
-- Missing-row filter (`f`)
-- Missing navigation (`n`, `r`/`R`, `c`/`C`)
-- Missing counts in profiling/footers
+Shortcuts below describe app-specific behavior. When a search input is focused, normal text editing keys are handled by Bubble `textinput`.
 
-This behavior is controlled by [`internal/missing/policy.go`](internal/missing/policy.go):
+### Main Workspace (Table + Columns)
 
-- `IncludeNaNAsMissing = true` (default): `NULL` + `NaN`
-- `IncludeNaNAsMissing = false`: `NULL` only
-
-## Keyboard Shortcuts
-
-Shortcuts below describe app-specific behavior. When the column search input is focused, normal text editing keys are handled by Bubble `textinput`.
-
-### Global (no overlay open, search not focused)
+This is the default screen with a data table on the left and columns list on the right.
 
 | Key | Action |
 | --- | --- |
 | `Tab` | Switch focus between table and columns panes |
+| `Ctrl+O` | Open/close file picker (`.parquet`/`.csv`) |
 | `q`, `Ctrl+C` | Quit |
 | `Ctrl+L` | Redraw screen |
 | `?` | Open/close help overlay |
-| `s`, `S` | Toggle show-selected-columns projection |
-| `Enter` | Open detail panel for the active column |
-| `Space` | Page down in focused pane (`table` or `columns`) |
+| `s`, `S` | Toggle selected-columns view in data table |
+| `v`, `V` | Toggle selected-columns view in columns pane |
+| `Enter` | Open detail panel for active column |
+| `Space` | Page down in focused pane |
 
-### Columns Pane (focus on columns)
+### Columns Pane
+
+Use this pane to search, triage, and build a selection set of columns.
 
 | Key | Action |
 | --- | --- |
@@ -88,9 +107,9 @@ Shortcuts below describe app-specific behavior. When the column search input is 
 | `Ctrl+U` | Half-page up |
 | `g`, `Home` | Jump to top of full list |
 | `G`, `End` | Jump to bottom of full list |
-| `H` | Jump to top of current visible list window (no scrolling) |
-| `M` | Jump to middle of current visible list window (no scrolling) |
-| `L` | Jump to bottom of current visible list window (no scrolling) |
+| `H` | Jump to top of current visible list window |
+| `M` | Jump to middle of current visible list window |
+| `L` | Jump to bottom of current visible list window |
 | `x` | Toggle selection on active (crosshair) column |
 | `a` | Add all filtered columns to selection |
 | `d` | Remove all filtered columns from selection |
@@ -99,7 +118,9 @@ Shortcuts below describe app-specific behavior. When the column search input is 
 | `y` | Copy selected columns as a Python list |
 | `Enter` | Open detail panel for active column |
 
-### Table Pane (focus on table)
+### Table Pane
+
+Use this pane to inspect row values, navigate missingness, and check distribution shifts.
 
 | Key | Action |
 | --- | --- |
@@ -111,6 +132,8 @@ Shortcuts below describe app-specific behavior. When the column search input is 
 | `$` | Jump to last visible table column |
 | `[` | Page table columns left |
 | `]` | Page table columns right |
+| `w` | Toggle fit-width for active column |
+| `Ctrl+W` | Toggle global wide-columns mode |
 | `g` | Jump to top row |
 | `G` | Jump to bottom row |
 | `Space`, `Ctrl+F` | Page down |
@@ -124,20 +147,14 @@ Shortcuts below describe app-specific behavior. When the column search input is 
 | `f` | Toggle missing-row filter |
 | `Enter` | Open detail panel for selected column |
 
-### Search Input Mode (columns search focused)
+### Column Search Input (in Columns Pane)
 
 | Key | Action |
 | --- | --- |
-| `Esc` | Exit search input |
-| `Enter` | Commit query and exit search input |
+| `Esc` | Clear query and exit search |
+| `Enter` | Commit query and exit search |
 | `Ctrl+U` | Clear search query |
 | Text editing keys | Edit search query |
-
-### Help Overlay
-
-| Key | Action |
-| --- | --- |
-| `Esc`, `?`, `q` | Close help |
 
 ### Detail Panel Overlay
 
@@ -147,9 +164,38 @@ Shortcuts below describe app-specific behavior. When the column search input is 
 | `n` | Jump to first missing value for detail column |
 | `Esc`, `q` | Close detail panel |
 
+### File Picker Overlay
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Open selected file/folder |
+| `Backspace` | Go to parent folder (when query is empty) |
+| `Ctrl+U` | Clear picker query |
+| `Esc` | Close file picker |
+
+### Help Overlay
+
+| Key | Action |
+| --- | --- |
+| `Esc`, `?`, `q` | Close help |
+
 ### Mouse
 
 | Action | Behavior |
 | --- | --- |
 | Mouse wheel | Scroll cursor in focused pane |
 | Left-drag divider | Resize table/columns split |
+
+## Technical Details: Missing Definition
+
+By default, parqview treats both `NULL` and `NaN` as missing values for:
+
+- missing indicators (orange dots/marker styles),
+- missing-row filter (`f`),
+- missing navigation (`n`, `r`/`R`, `c`/`C`),
+- missing counts in profiling and footers.
+
+This behavior is controlled by [`internal/missing/policy.go`](internal/missing/policy.go):
+
+- `IncludeNaNAsMissing = true` (default): `NULL` + `NaN`
+- `IncludeNaNAsMissing = false`: `NULL` only
