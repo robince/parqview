@@ -93,7 +93,7 @@ var (
 
 	// Null indicator dots (pre-rendered strings, not reusable styles)
 	inlineNullDotW      = lipgloss.Width(" " + nullDotChar) // inline indicator is rendered as " " + dot
-	tableHeaderNullDotW = lipgloss.Width(nullDotChar)
+	tableHeaderNullDotW = lipgloss.Width(nullDotChar) // equivalent to measuring either styled dot: lipgloss.Width strips ANSI codes
 
 	// Column list
 	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)

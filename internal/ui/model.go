@@ -252,6 +252,7 @@ func (m *Model) resetLoadedDataState() {
 	m.tableColWidths = make(map[string]int)
 	m.showSelected = false
 	m.showSelectedInCols = false
+	m.missingMode = missing.ModeNullAndNaN
 	m.missingFilterActive = false
 	m.missingFilterCols = nil
 	m.totalRows = 0
