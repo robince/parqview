@@ -85,6 +85,14 @@ func requireNullCell(t *testing.T, rows [][]string, row, col int) {
 	}
 }
 
+// requireNaNCell asserts that a specific cell in the preview is "NaN".
+func requireNaNCell(t *testing.T, rows [][]string, row, col int) {
+	t.Helper()
+	if rows[row][col] != "NaN" {
+		t.Fatalf("expected NaN at [%d][%d], got %q", row, col, rows[row][col])
+	}
+}
+
 // mustWriteCSV writes CSV content to a temp file and returns the path.
 func mustWriteCSV(t *testing.T, dir, name, content string) string {
 	t.Helper()

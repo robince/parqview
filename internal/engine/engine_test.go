@@ -608,12 +608,10 @@ func TestFirstNullRowModeNaNOnly(t *testing.T) {
 		t.Fatal("expected a NaN row under ModeNaNOnly")
 	}
 
-	// Confirm the found row displays as NaN (not NULL).
+	// Confirm the found row is actually NaN (not NULL).
 	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(rowID-1))
 	requirePreviewShape(t, rows, 1, 1)
-	if rows[0][0] == "NULL" {
-		t.Fatalf("expected NaN row but got NULL at rowID=%d", rowID)
-	}
+	requireNaNCell(t, rows, 0, 0)
 }
 
 func TestNextNullRowModeNaNOnly(t *testing.T) {
