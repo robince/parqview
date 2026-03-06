@@ -617,7 +617,11 @@ func TestFirstNullRowModeNullOnly(t *testing.T) {
 	}
 
 	// Confirm the found row is actually NULL (not NaN).
-	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(rowID-1))
+	offset, err := eng.OffsetForRowID(ctx, rowID, nil, missing.ModeNullOnly)
+	if err != nil {
+		t.Fatalf("OffsetForRowID: %v", err)
+	}
+	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(offset))
 	requirePreviewShape(t, rows, 1, 1)
 	requireNullCell(t, rows, 0, 0)
 }
@@ -642,7 +646,11 @@ func TestFirstNullRowModeNaNOnly(t *testing.T) {
 	}
 
 	// Confirm the found row is actually NaN (not NULL).
-	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(rowID-1))
+	offset, err := eng.OffsetForRowID(ctx, rowID, nil, missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("OffsetForRowID: %v", err)
+	}
+	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(offset))
 	requirePreviewShape(t, rows, 1, 1)
 	requireNaNCell(t, rows, 0, 0)
 }
