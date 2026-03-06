@@ -2709,6 +2709,23 @@ func TestToggleMissingRowFilterDeactivationViaFKey(t *testing.T) {
 	}
 }
 
+func TestToggleMissingRowFilterActivationResetsCachedCount(t *testing.T) {
+	m := newCmdTestModel()
+	m.focus = FocusTable
+	m.filteredCols = []types.ColumnInfo{{Name: "score"}}
+	m.sel = selection.New([]string{"score"})
+	m.filterRows = 10
+
+	updated, _ := m.handleTableKey("f")
+	m = updated.(Model)
+	if !m.missingFilterActive {
+		t.Fatal("expected filter to be activated after f key press")
+	}
+	if m.filterRows != -1 {
+		t.Fatalf("expected filterRows reset to -1 after activation, got %d", m.filterRows)
+	}
+}
+
 func TestViewTableTinyViewportDoesNotOverflowHeight(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a", "b"}
