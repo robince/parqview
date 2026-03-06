@@ -132,7 +132,7 @@ func TestHandleTableKeyRNoMissingSetsStatus(t *testing.T) {
 }
 
 func TestHandleTableKeyRDoesNotTreatCurrentCellAsNextMissing(t *testing.T) {
-	if !missing.IsDisplayMissing("NULL") {
+	if !missing.ModeNullAndNaN.IsDisplayMissing("NULL") {
 		t.Fatal(`test setup invalid: expected "NULL" to be treated as missing`)
 	}
 
@@ -173,6 +173,72 @@ func TestHandleTableKeyCReturnsCommandWhenColumnSelected(t *testing.T) {
 	m = updated.(Model)
 	if cmd == nil {
 		t.Fatal("expected command for reverse column-missing jump")
+	}
+}
+
+func TestHandleKeyLowercaseMCyclesMissingModeGlobally(t *testing.T) {
+	t.Run("table focus", func(t *testing.T) {
+		m := newCmdTestModel()
+		m.focus = FocusTable
+
+		updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+		m = updated.(Model)
+		if cmd == nil {
+			t.Fatal("expected refresh command when cycling missing mode")
+		}
+		if m.missingMode != missing.ModeNullOnly {
+			t.Fatalf("expected missing mode to advance to NULL only, got %v", m.missingMode)
+		}
+		if m.statusMsg != "Missing mode: NULL only" {
+			t.Fatalf("unexpected status message: %q", m.statusMsg)
+		}
+	})
+
+	t.Run("detail overlay", func(t *testing.T) {
+		m := newCmdTestModel()
+		m.overlay = OverlayDetail
+		m.detailCol = "score"
+		m.columns = []types.ColumnInfo{{Name: "score", DuckType: "DOUBLE"}}
+
+		updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+		m = updated.(Model)
+		if cmd == nil {
+			t.Fatal("expected refresh command when cycling missing mode from detail overlay")
+		}
+		if m.overlay != OverlayDetail {
+			t.Fatalf("expected detail overlay to remain open, got %v", m.overlay)
+		}
+		if m.missingMode != missing.ModeNullOnly {
+			t.Fatalf("expected missing mode to advance to NULL only, got %v", m.missingMode)
+		}
+	})
+}
+
+func TestHandleColumnsKeyUppercaseMStaysMiddleJump(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 12
+	m.focus = FocusColumns
+	m.filteredCols = []types.ColumnInfo{
+		{Name: "a"},
+		{Name: "b"},
+		{Name: "c"},
+		{Name: "d"},
+		{Name: "e"},
+	}
+	m.colListOff = 1
+	m.colCursor = 1
+
+	updated, cmd := m.handleColumnsKey("M")
+	m = updated.(Model)
+	if cmd != nil {
+		t.Fatalf("expected no command for columns middle jump, got %v", cmd)
+	}
+	if m.colCursor != 2 {
+		t.Fatalf("expected columns M to jump to visible middle, got cursor %d", m.colCursor)
+	}
+	if m.selectedColName != "c" {
+		t.Fatalf("expected selected column to follow visible middle, got %q", m.selectedColName)
 	}
 }
 
@@ -2034,7 +2100,7 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 		{"NULL", "x"},
 		{"y", "z"},
 	}
-	m.tableRowHasMissing = rowHasMissingFlags(m.tableData)
+	m.tableRowHasMissing = rowHasMissingFlags(m.tableData, m.missingMode)
 	m.summaries["a"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
 	m.summaries["b"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
 
@@ -2059,6 +2125,56 @@ func TestViewTableNullDotsRenderOnlyWhenExpected(t *testing.T) {
 	}
 }
 
+func TestViewTopBarKeepsMissingModeBadgeVisible(t *testing.T) {
+	m := newTestModel()
+	m.width = 32
+	m.fileName = "very-long-file-name.csv"
+	m.totalRows = 123
+	m.columns = []types.ColumnInfo{{Name: "a"}}
+	m.missingMode = missing.ModeNaNOnly
+	m.missingFilterActive = true
+	m.missingFilterCols = []string{"a"}
+	m.filterRows = 4
+
+	out := m.viewTopBar()
+	if !strings.Contains(out, "NaN") {
+		t.Fatalf("expected top bar to include missing mode badge, got %q", out)
+	}
+	if strings.Contains(out, "Missing:") {
+		t.Fatalf("expected compact badge without prefix, got %q", out)
+	}
+}
+
+func TestViewTableTreatsNaNAccordingToMissingMode(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 10
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"NaN"}}
+	m.summaries["a"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
+
+	m.missingMode = missing.ModeNullOnly
+	m.tableRowHasMissing = rowHasMissingFlags(m.tableData, m.missingMode)
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
+	lines := strings.Split(out, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected table output, got %q", out)
+	}
+	if strings.Contains(lines[1], nullDotChar) {
+		t.Fatalf("expected no row marker when NaN is not missing, got %q", lines[1])
+	}
+
+	m.missingMode = missing.ModeNaNOnly
+	m.tableRowHasMissing = rowHasMissingFlags(m.tableData, m.missingMode)
+	out = m.viewTable(w, h)
+	lines = strings.Split(out, "\n")
+	if !strings.Contains(lines[1], nullDotChar) {
+		t.Fatalf("expected row marker when NaN is missing, got %q", lines[1])
+	}
+}
+
 func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 	t.Run("unhighlighted row", func(t *testing.T) {
 		m := newTestModel()
@@ -2074,10 +2190,10 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 		m.summaries["beta"] = &types.ColumnSummary{Loaded: true, MissingCount: 0}
 
 		out := m.viewColumns(40, 8)
-		if !strings.Contains(out, "alpha "+nullDot) {
+		if !strings.Contains(out, "alpha "+missingDot(m.missingMode)) {
 			t.Fatalf("expected null dot directly after alpha in column list, got %q", out)
 		}
-		if strings.Contains(out, "beta "+nullDot) {
+		if strings.Contains(out, "beta "+missingDot(m.missingMode)) {
 			t.Fatalf("expected no null dot for beta without nulls, got %q", out)
 		}
 	})
@@ -2128,7 +2244,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 		m.summaries["alpha"] = &types.ColumnSummary{Loaded: false, MissingCount: 5}
 
 		out := m.viewColumns(40, 6)
-		if strings.Contains(out, nullDot) {
+		if strings.Contains(out, missingDot(m.missingMode)) {
 			t.Fatalf("expected no null dot when summary not loaded, got %q", out)
 		}
 	})
@@ -2143,7 +2259,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 		// no entry in m.summaries
 
 		out := m.viewColumns(40, 6)
-		if strings.Contains(out, nullDot) {
+		if strings.Contains(out, missingDot(m.missingMode)) {
 			t.Fatalf("expected no null dot when column has no summary entry, got %q", out)
 		}
 	})
@@ -2162,7 +2278,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 		m.summaries["verylongcolumnname"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
 
 		out := m.viewColumns(20, 6)
-		if !strings.Contains(out, nullDot) {
+		if !strings.Contains(out, missingDot(m.missingMode)) {
 			t.Fatalf("expected null dot in output, got %q", out)
 		}
 		// "veryl…" is the 6-char truncation; "verylo…" would indicate the 8-char
@@ -2187,7 +2303,7 @@ func TestViewColumnsNullDotRendersNextToColumnName(t *testing.T) {
 		m.summaries["alpha"] = &types.ColumnSummary{Loaded: true, MissingCount: 1}
 
 		out := m.viewColumns(14, 6)
-		if strings.Contains(out, nullDot) {
+		if strings.Contains(out, missingDot(m.missingMode)) {
 			t.Fatalf("expected dot suppressed when nameWidth==0, got %q", out)
 		}
 		for _, line := range strings.Split(out, "\n") {
@@ -2226,7 +2342,7 @@ func TestRowHasNullAtFallbackPath(t *testing.T) {
 	t.Run("synced cache is consulted directly", func(t *testing.T) {
 		m := newTestModel()
 		m.tableData = data
-		m.tableRowHasMissing = rowHasMissingFlags(m.tableData)
+		m.tableRowHasMissing = rowHasMissingFlags(m.tableData, m.missingMode)
 
 		if !m.rowHasMissingAt(0) {
 			t.Error("expected rowHasMissingAt(0) to return true from cache")
@@ -2489,7 +2605,8 @@ func TestViewTableRendersFooterForZeroRows(t *testing.T) {
 
 func TestViewTableFooterZeroRowsIncludesFilterContext(t *testing.T) {
 	m := newTestModel()
-	m.rowFilter = "a IS NULL"
+	m.missingFilterActive = true
+	m.missingFilterCols = []string{"a"}
 	m.filterRows = 0
 
 	footer := m.viewTableFooter()
@@ -2506,7 +2623,8 @@ func TestViewTableFooterNonEmptyOmitsFilterContext(t *testing.T) {
 	m.tableCols = []string{"a"}
 	m.selectedColName = "a"
 	m.tableData = [][]string{{"x"}}
-	m.rowFilter = "a IS NULL"
+	m.missingFilterActive = true
+	m.missingFilterCols = []string{"a"}
 	m.filterRows = 1
 
 	footer := m.viewTableFooter()
@@ -2523,12 +2641,33 @@ func TestViewTableFooterNoColumnWithFilterShowsRowMarker(t *testing.T) {
 	m.selectedColName = "" // explicitly no column selected
 	m.tableCols = []string{"a"}
 	m.tableData = [][]string{{"x"}}
-	m.rowFilter = "a IS NULL"
+	m.missingFilterActive = true
+	m.missingFilterCols = []string{"a"}
 	m.filterRows = 1
 
 	footer := m.viewTableFooter()
 	if footer != "R1" {
 		t.Fatalf("expected row marker footer when no column selected, got %q", footer)
+	}
+}
+
+func TestCycleMissingModeRebuildsActiveFilter(t *testing.T) {
+	m := newCmdTestModel()
+	m.missingFilterActive = true
+	m.missingFilterCols = []string{"score"}
+
+	before := m.activeRowFilter()
+	updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected refresh command when cycling missing mode with active filter")
+	}
+	after := m.activeRowFilter()
+	if before == after {
+		t.Fatalf("expected filter SQL to change with missing mode, got %q", after)
+	}
+	if strings.Contains(after, "IS NULL OR") {
+		t.Fatalf("expected NULL-only filter after first toggle, got %q", after)
 	}
 }
 
@@ -3202,6 +3341,9 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 	if !strings.Contains(help, "v / V") {
 		t.Fatalf("expected help to include v/V binding, got %q", help)
 	}
+	if !strings.Contains(help, "Cycle missing mode") {
+		t.Fatalf("expected help to include missing mode binding, got %q", help)
+	}
 
 	m.focus = FocusTable
 	bottom := m.viewBottomBar()
@@ -3210,6 +3352,9 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 	}
 	if !strings.Contains(bottom, "Ctrl+L:redraw") {
 		t.Fatalf("expected bottom bar to include ctrl+l hint, got %q", bottom)
+	}
+	if !strings.Contains(bottom, "m:missing-mode") {
+		t.Fatalf("expected bottom bar to include missing mode hint, got %q", bottom)
 	}
 
 	m.focus = FocusColumns

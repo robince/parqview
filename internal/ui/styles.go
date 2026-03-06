@@ -1,6 +1,10 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/robince/parqview/internal/missing"
+)
 
 const (
 	selectedMarkGlyph   = "●"
@@ -60,10 +64,6 @@ var (
 	cellStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("252"))
 
-	nullStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("243")).
-			Italic(true)
-
 	rowNumStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("243"))
 
@@ -77,20 +77,10 @@ var (
 				Foreground(lipgloss.Color("255")).
 				Background(lipgloss.Color("238"))
 
-	activeColNullStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("246")).
-				Background(lipgloss.Color("238")).
-				Italic(true)
-
 	// Row cursor highlight in data pane
 	activeRowCellStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("252")).
 				Background(lipgloss.Color("236"))
-
-	activeRowNullStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("246")).
-				Background(lipgloss.Color("236")).
-				Italic(true)
 
 	activeRowNumStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("230"))
@@ -101,16 +91,10 @@ var (
 				Foreground(lipgloss.Color("255")).
 				Background(lipgloss.Color("240"))
 
-	crosshairNullStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("248")).
-				Background(lipgloss.Color("240")).
-				Italic(true)
-
 	// Null indicator dots (pre-rendered strings, not reusable styles)
-	nullDot             = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(nullDotChar)
-	inlineNullDotW      = lipgloss.Width(" " + nullDot) // inline indicator is rendered as " " + dot
-	nullDotHeader       = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("62")).Render(nullDotChar)
-	nullDotActiveHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("69")).Render(nullDotChar)
+	inlineNullDotW      = lipgloss.Width(" " + nullDotChar) // inline indicator is rendered as " " + dot
+	nullDotHeader       = nullDotChar
+	nullDotActiveHeader = nullDotChar
 	tableHeaderNullDotW = max(lipgloss.Width(nullDotHeader), lipgloss.Width(nullDotActiveHeader))
 
 	// Column list
@@ -166,4 +150,77 @@ func inlineNullDotWidth() int {
 
 func tableHeaderNullDotWidth() int {
 	return tableHeaderNullDotW
+}
+
+func missingAccentColor(mode missing.Mode) lipgloss.Color {
+	switch mode {
+	case missing.ModeNullOnly:
+		return lipgloss.Color("179")
+	case missing.ModeNaNOnly:
+		return lipgloss.Color("80")
+	default:
+		return lipgloss.Color("214")
+	}
+}
+
+func missingBadgeStyle(mode missing.Mode) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("235")).
+		Background(missingAccentColor(mode)).
+		Padding(0, 1)
+}
+
+func missingModeBadge(mode missing.Mode, short bool) string {
+	label := mode.Label()
+	if short {
+		label = mode.ShortLabel()
+	}
+	return missingBadgeStyle(mode).Render(label)
+}
+
+func nullStyle(mode missing.Mode) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(missingAccentColor(mode)).
+		Italic(true)
+}
+
+func activeColNullStyle(mode missing.Mode) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(missingAccentColor(mode)).
+		Background(lipgloss.Color("238")).
+		Italic(true)
+}
+
+func activeRowNullStyle(mode missing.Mode) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(missingAccentColor(mode)).
+		Background(lipgloss.Color("236")).
+		Italic(true)
+}
+
+func crosshairNullStyle(mode missing.Mode) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(missingAccentColor(mode)).
+		Background(lipgloss.Color("240")).
+		Italic(true)
+}
+
+func missingDot(mode missing.Mode) string {
+	return lipgloss.NewStyle().Foreground(missingAccentColor(mode)).Render(nullDotChar)
+}
+
+func missingDotHeader(mode missing.Mode) string {
+	return lipgloss.NewStyle().
+		Foreground(missingAccentColor(mode)).
+		Background(lipgloss.Color("62")).
+		Render(nullDotChar)
+}
+
+func missingDotActiveHeader(mode missing.Mode) string {
+	return lipgloss.NewStyle().
+		Foreground(missingAccentColor(mode)).
+		Background(lipgloss.Color("69")).
+		Render(nullDotChar)
 }
