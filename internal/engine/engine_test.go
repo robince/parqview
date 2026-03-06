@@ -499,7 +499,7 @@ func TestProfileBasicDistinctStatsExcludeModeSpecificMissingValues(t *testing.T)
 	}
 }
 
-func TestProfileBasicAndDetailModeNaNOnlyIgnoresSQLNullPopulation(t *testing.T) {
+func TestProfileBasicAndDetailModeNaNOnlyIncludesSQLNullCategorically(t *testing.T) {
 	dir := t.TempDir()
 	path := mustWriteCSV(t, dir, "nan_only_mixed.csv", "category\nalpha\n\nNaN\nalpha\nbeta\n")
 	eng, err := New(path)
@@ -515,32 +515,62 @@ func TestProfileBasicAndDetailModeNaNOnlyIgnoresSQLNullPopulation(t *testing.T) 
 	if summary.MissingCount != 1 {
 		t.Fatalf("expected MissingCount=1, got %d", summary.MissingCount)
 	}
-	if summary.DistinctApprox != 2 {
-		t.Fatalf("expected DistinctApprox=2 after excluding NaN and SQL NULL, got %d", summary.DistinctApprox)
+	if summary.DistinctApprox != 3 {
+		t.Fatalf("expected DistinctApprox=3 after excluding only NaN, got %d", summary.DistinctApprox)
 	}
-	if summary.DistinctPct < 66 || summary.DistinctPct > 67 {
-		t.Fatalf("expected DistinctPct near 66.67, got %v", summary.DistinctPct)
+	if summary.DistinctPct < 74 || summary.DistinctPct > 76 {
+		t.Fatalf("expected DistinctPct near 75, got %v", summary.DistinctPct)
 	}
 
 	if err := eng.ProfileDetail(bg(), "category", summary, "VARCHAR", missing.ModeNaNOnly); err != nil {
 		t.Fatalf("ProfileDetail: %v", err)
 	}
-	if len(summary.Top3) != 2 {
-		t.Fatalf("expected 2 top values after excluding NaN and SQL NULL, got %+v", summary.Top3)
+	if len(summary.Top3) != 3 {
+		t.Fatalf("expected 3 top values after excluding only NaN, got %+v", summary.Top3)
 	}
 	if summary.Top3[0].Value != "alpha" || summary.Top3[0].Count != 2 {
 		t.Fatalf("unexpected first top value: %+v", summary.Top3[0])
 	}
-	if summary.Top3[1].Value != "beta" || summary.Top3[1].Count != 1 {
+	if summary.Top3[1].Value != "NULL" || summary.Top3[1].Count != 1 {
 		t.Fatalf("unexpected second top value: %+v", summary.Top3[1])
 	}
-	if summary.Top3[0].Pct < 66 || summary.Top3[0].Pct > 67 {
-		t.Fatalf("expected alpha pct near 66.67, got %v", summary.Top3[0].Pct)
+	if summary.Top3[2].Value != "beta" || summary.Top3[2].Count != 1 {
+		t.Fatalf("unexpected third top value: %+v", summary.Top3[2])
+	}
+	if summary.Top3[0].Pct < 49 || summary.Top3[0].Pct > 51 {
+		t.Fatalf("expected alpha pct near 50, got %v", summary.Top3[0].Pct)
 	}
 	for _, tv := range summary.Top3 {
-		if tv.Value == "" || tv.Value == "NULL" || strings.EqualFold(strings.TrimSpace(tv.Value), "nan") {
+		if tv.Value == "" || strings.EqualFold(strings.TrimSpace(tv.Value), "nan") {
 			t.Fatalf("unexpected missing-like top value under NaN-only mode: %+v", tv)
 		}
+	}
+}
+
+func TestProfileDetailModeNaNOnlyStillExcludesSQLNullFromNumericStats(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "nan_only_numeric.csv", "score\n1.0\n\nNaN\n2.5\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "score", missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE", missing.ModeNaNOnly); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if summary.Numeric == nil {
+		t.Fatal("expected numeric stats")
+	}
+	if summary.Numeric.Min < 0.99 || summary.Numeric.Min > 1.01 {
+		t.Fatalf("unexpected min: got %v", summary.Numeric.Min)
+	}
+	if summary.Numeric.Max < 2.49 || summary.Numeric.Max > 2.51 {
+		t.Fatalf("unexpected max: got %v", summary.Numeric.Max)
 	}
 }
 

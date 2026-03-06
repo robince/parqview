@@ -177,16 +177,22 @@ func (e *Engine) FilteredRowCount(ctx context.Context, rowFilter string) (int64,
 func (e *Engine) ProfileBasic(ctx context.Context, colName string, mode missing.Mode) (*types.ColumnSummary, error) {
 	col := quoteIdent(colName)
 	missingExpr := mode.SQLPredicate(col)
-	profiledExpr := fmt.Sprintf("NOT (%s) AND %s IS NOT NULL", missingExpr, col)
+	profiledExpr := categoricalProfileExpr(col, mode)
+	profiledNonNullExpr := numericProfileExpr(col, mode)
 	q := fmt.Sprintf(`SELECT
 		sum(CASE WHEN %s THEN 1 ELSE 0 END)::BIGINT AS n_null,
 		sum(CASE WHEN %s THEN 1 ELSE 0 END)::BIGINT AS n_profiled,
-		approx_count_distinct(CASE WHEN %s THEN %s END) AS n_distinct
-		FROM t`, missingExpr, profiledExpr, profiledExpr, col)
+		sum(CASE WHEN %s AND %s IS NULL THEN 1 ELSE 0 END)::BIGINT AS n_profiled_null,
+		approx_count_distinct(CASE WHEN %s THEN %s END) AS n_distinct_non_null
+		FROM t`, missingExpr, profiledExpr, profiledExpr, col, profiledNonNullExpr, col)
 
-	var nNull, nProfiled, nDistinct int64
-	if err := e.db.QueryRowContext(ctx, q).Scan(&nNull, &nProfiled, &nDistinct); err != nil {
+	var nNull, nProfiled, nProfiledNull, nDistinctNonNull int64
+	if err := e.db.QueryRowContext(ctx, q).Scan(&nNull, &nProfiled, &nProfiledNull, &nDistinctNonNull); err != nil {
 		return nil, err
+	}
+	nDistinct := nDistinctNonNull
+	if nProfiledNull > 0 {
+		nDistinct++
 	}
 
 	total := e.totalRows
@@ -213,20 +219,22 @@ func (e *Engine) ProfileBasic(ctx context.Context, colName string, mode missing.
 // ProfileDetail computes top values and/or numeric stats for a column.
 func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *types.ColumnSummary, colType string, mode missing.Mode) error {
 	col := quoteIdent(colName)
-	profiledExpr := fmt.Sprintf("NOT (%s) AND %s IS NOT NULL", mode.SQLPredicate(col), col)
+	profiledExpr := categoricalProfileExpr(col, mode)
+	numericExpr := numericProfileExpr(col, mode)
 
 	// Top values for discrete-like columns
 	if summary.IsDiscrete {
-		q := fmt.Sprintf(`SELECT %s::VARCHAR AS value, count(*) AS cnt
+		displayExpr := fmt.Sprintf(`CASE WHEN %s IS NULL THEN 'NULL' ELSE %s::VARCHAR END`, col, col)
+		q := fmt.Sprintf(`SELECT %s AS value, count(*) AS cnt
 			FROM t WHERE %s
-			GROUP BY %s ORDER BY cnt DESC LIMIT 3`, col, profiledExpr, col)
+			GROUP BY 1 ORDER BY cnt DESC, value ASC LIMIT 3`, displayExpr, profiledExpr)
 		rows, err := e.db.QueryContext(ctx, q)
 		if err != nil {
 			return err
 		}
 		defer func() { _ = rows.Close() }()
 
-		profiledCount, err := e.profiledValueCount(ctx, col, mode)
+		profiledCount, err := e.categoricalProfiledValueCount(ctx, col, mode)
 		if err != nil {
 			return err
 		}
@@ -250,7 +258,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 	// Numeric stats
 	if isNumericType(colType) {
 		q := fmt.Sprintf(`SELECT min(%s)::DOUBLE, max(%s)::DOUBLE, avg(%s)::DOUBLE, stddev_pop(%s)::DOUBLE
-			FROM t WHERE %s`, col, col, col, col, profiledExpr)
+			FROM t WHERE %s`, col, col, col, col, numericExpr)
 		var ns types.NumericStats
 		if err := e.db.QueryRowContext(ctx, q).Scan(&ns.Min, &ns.Max, &ns.Mean, &ns.Stddev); err != nil {
 			return err
@@ -265,7 +273,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 			)
 			hq := fmt.Sprintf(`SELECT %s AS b, count(*) AS cnt
 				FROM t WHERE %s
-				GROUP BY b ORDER BY b`, binExpr, profiledExpr)
+				GROUP BY b ORDER BY b`, binExpr, numericExpr)
 			hrows, err := e.db.QueryContext(ctx, hq, ns.Min, ns.Max-ns.Min)
 			if err != nil {
 				return err
@@ -291,7 +299,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 			}
 			summary.Hist = &types.Histogram{Bins: bins}
 		} else {
-			profiledCount, err := e.profiledValueCount(ctx, col, mode)
+			profiledCount, err := e.numericProfiledValueCount(ctx, col, mode)
 			if err != nil {
 				return err
 			}
@@ -305,12 +313,26 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 	return nil
 }
 
-func (e *Engine) profiledValueCount(ctx context.Context, quotedCol string, mode missing.Mode) (int64, error) {
-	q := fmt.Sprintf(`SELECT count(*)::BIGINT FROM t WHERE NOT (%s) AND %s IS NOT NULL`,
-		mode.SQLPredicate(quotedCol), quotedCol)
+func (e *Engine) categoricalProfiledValueCount(ctx context.Context, quotedCol string, mode missing.Mode) (int64, error) {
+	q := fmt.Sprintf(`SELECT count(*)::BIGINT FROM t WHERE %s`, categoricalProfileExpr(quotedCol, mode))
 	var count int64
 	err := e.db.QueryRowContext(ctx, q).Scan(&count)
 	return count, err
+}
+
+func (e *Engine) numericProfiledValueCount(ctx context.Context, quotedCol string, mode missing.Mode) (int64, error) {
+	q := fmt.Sprintf(`SELECT count(*)::BIGINT FROM t WHERE %s`, numericProfileExpr(quotedCol, mode))
+	var count int64
+	err := e.db.QueryRowContext(ctx, q).Scan(&count)
+	return count, err
+}
+
+func categoricalProfileExpr(quotedCol string, mode missing.Mode) string {
+	return "NOT (" + mode.SQLPredicate(quotedCol) + ")"
+}
+
+func numericProfileExpr(quotedCol string, mode missing.Mode) string {
+	return categoricalProfileExpr(quotedCol, mode) + " AND " + quotedCol + " IS NOT NULL"
 }
 
 // FirstNullRow returns the internal row id of the first missing-like value in a column, or 0 if none.
