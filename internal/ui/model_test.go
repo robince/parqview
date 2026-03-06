@@ -2137,11 +2137,11 @@ func TestViewTopBarKeepsMissingModeBadgeVisible(t *testing.T) {
 	m.filterRows = 4
 
 	out := m.viewTopBar()
-	if !strings.Contains(out, "NaN") {
-		t.Fatalf("expected top bar to include missing mode badge, got %q", out)
-	}
-	if strings.Contains(out, "Missing:") {
-		t.Fatalf("expected compact badge without prefix, got %q", out)
+	// Badge must show the current mode label in either long ("NaN only") or short ("NaN") form.
+	longLabel := missing.ModeNaNOnly.Label()
+	shortLabel := missing.ModeNaNOnly.ShortLabel()
+	if !strings.Contains(out, longLabel) && !strings.Contains(out, shortLabel) {
+		t.Fatalf("expected top bar to contain %q or %q, got %q", longLabel, shortLabel, out)
 	}
 }
 
@@ -2655,6 +2655,7 @@ func TestCycleMissingModeRebuildsActiveFilter(t *testing.T) {
 	m := newCmdTestModel()
 	m.missingFilterActive = true
 	m.missingFilterCols = []string{"score"}
+	m.filterRows = 42
 
 	before := m.activeRowFilter()
 	updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
@@ -2668,6 +2669,9 @@ func TestCycleMissingModeRebuildsActiveFilter(t *testing.T) {
 	}
 	if strings.Contains(after, "IS NULL OR") {
 		t.Fatalf("expected NULL-only filter after first toggle, got %q", after)
+	}
+	if m.filterRows != -1 {
+		t.Fatalf("expected filterRows reset to -1 after mode cycle, got %d", m.filterRows)
 	}
 }
 

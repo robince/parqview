@@ -285,22 +285,21 @@ func (m *Model) applyEngine(eng *engine.Engine, fileName string) {
 	m.statusMsg = fmt.Sprintf("Opened %s", fileName)
 }
 
-func (m Model) activeRowFilter() string {
-	if !m.missingFilterActive || len(m.missingFilterCols) == 0 {
-		return ""
-	}
-	return engine.BuildMissingFilter(m.missingFilterCols, m.missingMode)
-}
-
 // activeFilterCols returns the filter columns when the filter is active, or nil
-// when inactive. Note: the engine treats nil and an empty slice equivalently
-// (both result in no AND clause), so callers must not use a non-nil return
-// value alone to determine whether filtering is active.
+// when inactive.
 func (m Model) activeFilterCols() []string {
-	if !m.missingFilterActive {
+	if !m.missingFilterActive || len(m.missingFilterCols) == 0 {
 		return nil
 	}
 	return m.missingFilterCols
+}
+
+func (m Model) activeRowFilter() string {
+	cols := m.activeFilterCols()
+	if len(cols) == 0 {
+		return ""
+	}
+	return engine.BuildMissingFilter(cols, m.missingMode)
 }
 
 func (m Model) toggleMissingModeCmd() tea.Cmd {
@@ -318,6 +317,9 @@ func (m Model) toggleMissingModeCmd() tea.Cmd {
 }
 
 func (m *Model) cycleMissingMode() tea.Cmd {
+	if m.engine == nil {
+		return nil
+	}
 	m.dataToken++
 	m.missingMode = m.missingMode.Next()
 	m.tableRowHasMissing = nil // stale data; fresh flags computed on next preview response

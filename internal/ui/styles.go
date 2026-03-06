@@ -93,7 +93,7 @@ var (
 
 	// Null indicator dots (pre-rendered strings, not reusable styles)
 	inlineNullDotW      = lipgloss.Width(" " + nullDotChar) // inline indicator is rendered as " " + dot
-	tableHeaderNullDotW = lipgloss.Width(nullDotChar) // lipgloss.Width strips ANSI codes before measuring, so styled and unstyled forms always give the same result
+	tableHeaderNullDotW = lipgloss.Width(nullDotChar)        // updated in init() to max of all styled header dots
 
 	// Column list
 	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)
@@ -188,6 +188,9 @@ func init() {
 		cachedMissingDots[mode] = lipgloss.NewStyle().Foreground(c).Render(nullDotChar)
 		cachedMissingDotHeaders[mode] = lipgloss.NewStyle().Foreground(c).Background(lipgloss.Color("62")).Render(nullDotChar)
 		cachedMissingDotActHeaders[mode] = lipgloss.NewStyle().Foreground(c).Background(lipgloss.Color("69")).Render(nullDotChar)
+		if w := max(lipgloss.Width(cachedMissingDotHeaders[mode]), lipgloss.Width(cachedMissingDotActHeaders[mode])); w > tableHeaderNullDotW {
+			tableHeaderNullDotW = w
+		}
 	}
 }
 
