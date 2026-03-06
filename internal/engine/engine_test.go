@@ -427,6 +427,38 @@ func TestProfileBasicUsesMissingPredicate(t *testing.T) {
 	}
 }
 
+func TestProfileBasicAndFilterVarcharWithModeNaNOnly(t *testing.T) {
+	// Regression: ModeNaNOnly must not error on VARCHAR columns.
+	// isnan() is numeric-only in DuckDB; SQLNaNPredicate uses TRY_CAST to be safe.
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "varchar_nan.csv", "category\nalpha\nNaN\n\nbeta\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	ctx := bg()
+
+	summary, err := eng.ProfileBasic(ctx, "category", missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic(VARCHAR, ModeNaNOnly) unexpected error: %v", err)
+	}
+	// "NaN" is a literal string in a VARCHAR column; TRY_CAST("NaN" AS DOUBLE) = NaN,
+	// so isnan() should return true for it.
+	if summary.MissingCount != 1 {
+		t.Fatalf("expected MissingCount=1 for NaN string in VARCHAR, got %d", summary.MissingCount)
+	}
+
+	filterCols := []string{"category"}
+	rowID, err := eng.FirstNullRow(ctx, "category", filterCols, missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("FirstNullRow(VARCHAR, ModeNaNOnly) unexpected error: %v", err)
+	}
+	if rowID == 0 {
+		t.Fatal("expected a NaN row for VARCHAR column under ModeNaNOnly")
+	}
+}
+
 func TestProfileDetailExcludesMissingPredicate(t *testing.T) {
 	dir := t.TempDir()
 	// NaN appears 3× so it dominates Top3 under ModeNullOnly regardless of tie-breaking.

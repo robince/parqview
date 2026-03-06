@@ -328,6 +328,8 @@ func (m *Model) cycleMissingMode() tea.Cmd {
 	m.tableOffset = 0
 	m.tableRowCursor = 0
 	m.statusMsg = fmt.Sprintf("Missing mode: %s", m.missingMode.Label())
+	// toggleMissingModeCmd refreshes the preview, restarts profiling, and (if the
+	// detail panel is open) forces a detail reload so all panes reflect the new mode.
 	return m.toggleMissingModeCmd()
 }
 
