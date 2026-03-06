@@ -165,7 +165,7 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	}
 
 	var expectedRowID int64
-	q := `SELECT min(` + quoteIdent(eng.internalRowIDCol) + `) FROM t_base WHERE ` + missing.ModeNullAndNaN.SQLPredicate(`"score"`) + ` AND (` + filter + `)`
+	q := `SELECT min(` + quoteIdent(eng.internalRowIDCol) + `) FROM t_base WHERE ` + missing.ModeNullAndNaN.SQLPredicate(`"score"`) + ` AND ` + filter
 	if err := eng.db.QueryRowContext(ctx, q).Scan(&expectedRowID); err != nil {
 		t.Fatalf("query expected row id: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	}
 
 	var expectedOffset int64
-	oq := `SELECT count(*) FROM t_base WHERE ` + quoteIdent(eng.internalRowIDCol) + ` < ? AND (` + filter + `)`
+	oq := `SELECT count(*) FROM t_base WHERE ` + quoteIdent(eng.internalRowIDCol) + ` < ? AND ` + filter
 	if err := eng.db.QueryRowContext(ctx, oq, rowID).Scan(&expectedOffset); err != nil {
 		t.Fatalf("query expected offset: %v", err)
 	}

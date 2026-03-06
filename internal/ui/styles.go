@@ -93,7 +93,7 @@ var (
 
 	// Null indicator dots (pre-rendered strings, not reusable styles)
 	inlineNullDotW      = lipgloss.Width(" " + nullDotChar) // inline indicator is rendered as " " + dot
-	tableHeaderNullDotW = 0 // set to correct value in init() as max of all styled header dot widths
+	tableHeaderNullDotW = 0 // set to correct value in init(); must not be used in other var initializers
 
 	// Column list
 	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)
@@ -183,7 +183,7 @@ func init() {
 		cachedNullStyles[mode] = lipgloss.NewStyle().Foreground(c).Italic(true)
 		cachedActiveColNullStyles[mode] = lipgloss.NewStyle().Foreground(c).Background(lipgloss.Color("238")).Italic(true)
 		cachedActiveRowNullStyles[mode] = lipgloss.NewStyle().Foreground(c).Background(lipgloss.Color("236")).Italic(true)
-		cachedCrosshairNullStyles[mode] = lipgloss.NewStyle().Bold(true).Foreground(c).Background(lipgloss.Color("240")).Italic(true)
+		cachedCrosshairNullStyles[mode] = lipgloss.NewStyle().Foreground(c).Background(lipgloss.Color("240")).Italic(true)
 		cachedMissingBadgeStyles[mode] = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("235")).Background(c).Padding(0, 1)
 		cachedMissingDots[mode] = lipgloss.NewStyle().Foreground(c).Render(nullDotChar)
 		cachedMissingDotHeaders[mode] = lipgloss.NewStyle().Foreground(c).Background(lipgloss.Color("62")).Render(nullDotChar)
