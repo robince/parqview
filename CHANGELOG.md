@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.0] - 2026-03-06
 
 ### Added
-- Missing mode toggle
+- Missing mode toggle (NaN+NULL -> NULL -> NaN)
 
 ## [1.0.0] - 2026-02-28
 
