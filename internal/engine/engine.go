@@ -177,18 +177,19 @@ func (e *Engine) FilteredRowCount(ctx context.Context, rowFilter string) (int64,
 func (e *Engine) ProfileBasic(ctx context.Context, colName string, mode missing.Mode) (*types.ColumnSummary, error) {
 	col := quoteIdent(colName)
 	missingExpr := mode.SQLPredicate(col)
+	profiledExpr := fmt.Sprintf("NOT (%s) AND %s IS NOT NULL", missingExpr, col)
 	q := fmt.Sprintf(`SELECT
 		sum(CASE WHEN %s THEN 1 ELSE 0 END)::BIGINT AS n_null,
-		approx_count_distinct(CASE WHEN NOT (%s) THEN %s END) AS n_distinct
-		FROM t`, missingExpr, missingExpr, col)
+		sum(CASE WHEN %s THEN 1 ELSE 0 END)::BIGINT AS n_profiled,
+		approx_count_distinct(CASE WHEN %s THEN %s END) AS n_distinct
+		FROM t`, missingExpr, profiledExpr, profiledExpr, col)
 
-	var nNull, nDistinct int64
-	if err := e.db.QueryRowContext(ctx, q).Scan(&nNull, &nDistinct); err != nil {
+	var nNull, nProfiled, nDistinct int64
+	if err := e.db.QueryRowContext(ctx, q).Scan(&nNull, &nProfiled, &nDistinct); err != nil {
 		return nil, err
 	}
 
 	total := e.totalRows
-	nonNull := total - nNull
 
 	summary := &types.ColumnSummary{
 		MissingCount:   nNull,
@@ -199,12 +200,12 @@ func (e *Engine) ProfileBasic(ctx context.Context, colName string, mode missing.
 	if total > 0 {
 		summary.MissingPct = float64(nNull) / float64(total) * 100
 	}
-	if nonNull > 0 {
-		summary.DistinctPct = float64(nDistinct) / float64(nonNull) * 100
+	if nProfiled > 0 {
+		summary.DistinctPct = float64(nDistinct) / float64(nProfiled) * 100
 	}
 
 	// Determine if discrete-like
-	summary.IsDiscrete = nDistinct <= 200 || (nonNull > 0 && float64(nDistinct)/float64(nonNull) <= 0.05)
+	summary.IsDiscrete = nDistinct <= 200 || (nProfiled > 0 && float64(nDistinct)/float64(nProfiled) <= 0.05)
 
 	return summary, nil
 }
@@ -212,28 +213,31 @@ func (e *Engine) ProfileBasic(ctx context.Context, colName string, mode missing.
 // ProfileDetail computes top values and/or numeric stats for a column.
 func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *types.ColumnSummary, colType string, mode missing.Mode) error {
 	col := quoteIdent(colName)
-	nonMissingExpr := "NOT (" + mode.SQLPredicate(col) + ")"
+	profiledExpr := fmt.Sprintf("NOT (%s) AND %s IS NOT NULL", mode.SQLPredicate(col), col)
 
 	// Top values for discrete-like columns
 	if summary.IsDiscrete {
 		q := fmt.Sprintf(`SELECT %s::VARCHAR AS value, count(*) AS cnt
 			FROM t WHERE %s
-			GROUP BY %s ORDER BY cnt DESC LIMIT 3`, col, nonMissingExpr, col)
+			GROUP BY %s ORDER BY cnt DESC LIMIT 3`, col, profiledExpr, col)
 		rows, err := e.db.QueryContext(ctx, q)
 		if err != nil {
 			return err
 		}
 		defer func() { _ = rows.Close() }()
 
-		nonNull := e.totalRows - summary.MissingCount
+		profiledCount, err := e.profiledValueCount(ctx, col, mode)
+		if err != nil {
+			return err
+		}
 		var top3 []types.TopValue
 		for rows.Next() {
 			var tv types.TopValue
 			if err := rows.Scan(&tv.Value, &tv.Count); err != nil {
 				return err
 			}
-			if nonNull > 0 {
-				tv.Pct = float64(tv.Count) / float64(nonNull) * 100
+			if profiledCount > 0 {
+				tv.Pct = float64(tv.Count) / float64(profiledCount) * 100
 			}
 			top3 = append(top3, tv)
 		}
@@ -246,7 +250,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 	// Numeric stats
 	if isNumericType(colType) {
 		q := fmt.Sprintf(`SELECT min(%s)::DOUBLE, max(%s)::DOUBLE, avg(%s)::DOUBLE, stddev_pop(%s)::DOUBLE
-			FROM t WHERE %s`, col, col, col, col, nonMissingExpr)
+			FROM t WHERE %s`, col, col, col, col, profiledExpr)
 		var ns types.NumericStats
 		if err := e.db.QueryRowContext(ctx, q).Scan(&ns.Min, &ns.Max, &ns.Mean, &ns.Stddev); err != nil {
 			return err
@@ -261,7 +265,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 			)
 			hq := fmt.Sprintf(`SELECT %s AS b, count(*) AS cnt
 				FROM t WHERE %s
-				GROUP BY b ORDER BY b`, binExpr, nonMissingExpr)
+				GROUP BY b ORDER BY b`, binExpr, profiledExpr)
 			hrows, err := e.db.QueryContext(ctx, hq, ns.Min, ns.Max-ns.Min)
 			if err != nil {
 				return err
@@ -287,16 +291,26 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 			}
 			summary.Hist = &types.Histogram{Bins: bins}
 		} else {
-			// Single bin for constant column
-			nonNull := e.totalRows - summary.MissingCount
+			profiledCount, err := e.profiledValueCount(ctx, col, mode)
+			if err != nil {
+				return err
+			}
 			summary.Hist = &types.Histogram{
-				Bins: []types.HistBin{{Low: ns.Min, High: ns.Max, Count: nonNull}},
+				Bins: []types.HistBin{{Low: ns.Min, High: ns.Max, Count: profiledCount}},
 			}
 		}
 	}
 
 	summary.DetailLoaded = true
 	return nil
+}
+
+func (e *Engine) profiledValueCount(ctx context.Context, quotedCol string, mode missing.Mode) (int64, error) {
+	q := fmt.Sprintf(`SELECT count(*)::BIGINT FROM t WHERE NOT (%s) AND %s IS NOT NULL`,
+		mode.SQLPredicate(quotedCol), quotedCol)
+	var count int64
+	err := e.db.QueryRowContext(ctx, q).Scan(&count)
+	return count, err
 }
 
 // FirstNullRow returns the internal row id of the first missing-like value in a column, or 0 if none.
