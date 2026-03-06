@@ -429,7 +429,8 @@ func TestProfileBasicUsesMissingPredicate(t *testing.T) {
 
 func TestProfileDetailExcludesMissingPredicate(t *testing.T) {
 	dir := t.TempDir()
-	path := mustWriteCSV(t, dir, "nan_detail.csv", "category\nalpha\nNaN\n\nbeta\nalpha\n")
+	// NaN appears 3× so it dominates Top3 under ModeNullOnly regardless of tie-breaking.
+	path := mustWriteCSV(t, dir, "nan_detail.csv", "category\nNaN\nNaN\nNaN\nalpha\n\n")
 	eng, err := New(path)
 	if err != nil {
 		t.Fatalf("New: %v", err)

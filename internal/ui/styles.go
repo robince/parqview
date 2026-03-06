@@ -93,7 +93,7 @@ var (
 
 	// Null indicator dots (pre-rendered strings, not reusable styles)
 	inlineNullDotW      = lipgloss.Width(" " + nullDotChar) // inline indicator is rendered as " " + dot
-	tableHeaderNullDotW = lipgloss.Width(nullDotChar) // styled and unstyled versions of the same rune have equal visible width
+	tableHeaderNullDotW = lipgloss.Width(nullDotChar) // lipgloss.Width strips ANSI codes before measuring, so styled and unstyled forms always give the same result
 
 	// Column list
 	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)
