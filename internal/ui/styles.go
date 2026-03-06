@@ -161,9 +161,11 @@ func missingAccentColor(mode missing.Mode) lipgloss.Color {
 	}
 }
 
-// Compile-time assertion: cache arrays are indexed by missing.Mode value (0–2).
-// If the missing package reorders or adds modes this will fail to compile.
-var _ = [1]struct{}{}[missing.ModeNaNOnly-2]
+// Compile-time assertions: cache arrays are indexed by missing.Mode value (0–2).
+// If the missing package reorders or adds modes these will fail to compile.
+var _ = [1]struct{}{}[missing.ModeNullAndNaN-0] // == 0
+var _ = [1]struct{}{}[missing.ModeNullOnly-1]   // == 1
+var _ = [1]struct{}{}[missing.ModeNaNOnly-2]    // == 2
 
 // Per-mode style caches — computed once at startup, keyed by missing.Mode value (0–2).
 var (

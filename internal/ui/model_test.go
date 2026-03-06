@@ -194,6 +194,20 @@ func TestHandleKeyLowercaseMCyclesMissingModeGlobally(t *testing.T) {
 		}
 	})
 
+	t.Run("columns focus", func(t *testing.T) {
+		m := newCmdTestModel()
+		m.focus = FocusColumns
+
+		updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+		m = updated.(Model)
+		if cmd == nil {
+			t.Fatal("expected refresh command when cycling missing mode from columns focus")
+		}
+		if m.missingMode != missing.ModeNullOnly {
+			t.Fatalf("expected missing mode to advance to NULL only, got %v", m.missingMode)
+		}
+	})
+
 	t.Run("detail overlay", func(t *testing.T) {
 		m := newCmdTestModel()
 		m.overlay = OverlayDetail

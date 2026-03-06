@@ -302,7 +302,7 @@ func (m Model) activeRowFilter() string {
 	return engine.BuildMissingFilter(cols, m.missingMode)
 }
 
-func (m Model) toggleMissingModeCmd() tea.Cmd {
+func (m Model) missingModeChangedCmd() tea.Cmd {
 	if m.engine == nil {
 		return nil
 	}
@@ -328,9 +328,9 @@ func (m *Model) cycleMissingMode() tea.Cmd {
 	m.tableOffset = 0
 	m.tableRowCursor = 0
 	m.statusMsg = fmt.Sprintf("Missing mode: %s", m.missingMode.Label())
-	// toggleMissingModeCmd refreshes the preview, restarts profiling, and (if the
+	// missingModeChangedCmd refreshes the preview, restarts profiling, and (if the
 	// detail panel is open) forces a detail reload so all panes reflect the new mode.
-	return m.toggleMissingModeCmd()
+	return m.missingModeChangedCmd()
 }
 
 func (m *Model) toggleMissingRowFilter() {
@@ -2491,7 +2491,10 @@ func (m Model) viewTopBar() string {
 		if filterWidth > 0 {
 			filterInfo = truncateDisplay(filterInfo, filterWidth)
 			if filterInfo != "" {
-				right = filterStyle.Render(filterInfo) + "  " + badge
+				right = filterStyle.Render(filterInfo)
+				if badge != "" {
+					right += "  " + badge
+				}
 			}
 		}
 	}
