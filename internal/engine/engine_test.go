@@ -650,7 +650,7 @@ func TestNextNullRowModeNaNOnly(t *testing.T) {
 
 func TestPrevNullRowModeNullOnly(t *testing.T) {
 	dir := t.TempDir()
-	// Two NULL rows: rows 1 and 3 (1-indexed). Row 2 is NaN.
+	// Two NULL rows: rows 1 and 3 (1-indexed). Row 2 is 1.0 (non-missing).
 	path := mustWriteCSV(t, dir, "two_null.csv", "score\n\n1.0\n\n2.0\n")
 	eng, err := New(path)
 	if err != nil {

@@ -336,6 +336,7 @@ func (m *Model) toggleMissingRowFilter() {
 		m.missingFilterCols = names
 	}
 	m.missingFilterActive = len(m.missingFilterCols) > 0
+	m.filterRows = -1
 }
 
 // tableColCursor returns the index of selectedColName in tableCols, or -1.
