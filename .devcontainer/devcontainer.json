@@ -3,7 +3,7 @@
   "image": "mcr.microsoft.com/devcontainers/go:1.25-bookworm",
   "runArgs": ["--platform=linux/arm64"],
   "features": {
-    "ghcr.io/devcontainers-contrib/features/just:1": {},
+    "ghcr.io/devcontainers/features/just:1": {},
     "ghcr.io/guiyomh/features/golangci-lint:0": {},
     "ghcr.io/devcontainers/features/node:1": { "version": "lts" }
   },
