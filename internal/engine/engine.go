@@ -178,7 +178,7 @@ func (e *Engine) ProfileBasic(ctx context.Context, colName string, mode missing.
 	col := quoteIdent(colName)
 	missingExpr := mode.SQLPredicate(col)
 	profiledExpr := categoricalProfileExpr(col, mode)
-	profiledNonNullExpr := numericProfileExpr(col, mode)
+	profiledNonNullExpr := profiledExpr + " AND " + col + " IS NOT NULL"
 	q := fmt.Sprintf(`SELECT
 		sum(CASE WHEN %s THEN 1 ELSE 0 END)::BIGINT AS n_null,
 		sum(CASE WHEN %s THEN 1 ELSE 0 END)::BIGINT AS n_profiled,
@@ -341,7 +341,9 @@ func categoricalProfileExpr(quotedCol string, mode missing.Mode) string {
 }
 
 func numericProfileExpr(quotedCol string, mode missing.Mode) string {
-	return categoricalProfileExpr(quotedCol, mode) + " AND " + quotedCol + " IS NOT NULL"
+	return categoricalProfileExpr(quotedCol, mode) +
+		" AND " + quotedCol + " IS NOT NULL" +
+		" AND NOT (" + missing.SQLNaNPredicate(quotedCol) + ")"
 }
 
 // FirstNullRow returns the internal row id of the first missing-like value in a column, or 0 if none.

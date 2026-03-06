@@ -643,6 +643,33 @@ func TestProfileDetailModeNaNOnlyStillExcludesSQLNullFromNumericStats(t *testing
 	}
 }
 
+func TestProfileDetailModeNullOnlyStillExcludesNaNFromNumericStats(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "null_only_numeric.csv", "score\n1.0\n\nNaN\n2.5\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "score", missing.ModeNullOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE", missing.ModeNullOnly); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if summary.Numeric == nil {
+		t.Fatal("expected numeric stats")
+	}
+	if summary.Numeric.Min < 0.99 || summary.Numeric.Min > 1.01 {
+		t.Fatalf("unexpected min: got %v", summary.Numeric.Min)
+	}
+	if summary.Numeric.Max < 2.49 || summary.Numeric.Max > 2.51 {
+		t.Fatalf("unexpected max: got %v", summary.Numeric.Max)
+	}
+}
+
 func TestProfileDetailExcludesMissingPredicate(t *testing.T) {
 	dir := t.TempDir()
 	// NaN appears 3× so it dominates Top3 under ModeNullOnly regardless of tie-breaking.
