@@ -2487,7 +2487,11 @@ func (m Model) viewTopBar() string {
 	}
 	right := badge
 	if filterInfo != "" {
-		filterWidth := max(0, contentW-lipgloss.Width(badge)-2)
+		spacer := 0
+		if badge != "" {
+			spacer = 2
+		}
+		filterWidth := max(0, contentW-lipgloss.Width(badge)-spacer)
 		if filterWidth > 0 {
 			filterInfo = truncateDisplay(filterInfo, filterWidth)
 			if filterInfo != "" {
