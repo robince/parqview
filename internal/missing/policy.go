@@ -5,6 +5,8 @@ import "strings"
 // Mode controls which values are treated as missing.
 type Mode uint8
 
+// NOTE: internal/ui/styles.go indexes style-cache arrays by these ordinal values (0–2).
+// If you reorder, rename, or insert modes here, update the compile-time assertions in styles.go.
 const (
 	ModeNullAndNaN Mode = iota
 	ModeNullOnly

@@ -93,7 +93,7 @@ var (
 
 	// Null indicator dots (pre-rendered strings, not reusable styles)
 	inlineNullDotW      = lipgloss.Width(" " + nullDotChar) // inline indicator is rendered as " " + dot
-	tableHeaderNullDotW = 0 // set to correct value in init(); must not be used in other var initializers
+	tableHeaderNullDotW = lipgloss.Width(lipgloss.NewStyle().Render(nullDotChar)) // all mode dots share the same rune; lipgloss.Width strips ANSI
 
 	// Column list
 	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)
@@ -190,9 +190,6 @@ func init() {
 		cachedMissingDots[mode] = lipgloss.NewStyle().Foreground(c).Render(nullDotChar)
 		cachedMissingDotHeaders[mode] = lipgloss.NewStyle().Foreground(c).Background(lipgloss.Color("62")).Render(nullDotChar)
 		cachedMissingDotActHeaders[mode] = lipgloss.NewStyle().Foreground(c).Background(lipgloss.Color("69")).Render(nullDotChar)
-		if w := max(lipgloss.Width(cachedMissingDotHeaders[mode]), lipgloss.Width(cachedMissingDotActHeaders[mode])); w > tableHeaderNullDotW {
-			tableHeaderNullDotW = w
-		}
 	}
 }
 
