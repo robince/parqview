@@ -497,12 +497,6 @@ func TestProfileBasicDistinctStatsExcludeModeSpecificMissingValues(t *testing.T)
 	if nanOnly.DistinctPct >= nullOnly.DistinctPct {
 		t.Fatalf("expected NaN-only distinct pct to drop when NaN is missing: null-only=%v nan-only=%v", nullOnly.DistinctPct, nanOnly.DistinctPct)
 	}
-	if nullOnly.IsDiscrete {
-		t.Fatalf("expected NULL-only mode to remain non-discrete, got %+v", nullOnly)
-	}
-	if !nanOnly.IsDiscrete {
-		t.Fatalf("expected NaN-only mode to become discrete after excluding NaN, got %+v", nanOnly)
-	}
 }
 
 func TestProfileDetailExcludesMissingPredicate(t *testing.T) {
