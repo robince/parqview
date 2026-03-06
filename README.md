@@ -46,7 +46,7 @@ Download the archive for your platform from
 macOS arm64 example:
 
 ```bash
-VERSION="1.0.0"
+VERSION="1.1.0"
 curl -fL -o parqview.tar.gz "https://github.com/robince/parqview/releases/download/v${VERSION}/parqview_${VERSION}_darwin_arm64.tar.gz"
 tar -xzf parqview.tar.gz
 ./parqview --version
@@ -55,7 +55,7 @@ tar -xzf parqview.tar.gz
 Linux amd64 example:
 
 ```bash
-VERSION="1.0.0"
+VERSION="1.1.0"
 curl -fL -o parqview.tar.gz "https://github.com/robince/parqview/releases/download/v${VERSION}/parqview_${VERSION}_linux_amd64.tar.gz"
 tar -xzf parqview.tar.gz
 ./parqview --version
