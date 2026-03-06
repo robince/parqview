@@ -322,7 +322,7 @@ func (m *Model) toggleMissingRowFilter() {
 	if m.missingFilterActive {
 		m.missingFilterActive = false
 		m.missingFilterCols = nil
-		m.filterRows = -1
+		m.filterRows = -1 // symmetric with activation path below
 		return
 	}
 
