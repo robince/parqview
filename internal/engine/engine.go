@@ -266,6 +266,17 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 
 	// Numeric stats
 	if isNumericType(colType) {
+		profiledCount, err := e.numericProfiledValueCount(ctx, col, mode)
+		if err != nil {
+			return err
+		}
+		if profiledCount == 0 {
+			summary.Numeric = nil
+			summary.Hist = nil
+			summary.DetailLoaded = true
+			return nil
+		}
+
 		q := fmt.Sprintf(`SELECT min(%s)::DOUBLE, max(%s)::DOUBLE, avg(%s)::DOUBLE, stddev_pop(%s)::DOUBLE
 			FROM t WHERE %s`, col, col, col, col, numericExpr)
 		var ns types.NumericStats
@@ -308,10 +319,6 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 			}
 			summary.Hist = &types.Histogram{Bins: bins}
 		} else {
-			profiledCount, err := e.numericProfiledValueCount(ctx, col, mode)
-			if err != nil {
-				return err
-			}
 			summary.Hist = &types.Histogram{
 				Bins: []types.HistBin{{Low: ns.Min, High: ns.Max, Count: profiledCount}},
 			}

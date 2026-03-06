@@ -670,6 +670,54 @@ func TestProfileDetailModeNullOnlyStillExcludesNaNFromNumericStats(t *testing.T)
 	}
 }
 
+func TestProfileDetailModeNullOnlyWithOnlyNaNHasNoNumericStats(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "null_only_all_nan.csv", "score\nNaN\nNaN\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "score", missing.ModeNullOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE", missing.ModeNullOnly); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if summary.Numeric != nil {
+		t.Fatalf("expected no numeric stats when only NaN values remain, got %+v", summary.Numeric)
+	}
+	if summary.Hist != nil {
+		t.Fatalf("expected no histogram when only NaN values remain, got %+v", summary.Hist)
+	}
+}
+
+func TestProfileDetailModeNaNOnlyWithOnlySQLNullHasNoNumericStats(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "nan_only_all_null.csv", "score\n\n\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "score", missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE", missing.ModeNaNOnly); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if summary.Numeric != nil {
+		t.Fatalf("expected no numeric stats when only SQL NULL values remain, got %+v", summary.Numeric)
+	}
+	if summary.Hist != nil {
+		t.Fatalf("expected no histogram when only SQL NULL values remain, got %+v", summary.Hist)
+	}
+}
+
 func TestProfileDetailExcludesMissingPredicate(t *testing.T) {
 	dir := t.TempDir()
 	// NaN appears 3× so it dominates Top3 under ModeNullOnly regardless of tie-breaking.

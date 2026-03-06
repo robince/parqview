@@ -2925,6 +2925,8 @@ func (m Model) viewDetail(w int) string {
 			lines = append(lines, fmt.Sprintf("  Max:    %.4g", s.Numeric.Max))
 			lines = append(lines, fmt.Sprintf("  Mean:   %.4g", s.Numeric.Mean))
 			lines = append(lines, fmt.Sprintf("  Stddev: %.4g", s.Numeric.Stddev))
+		} else if util.IsNumericDuckType(colType) {
+			lines = append(lines, "  No numeric values under current missing mode")
 		} else {
 			lines = append(lines, "  Not a numeric column")
 		}
@@ -2950,6 +2952,8 @@ func (m Model) viewDetail(w int) string {
 				bar := strings.Repeat("█", barLen)
 				lines = append(lines, fmt.Sprintf("  %s |%s %d", label, bar, b.Count))
 			}
+		} else if util.IsNumericDuckType(colType) {
+			lines = append(lines, "  No numeric values under current missing mode")
 		} else {
 			lines = append(lines, "  No histogram available")
 		}
