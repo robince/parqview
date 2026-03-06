@@ -564,6 +564,116 @@ func TestPrevNullRowWrap(t *testing.T) {
 	}
 }
 
+func TestFirstNullRowModeNullOnly(t *testing.T) {
+	dir := t.TempDir()
+	// Row 2 is NULL, row 3 is NaN — ModeNullOnly should find only row 2.
+	path := mustWriteCSV(t, dir, "null_and_nan.csv", "score\n1.0\n\nNaN\n2.5\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	ctx := bg()
+
+	rowID, err := eng.FirstNullRow(ctx, "score", nil, missing.ModeNullOnly)
+	if err != nil {
+		t.Fatalf("FirstNullRow(NullOnly): %v", err)
+	}
+	if rowID == 0 {
+		t.Fatal("expected a NULL row under ModeNullOnly")
+	}
+
+	// Confirm the found row is actually NULL (not NaN).
+	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(rowID-1))
+	requirePreviewShape(t, rows, 1, 1)
+	requireNullCell(t, rows, 0, 0)
+}
+
+func TestFirstNullRowModeNaNOnly(t *testing.T) {
+	dir := t.TempDir()
+	// Row 2 is NULL, row 3 is NaN — ModeNaNOnly should only find the NaN row.
+	path := mustWriteCSV(t, dir, "null_and_nan2.csv", "score\n1.0\n\nNaN\n2.5\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	ctx := bg()
+
+	rowID, err := eng.FirstNullRow(ctx, "score", nil, missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("FirstNullRow(NaNOnly): %v", err)
+	}
+	if rowID == 0 {
+		t.Fatal("expected a NaN row under ModeNaNOnly")
+	}
+
+	// Confirm the found row displays as NaN (not NULL).
+	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(rowID-1))
+	requirePreviewShape(t, rows, 1, 1)
+	if rows[0][0] == "NULL" {
+		t.Fatalf("expected NaN row but got NULL at rowID=%d", rowID)
+	}
+}
+
+func TestNextNullRowModeNaNOnly(t *testing.T) {
+	dir := t.TempDir()
+	// Three rows: NaN, 1.0, NaN — two NaN rows, zero NULL rows.
+	path := mustWriteCSV(t, dir, "two_nan.csv", "score\nNaN\n1.0\nNaN\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	ctx := bg()
+
+	first, err := eng.FirstNullRow(ctx, "score", nil, missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("FirstNullRow(NaNOnly): %v", err)
+	}
+	if first == 0 {
+		t.Fatal("expected at least one NaN row")
+	}
+
+	next, wrapped, err := eng.NextNullRow(ctx, "score", nil, missing.ModeNaNOnly, first)
+	if err != nil {
+		t.Fatalf("NextNullRow(NaNOnly): %v", err)
+	}
+	if next == 0 {
+		t.Fatal("expected a second NaN row")
+	}
+	if next == first {
+		t.Fatalf("NextNullRow returned same row as first: %d", next)
+	}
+	if wrapped {
+		t.Fatal("expected wrapped=false when second NaN row exists after first")
+	}
+}
+
+func TestPrevNullRowModeNullOnly(t *testing.T) {
+	dir := t.TempDir()
+	// Two NULL rows: rows 1 and 3 (1-indexed). Row 2 is NaN.
+	path := mustWriteCSV(t, dir, "two_null.csv", "score\n\n1.0\n\n2.0\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	ctx := bg()
+
+	// Get the last NULL row ID by finding it via wrap from row 1.
+	prev, wrapped, err := eng.PrevNullRow(ctx, "score", nil, missing.ModeNullOnly, 1)
+	if err != nil {
+		t.Fatalf("PrevNullRow(NullOnly): %v", err)
+	}
+	if prev == 0 {
+		t.Fatal("expected a previous NULL row (wrapped)")
+	}
+	if !wrapped {
+		t.Fatal("expected wrapped=true when searching before first row")
+	}
+}
+
 func TestNextPrevNullRowSingleMissingDoNotWrapToSameRow(t *testing.T) {
 	dir := t.TempDir()
 	path := mustWriteCSV(t, dir, "single_missing.csv", "score\n1\n\n2\n")

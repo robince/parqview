@@ -311,6 +311,8 @@ func (m *Model) cycleMissingMode() tea.Cmd {
 	m.tableRowHasMissing = rowHasMissingFlags(m.tableData, m.missingMode)
 	m.summaries = make(map[string]*types.ColumnSummary)
 	m.filterRows = -1
+	m.tableOffset = 0
+	m.tableRowCursor = 0
 	m.statusMsg = fmt.Sprintf("Missing mode: %s", m.missingMode.Label())
 	return m.toggleMissingModeCmd()
 }

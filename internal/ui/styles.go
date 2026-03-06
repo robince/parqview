@@ -93,9 +93,7 @@ var (
 
 	// Null indicator dots (pre-rendered strings, not reusable styles)
 	inlineNullDotW      = lipgloss.Width(" " + nullDotChar) // inline indicator is rendered as " " + dot
-	nullDotHeader       = nullDotChar
-	nullDotActiveHeader = nullDotChar
-	tableHeaderNullDotW = max(lipgloss.Width(nullDotHeader), lipgloss.Width(nullDotActiveHeader))
+	tableHeaderNullDotW = lipgloss.Width(nullDotChar)
 
 	// Column list
 	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)
@@ -163,12 +161,30 @@ func missingAccentColor(mode missing.Mode) lipgloss.Color {
 	}
 }
 
-func missingBadgeStyle(mode missing.Mode) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("235")).
-		Background(missingAccentColor(mode)).
-		Padding(0, 1)
+// Per-mode style caches — computed once at startup, keyed by missing.Mode value (0–2).
+var (
+	cachedNullStyles          [3]lipgloss.Style
+	cachedActiveColNullStyles [3]lipgloss.Style
+	cachedActiveRowNullStyles [3]lipgloss.Style
+	cachedCrosshairNullStyles [3]lipgloss.Style
+	cachedMissingBadgeStyles  [3]lipgloss.Style
+	cachedMissingDots         [3]string
+	cachedMissingDotHeaders   [3]string
+	cachedMissingDotActHeaders [3]string
+)
+
+func init() {
+	for _, mode := range []missing.Mode{missing.ModeNullAndNaN, missing.ModeNullOnly, missing.ModeNaNOnly} {
+		c := missingAccentColor(mode)
+		cachedNullStyles[mode] = lipgloss.NewStyle().Foreground(c).Italic(true)
+		cachedActiveColNullStyles[mode] = lipgloss.NewStyle().Foreground(c).Background(lipgloss.Color("238")).Italic(true)
+		cachedActiveRowNullStyles[mode] = lipgloss.NewStyle().Foreground(c).Background(lipgloss.Color("236")).Italic(true)
+		cachedCrosshairNullStyles[mode] = lipgloss.NewStyle().Bold(true).Foreground(c).Background(lipgloss.Color("240")).Italic(true)
+		cachedMissingBadgeStyles[mode] = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("235")).Background(c).Padding(0, 1)
+		cachedMissingDots[mode] = lipgloss.NewStyle().Foreground(c).Render(nullDotChar)
+		cachedMissingDotHeaders[mode] = lipgloss.NewStyle().Foreground(c).Background(lipgloss.Color("62")).Render(nullDotChar)
+		cachedMissingDotActHeaders[mode] = lipgloss.NewStyle().Foreground(c).Background(lipgloss.Color("69")).Render(nullDotChar)
+	}
 }
 
 func missingModeBadge(mode missing.Mode, short bool) string {
@@ -176,51 +192,14 @@ func missingModeBadge(mode missing.Mode, short bool) string {
 	if short {
 		label = mode.ShortLabel()
 	}
-	return missingBadgeStyle(mode).Render(label)
+	return cachedMissingBadgeStyles[mode].Render(label)
 }
 
-func nullStyle(mode missing.Mode) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(missingAccentColor(mode)).
-		Italic(true)
-}
+func nullStyle(mode missing.Mode) lipgloss.Style          { return cachedNullStyles[mode] }
+func activeColNullStyle(mode missing.Mode) lipgloss.Style { return cachedActiveColNullStyles[mode] }
+func activeRowNullStyle(mode missing.Mode) lipgloss.Style { return cachedActiveRowNullStyles[mode] }
+func crosshairNullStyle(mode missing.Mode) lipgloss.Style { return cachedCrosshairNullStyles[mode] }
 
-func activeColNullStyle(mode missing.Mode) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(missingAccentColor(mode)).
-		Background(lipgloss.Color("238")).
-		Italic(true)
-}
-
-func activeRowNullStyle(mode missing.Mode) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(missingAccentColor(mode)).
-		Background(lipgloss.Color("236")).
-		Italic(true)
-}
-
-func crosshairNullStyle(mode missing.Mode) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Bold(true).
-		Foreground(missingAccentColor(mode)).
-		Background(lipgloss.Color("240")).
-		Italic(true)
-}
-
-func missingDot(mode missing.Mode) string {
-	return lipgloss.NewStyle().Foreground(missingAccentColor(mode)).Render(nullDotChar)
-}
-
-func missingDotHeader(mode missing.Mode) string {
-	return lipgloss.NewStyle().
-		Foreground(missingAccentColor(mode)).
-		Background(lipgloss.Color("62")).
-		Render(nullDotChar)
-}
-
-func missingDotActiveHeader(mode missing.Mode) string {
-	return lipgloss.NewStyle().
-		Foreground(missingAccentColor(mode)).
-		Background(lipgloss.Color("69")).
-		Render(nullDotChar)
-}
+func missingDot(mode missing.Mode) string           { return cachedMissingDots[mode] }
+func missingDotHeader(mode missing.Mode) string     { return cachedMissingDotHeaders[mode] }
+func missingDotActiveHeader(mode missing.Mode) string { return cachedMissingDotActHeaders[mode] }
