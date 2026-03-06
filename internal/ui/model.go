@@ -292,6 +292,10 @@ func (m Model) activeRowFilter() string {
 	return engine.BuildMissingFilter(m.missingFilterCols, m.missingMode)
 }
 
+// activeFilterCols returns the filter columns when the filter is active, or nil
+// when inactive. Note: the engine treats nil and an empty slice equivalently
+// (both result in no AND clause), so callers must not use a non-nil return
+// value alone to determine whether filtering is active.
 func (m Model) activeFilterCols() []string {
 	if !m.missingFilterActive {
 		return nil
