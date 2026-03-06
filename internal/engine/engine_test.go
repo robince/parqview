@@ -459,6 +459,52 @@ func TestProfileBasicAndFilterVarcharWithModeNaNOnly(t *testing.T) {
 	}
 }
 
+func TestProfileBasicDistinctStatsExcludeModeSpecificMissingValues(t *testing.T) {
+	dir := t.TempDir()
+	var csv strings.Builder
+	csv.WriteString("category\n")
+	for i := 0; i < 188; i++ {
+		for j := 0; j < 10; j++ {
+			csv.WriteString(fmt.Sprintf("value-%03d\n", i))
+		}
+	}
+	csv.WriteString("NaN\n")
+
+	path := mustWriteCSV(t, dir, "distinct_mode_nan.csv", csv.String())
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	nullOnly, err := eng.ProfileBasic(bg(), "category", missing.ModeNullOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	nanOnly, err := eng.ProfileBasic(bg(), "category", missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if nullOnly.MissingCount != 0 {
+		t.Fatalf("expected NULL-only MissingCount=0, got %d", nullOnly.MissingCount)
+	}
+	if nanOnly.MissingCount != 1 {
+		t.Fatalf("expected NaN-only MissingCount=1, got %d", nanOnly.MissingCount)
+	}
+	if nanOnly.DistinctApprox >= nullOnly.DistinctApprox {
+		t.Fatalf("expected NaN-only distinct count to exclude missing NaN: null-only=%d nan-only=%d", nullOnly.DistinctApprox, nanOnly.DistinctApprox)
+	}
+	if nanOnly.DistinctPct >= nullOnly.DistinctPct {
+		t.Fatalf("expected NaN-only distinct pct to drop when NaN is missing: null-only=%v nan-only=%v", nullOnly.DistinctPct, nanOnly.DistinctPct)
+	}
+	if nullOnly.IsDiscrete {
+		t.Fatalf("expected NULL-only mode to remain non-discrete, got %+v", nullOnly)
+	}
+	if !nanOnly.IsDiscrete {
+		t.Fatalf("expected NaN-only mode to become discrete after excluding NaN, got %+v", nanOnly)
+	}
+}
+
 func TestProfileDetailExcludesMissingPredicate(t *testing.T) {
 	dir := t.TempDir()
 	// NaN appears 3× so it dominates Top3 under ModeNullOnly regardless of tie-breaking.

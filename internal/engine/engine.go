@@ -179,8 +179,8 @@ func (e *Engine) ProfileBasic(ctx context.Context, colName string, mode missing.
 	missingExpr := mode.SQLPredicate(col)
 	q := fmt.Sprintf(`SELECT
 		sum(CASE WHEN %s THEN 1 ELSE 0 END)::BIGINT AS n_null,
-		approx_count_distinct(%s) AS n_distinct
-		FROM t`, missingExpr, col)
+		approx_count_distinct(CASE WHEN NOT (%s) THEN %s END) AS n_distinct
+		FROM t`, missingExpr, missingExpr, col)
 
 	var nNull, nDistinct int64
 	if err := e.db.QueryRowContext(ctx, q).Scan(&nNull, &nDistinct); err != nil {

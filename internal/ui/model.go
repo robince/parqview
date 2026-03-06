@@ -302,7 +302,7 @@ func (m Model) activeRowFilter() string {
 	return engine.BuildMissingFilter(cols, m.missingMode)
 }
 
-func (m Model) missingModeChangedCmd() tea.Cmd {
+func (m *Model) missingModeChangedCmd() tea.Cmd {
 	if m.engine == nil {
 		return nil
 	}
