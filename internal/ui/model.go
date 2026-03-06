@@ -329,6 +329,7 @@ func (m *Model) cycleMissingMode() tea.Cmd {
 		m.tableOffset = 0
 		m.tableRowCursor = 0
 	} else {
+		// Best-effort clamp against stale row counts; previewDoneMsg clamps again after refresh.
 		m.clampTableOffset()
 		m.clampTableRowCursor()
 	}

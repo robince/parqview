@@ -535,7 +535,7 @@ func TestProfileBasicAndDetailModeNaNOnlyIncludesSQLNullCategorically(t *testing
 	if summary.Top3[1].Value != "beta" || summary.Top3[1].Count != 1 {
 		t.Fatalf("unexpected second top value: %+v", summary.Top3[1])
 	}
-	if summary.Top3[2].Value != "⟨null⟩" || summary.Top3[2].Count != 1 {
+	if summary.Top3[2].Value != "⟨SQL null⟩" || summary.Top3[2].Count != 1 {
 		t.Fatalf("unexpected third top value: %+v", summary.Top3[2])
 	}
 	if summary.Top3[0].Pct < 49 || summary.Top3[0].Pct > 51 {
@@ -574,7 +574,7 @@ func TestProfileDetailModeNaNOnlyDisambiguatesSQLNullFromLiteralNULL(t *testing.
 	if summary.Top3[1].Value != "alpha" || summary.Top3[1].Count != 1 {
 		t.Fatalf("unexpected second top value: %+v", summary.Top3[1])
 	}
-	if summary.Top3[2].Value != "⟨null⟩" || summary.Top3[2].Count != 1 {
+	if summary.Top3[2].Value != "⟨SQL null⟩" || summary.Top3[2].Count != 1 {
 		t.Fatalf("unexpected third top value: %+v", summary.Top3[2])
 	}
 }
@@ -604,9 +604,10 @@ func TestProfileDetailDisambiguatesSQLNullFromLiteralNullSentinel(t *testing.T) 
 	if summary.Top3[1].Value != "alpha" || summary.Top3[1].Count != 1 {
 		t.Fatalf("unexpected second top value: %+v", summary.Top3[1])
 	}
-	if summary.Top3[2].Value != "⟨null⟩" || summary.Top3[2].Count != 1 {
+	if summary.Top3[2].Value != "⟨SQL null⟩" || summary.Top3[2].Count != 1 {
 		t.Fatalf("unexpected third top value: %+v", summary.Top3[2])
 	}
+	// ModeNaNOnly excludes only NaN here, so all 4 rows remain in the categorical denominator.
 	if summary.Top3[0].Pct < 49 || summary.Top3[0].Pct > 51 {
 		t.Fatalf("expected literal sentinel pct near 50, got %v", summary.Top3[0].Pct)
 	}

@@ -249,7 +249,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 				return err
 			}
 			if isNull {
-				tv.Value = "⟨null⟩"
+				tv.Value = "⟨SQL null⟩"
 			} else {
 				tv.Value = rawValue.String
 			}
