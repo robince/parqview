@@ -87,6 +87,7 @@ This is the default screen with a data table on the left and columns list on the
 | `q`, `Ctrl+C` | Quit |
 | `Ctrl+L` | Redraw screen |
 | `?` | Open/close help overlay |
+| `m` | Cycle missing mode (`NULL+NaN` → `NULL only` → `NaN only`) |
 | `s`, `S` | Toggle selected-columns view in data table |
 | `v`, `V` | Toggle selected-columns view in columns pane (columns focus) |
 | `Enter` | Open detail panel for active column |
@@ -188,14 +189,22 @@ Use this pane to inspect row values, navigate missingness, and check distributio
 
 ## Technical Details: Missing Definition
 
-By default, parqview treats both `NULL` and `NaN` as missing values for:
+parqview has a runtime missing-value mode, toggled with `m`, with three states:
 
-- missing indicators (orange dots/marker styles),
+- `NULL+NaN` (default),
+- `NULL only`,
+- `NaN only`.
+
+The active mode is shown in the top-right status badge and affects:
+
+- missing indicators and missing cell styling,
 - missing-row filter (`f`),
 - missing navigation (`n`, `r`/`R`, `c`/`C`),
 - missing counts in profiling and footers.
 
-This behavior is controlled by [`internal/missing/policy.go`](internal/missing/policy.go):
+For categorical profiling, the active missing mode determines which values are excluded.
 
-- `IncludeNaNAsMissing = true` (default): `NULL` + `NaN`
-- `IncludeNaNAsMissing = false`: `NULL` only
+For numeric stats and histograms, parqview always profiles only finite numeric values. That means:
+
+- `NULL` is excluded from numeric stats/histograms even in `NaN only`,
+- `NaN` is excluded from numeric stats/histograms even in `NULL only`.
