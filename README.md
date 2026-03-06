@@ -4,16 +4,27 @@ Keyboard-first terminal UI for exploring Parquet and CSV files with DuckDB-backe
 
 ## Why This Exists
 
-`parqview` is for fast inspection of data as it moves through a pipeline.
+`parqview` is for fast inspection of data in parquet or csv files.
+
+Key features:
+
+- select a set of columns and toggle visibility
+- copy the selected columns as Python list literal
+- search column names
+- summaries of column data
+- fast vim-inspired keyboard navigation and scrolling
+- visual indication of missing data in rows and columns, jump to next missing value
+- missing definition can toggle between NULL+NaN, NULL, NaN 
+- autofit column widths, resize panels with the mouse
+- fast mouse scrolling
 
 Use it to quickly catch:
 
-- pipeline failures that produce unexpected null-heavy outputs,
+- unexpected feature values
+- unexpected NULLs or NaNs
 - join failures (duplicate columns, mismatched keys, broken join coverage),
-- `NaN`/missing value spikes in critical features,
-- out-of-distribution feature values before they break downstream models or checks.
 
-The goal is smooth, low-friction, interactive data browsing with familiar and intuitive keyboard navigation.
+The aim is to provide smooth, low-friction, interactive data browsing with familiar and intuitive keyboard navigation.
 
 ## Screenshot
 
@@ -76,9 +87,9 @@ If the app starts without a file, press `Ctrl+O` to open the file picker.
 
 Shortcuts below describe app-specific behavior. When a search input is focused, normal text editing keys are handled by the Charmbracelet Bubbles `textinput` component.
 
-### Main Workspace (Table + Columns)
+### Global commands
 
-This is the default screen with a data table on the left and columns list on the right.
+These keys are global commands that work whichever pane has focus.
 
 | Key | Action |
 | --- | --- |
