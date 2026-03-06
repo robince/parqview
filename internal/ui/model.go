@@ -325,8 +325,13 @@ func (m *Model) cycleMissingMode() tea.Cmd {
 	m.tableRowHasMissing = nil // stale data; fresh flags computed on next preview response
 	m.summaries = make(map[string]*types.ColumnSummary)
 	m.filterRows = -1
-	m.tableOffset = 0
-	m.tableRowCursor = 0
+	if m.missingFilterActive {
+		m.tableOffset = 0
+		m.tableRowCursor = 0
+	} else {
+		m.clampTableOffset()
+		m.clampTableRowCursor()
+	}
 	m.statusMsg = fmt.Sprintf("Missing mode: %s", m.missingMode.Label())
 	// missingModeChangedCmd refreshes the preview, restarts profiling, and (if the
 	// detail panel is open) forces a detail reload so all panes reflect the new mode.

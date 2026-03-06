@@ -227,10 +227,9 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 
 	// Top values for discrete-like columns
 	if summary.IsDiscrete {
-		displayExpr := fmt.Sprintf(`CASE WHEN %s IS NULL THEN '⟨null⟩' ELSE %s::VARCHAR END`, col, col)
-		q := fmt.Sprintf(`SELECT %s AS value, count(*) AS cnt
+		q := fmt.Sprintf(`SELECT %s::VARCHAR AS value, %s IS NULL AS is_null, count(*) AS cnt
 			FROM t WHERE %s
-			GROUP BY 1 ORDER BY cnt DESC, value ASC LIMIT 3`, displayExpr, profiledExpr)
+			GROUP BY 1, 2 ORDER BY cnt DESC, is_null ASC, value ASC LIMIT 3`, col, col, profiledExpr)
 		rows, err := e.db.QueryContext(ctx, q)
 		if err != nil {
 			return err
@@ -244,8 +243,15 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 		var top3 []types.TopValue
 		for rows.Next() {
 			var tv types.TopValue
-			if err := rows.Scan(&tv.Value, &tv.Count); err != nil {
+			var rawValue sql.NullString
+			var isNull bool
+			if err := rows.Scan(&rawValue, &isNull, &tv.Count); err != nil {
 				return err
+			}
+			if isNull {
+				tv.Value = "⟨null⟩"
+			} else {
+				tv.Value = rawValue.String
 			}
 			if profiledCount > 0 {
 				tv.Pct = float64(tv.Count) / float64(profiledCount) * 100

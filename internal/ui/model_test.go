@@ -2689,6 +2689,34 @@ func TestCycleMissingModeRebuildsActiveFilter(t *testing.T) {
 	}
 }
 
+func TestCycleMissingModePreservesTablePositionWithoutActiveFilter(t *testing.T) {
+	m := newCmdTestModel()
+	m.width = 120
+	m.height = 30
+	m.totalRows = 200
+	m.tableData = make([][]string, 50)
+	for i := range m.tableData {
+		m.tableData[i] = []string{"v"}
+	}
+	m.tableOffset = 37
+	m.tableRowCursor = 12
+
+	updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected refresh command when cycling missing mode")
+	}
+	if m.tableOffset != 37 {
+		t.Fatalf("expected tableOffset preserved without active filter, got %d", m.tableOffset)
+	}
+	if m.tableRowCursor != 12 {
+		t.Fatalf("expected tableRowCursor preserved without active filter, got %d", m.tableRowCursor)
+	}
+	if m.filterRows != -1 {
+		t.Fatalf("expected filterRows reset to -1 after mode cycle, got %d", m.filterRows)
+	}
+}
+
 func TestToggleMissingRowFilterDeactivationViaFKey(t *testing.T) {
 	m := newCmdTestModel()
 	m.focus = FocusTable

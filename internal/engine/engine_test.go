@@ -579,6 +579,42 @@ func TestProfileDetailModeNaNOnlyDisambiguatesSQLNullFromLiteralNULL(t *testing.
 	}
 }
 
+func TestProfileDetailDisambiguatesSQLNullFromLiteralNullSentinel(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "literal_null_sentinel.csv", "category\n⟨null⟩\n\n⟨null⟩\nalpha\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "category", missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if err := eng.ProfileDetail(bg(), "category", summary, "VARCHAR", missing.ModeNaNOnly); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if len(summary.Top3) != 3 {
+		t.Fatalf("expected 3 top values, got %+v", summary.Top3)
+	}
+	if summary.Top3[0].Value != "⟨null⟩" || summary.Top3[0].Count != 2 {
+		t.Fatalf("unexpected first top value: %+v", summary.Top3[0])
+	}
+	if summary.Top3[1].Value != "alpha" || summary.Top3[1].Count != 1 {
+		t.Fatalf("unexpected second top value: %+v", summary.Top3[1])
+	}
+	if summary.Top3[2].Value != "⟨null⟩" || summary.Top3[2].Count != 1 {
+		t.Fatalf("unexpected third top value: %+v", summary.Top3[2])
+	}
+	if summary.Top3[0].Pct < 49 || summary.Top3[0].Pct > 51 {
+		t.Fatalf("expected literal sentinel pct near 50, got %v", summary.Top3[0].Pct)
+	}
+	if summary.Top3[2].Pct < 24 || summary.Top3[2].Pct > 26 {
+		t.Fatalf("expected SQL null pct near 25, got %v", summary.Top3[2].Pct)
+	}
+}
+
 func TestProfileDetailModeNaNOnlyStillExcludesSQLNullFromNumericStats(t *testing.T) {
 	dir := t.TempDir()
 	path := mustWriteCSV(t, dir, "nan_only_numeric.csv", "score\n1.0\n\nNaN\n2.5\n")
