@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "github.com/marcboeker/go-duckdb"
@@ -85,10 +86,10 @@ func requireNullCell(t *testing.T, rows [][]string, row, col int) {
 	}
 }
 
-// requireNaNCell asserts that a specific cell in the preview is "NaN".
+// requireNaNCell asserts that a specific cell in the preview is a NaN value.
 func requireNaNCell(t *testing.T, rows [][]string, row, col int) {
 	t.Helper()
-	if rows[row][col] != "NaN" {
+	if !strings.EqualFold(strings.TrimSpace(rows[row][col]), "nan") {
 		t.Fatalf("expected NaN at [%d][%d], got %q", row, col, rows[row][col])
 	}
 }

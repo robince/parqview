@@ -320,7 +320,7 @@ func (m Model) toggleMissingModeCmd() tea.Cmd {
 func (m *Model) cycleMissingMode() tea.Cmd {
 	m.dataToken++
 	m.missingMode = m.missingMode.Next()
-	m.tableRowHasMissing = rowHasMissingFlags(m.tableData, m.missingMode)
+	m.tableRowHasMissing = nil // stale data; fresh flags computed on next preview response
 	m.summaries = make(map[string]*types.ColumnSummary)
 	m.filterRows = -1
 	m.tableOffset = 0
