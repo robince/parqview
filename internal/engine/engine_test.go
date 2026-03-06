@@ -189,7 +189,7 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 
 	rows := mustPreview(t, eng, []string{"score"}, filter, 1, int(offset))
 	requirePreviewShape(t, rows, 1, 1)
-	requireNullCell(t, rows, 0, 0)
+	requireNullCell(t, rows, 0)
 }
 
 func TestFirstNullRowStableAcrossQueries(t *testing.T) {
@@ -225,7 +225,7 @@ func TestFirstNullRowStableAcrossQueries(t *testing.T) {
 		}
 		rows := mustPreview(t, eng, []string{"score"}, filter, 1, int(offset))
 		requirePreviewShape(t, rows, 1, 1)
-		requireNullCell(t, rows, 0, 0)
+		requireNullCell(t, rows, 0)
 	}
 }
 
@@ -329,7 +329,7 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 			if got := fmt.Sprintf("%v", rows[0][0]); got != "user-2" {
 				t.Fatalf("unexpected user row id value: got %q want %q", got, "user-2")
 			}
-			requireNullCell(t, rows, 0, 1)
+			requireNullCell(t, rows, 1)
 		})
 	}
 }
@@ -465,7 +465,7 @@ func TestProfileBasicDistinctStatsExcludeModeSpecificMissingValues(t *testing.T)
 	csv.WriteString("category\n")
 	for i := 0; i < 188; i++ {
 		for j := 0; j < 10; j++ {
-			csv.WriteString(fmt.Sprintf("value-%03d\n", i))
+			fmt.Fprintf(&csv, "value-%03d\n", i)
 		}
 	}
 	csv.WriteString("NaN\n")
@@ -708,7 +708,7 @@ func TestFirstNullRowModeNullOnly(t *testing.T) {
 	}
 	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(offset))
 	requirePreviewShape(t, rows, 1, 1)
-	requireNullCell(t, rows, 0, 0)
+	requireNullCell(t, rows, 0)
 }
 
 func TestFirstNullRowModeNaNOnly(t *testing.T) {
@@ -737,7 +737,7 @@ func TestFirstNullRowModeNaNOnly(t *testing.T) {
 	}
 	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(offset))
 	requirePreviewShape(t, rows, 1, 1)
-	requireNaNCell(t, rows, 0, 0)
+	requireNaNCell(t, rows, 0)
 }
 
 func TestNextNullRowModeNaNOnly(t *testing.T) {
@@ -804,7 +804,7 @@ func TestPrevNullRowModeNullOnly(t *testing.T) {
 	}
 	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(offset))
 	requirePreviewShape(t, rows, 1, 1)
-	requireNullCell(t, rows, 0, 0)
+	requireNullCell(t, rows, 0)
 }
 
 func TestNextPrevNullRowSingleMissingDoNotWrapToSameRow(t *testing.T) {

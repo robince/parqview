@@ -93,7 +93,7 @@ var (
 
 	// Null indicator dots (pre-rendered strings, not reusable styles)
 	inlineNullDotW      = lipgloss.Width(" " + nullDotChar) // inline indicator is rendered as " " + dot
-	tableHeaderNullDotW = lipgloss.Width(nullDotChar) // all mode dots share the same rune; lipgloss.Width strips ANSI
+	tableHeaderNullDotW = lipgloss.Width(nullDotChar)       // all mode dots share the same rune; lipgloss.Width strips ANSI
 
 	// Column list
 	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)
@@ -169,13 +169,13 @@ var _ = [1]struct{}{}[missing.ModeNaNOnly-2]    // == 2
 
 // Per-mode style caches — computed once at startup, keyed by missing.Mode value (0–2).
 var (
-	cachedNullStyles          [3]lipgloss.Style
-	cachedActiveColNullStyles [3]lipgloss.Style
-	cachedActiveRowNullStyles [3]lipgloss.Style
-	cachedCrosshairNullStyles [3]lipgloss.Style
-	cachedMissingBadgeStyles  [3]lipgloss.Style
-	cachedMissingDots         [3]string
-	cachedMissingDotHeaders   [3]string
+	cachedNullStyles           [3]lipgloss.Style
+	cachedActiveColNullStyles  [3]lipgloss.Style
+	cachedActiveRowNullStyles  [3]lipgloss.Style
+	cachedCrosshairNullStyles  [3]lipgloss.Style
+	cachedMissingBadgeStyles   [3]lipgloss.Style
+	cachedMissingDots          [3]string
+	cachedMissingDotHeaders    [3]string
 	cachedMissingDotActHeaders [3]string
 )
 
@@ -206,6 +206,6 @@ func activeColNullStyle(mode missing.Mode) lipgloss.Style { return cachedActiveC
 func activeRowNullStyle(mode missing.Mode) lipgloss.Style { return cachedActiveRowNullStyles[mode] }
 func crosshairNullStyle(mode missing.Mode) lipgloss.Style { return cachedCrosshairNullStyles[mode] }
 
-func missingDot(mode missing.Mode) string           { return cachedMissingDots[mode] }
-func missingDotHeader(mode missing.Mode) string     { return cachedMissingDotHeaders[mode] }
+func missingDot(mode missing.Mode) string             { return cachedMissingDots[mode] }
+func missingDotHeader(mode missing.Mode) string       { return cachedMissingDotHeaders[mode] }
 func missingDotActiveHeader(mode missing.Mode) string { return cachedMissingDotActHeaders[mode] }

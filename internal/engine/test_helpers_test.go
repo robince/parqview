@@ -78,19 +78,19 @@ func requirePreviewShape(t *testing.T, rows [][]string, wantRows, wantCols int) 
 	}
 }
 
-// requireNullCell asserts that a specific cell in the preview is "NULL".
-func requireNullCell(t *testing.T, rows [][]string, row, col int) {
+// requireNullCell asserts that the first preview row has "NULL" in the given column.
+func requireNullCell(t *testing.T, rows [][]string, col int) {
 	t.Helper()
-	if rows[row][col] != "NULL" {
-		t.Fatalf("expected NULL at [%d][%d], got %q", row, col, rows[row][col])
+	if rows[0][col] != "NULL" {
+		t.Fatalf("expected NULL at [0][%d], got %q", col, rows[0][col])
 	}
 }
 
-// requireNaNCell asserts that a specific cell in the preview is a NaN value.
-func requireNaNCell(t *testing.T, rows [][]string, row, col int) {
+// requireNaNCell asserts that the first preview row has a NaN value in the given column.
+func requireNaNCell(t *testing.T, rows [][]string, col int) {
 	t.Helper()
-	if !strings.EqualFold(strings.TrimSpace(rows[row][col]), "nan") {
-		t.Fatalf("expected NaN at [%d][%d], got %q", row, col, rows[row][col])
+	if !strings.EqualFold(strings.TrimSpace(rows[0][col]), "nan") {
+		t.Fatalf("expected NaN at [0][%d], got %q", col, rows[0][col])
 	}
 }
 
