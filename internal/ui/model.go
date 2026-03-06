@@ -131,19 +131,21 @@ type Model struct {
 	selectedColName string
 
 	// Table state
-	tableData          [][]string
-	tableRowHasMissing []bool
-	tableCols          []string // column names in current projection
-	tableOffset        int      // row offset for pagination
-	tableRowCursor     int      // row cursor position within visible page
-	tableColOffHint    int      // preferred column offset; -1 = auto
-	tableWide          bool
-	tableColWidths     map[string]int // per-column width overrides (data pane projection columns)
-	showSelected       bool           // show only selected columns in data pane
-	showSelectedInCols bool           // show only selected columns in columns pane
-	rowFilter          string         // active SQL filter
-	totalRows          int64
-	filterRows         int64 // -1 means filtered row count is unavailable (inactive or not fetched yet)
+	tableData           [][]string
+	tableRowHasMissing  []bool
+	tableCols           []string // column names in current projection
+	tableOffset         int      // row offset for pagination
+	tableRowCursor      int      // row cursor position within visible page
+	tableColOffHint     int      // preferred column offset; -1 = auto
+	tableWide           bool
+	tableColWidths      map[string]int // per-column width overrides (data pane projection columns)
+	showSelected        bool           // show only selected columns in data pane
+	showSelectedInCols  bool           // show only selected columns in columns pane
+	missingMode         missing.Mode
+	missingFilterActive bool
+	missingFilterCols   []string
+	totalRows           int64
+	filterRows          int64 // -1 means filtered row count is unavailable (inactive or not fetched yet)
 
 	// Profiling
 	summaries map[string]*types.ColumnSummary
@@ -250,7 +252,9 @@ func (m *Model) resetLoadedDataState() {
 	m.tableColWidths = make(map[string]int)
 	m.showSelected = false
 	m.showSelectedInCols = false
-	m.rowFilter = ""
+	m.missingMode = missing.ModeNullAndNaN
+	m.missingFilterActive = false
+	m.missingFilterCols = nil
 	m.totalRows = 0
 	m.filterRows = -1
 	m.summaries = make(map[string]*types.ColumnSummary)
@@ -279,6 +283,84 @@ func (m *Model) applyEngine(eng *engine.Engine, fileName string) {
 	}
 	m.updateFilteredCols()
 	m.statusMsg = fmt.Sprintf("Opened %s", fileName)
+}
+
+// activeFilterCols returns the filter columns when the filter is active, or nil
+// when inactive.
+func (m Model) activeFilterCols() []string {
+	if !m.missingFilterActive || len(m.missingFilterCols) == 0 {
+		return nil
+	}
+	return m.missingFilterCols
+}
+
+func (m Model) activeRowFilter() string {
+	cols := m.activeFilterCols()
+	if len(cols) == 0 {
+		return ""
+	}
+	return engine.BuildMissingFilter(cols, m.missingMode)
+}
+
+func (m *Model) missingModeChangedCmd() tea.Cmd {
+	if m.engine == nil {
+		return nil
+	}
+	cmds := []tea.Cmd{
+		m.nextPreviewCmd(),
+		m.profileNext(),
+	}
+	if m.overlay == OverlayDetail && m.detailCol != "" {
+		cmds = append(cmds, m.loadDetail(m.detailCol, nil, m.columnType(m.detailCol)))
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m *Model) cycleMissingMode() tea.Cmd {
+	if m.engine == nil {
+		return nil
+	}
+	m.dataToken++
+	m.missingMode = m.missingMode.Next()
+	m.tableRowHasMissing = nil // stale data; fresh flags computed on next preview response
+	m.summaries = make(map[string]*types.ColumnSummary)
+	m.filterRows = -1
+	if m.missingFilterActive {
+		m.tableOffset = 0
+		m.tableRowCursor = 0
+	} else {
+		// Best-effort clamp against stale row counts; previewDoneMsg clamps again after refresh.
+		m.clampTableOffset()
+		m.clampTableRowCursor()
+	}
+	m.statusMsg = fmt.Sprintf("Missing mode: %s", m.missingMode.Label())
+	// missingModeChangedCmd refreshes the preview, restarts profiling, and (if the
+	// detail panel is open) forces a detail reload so all panes reflect the new mode.
+	return m.missingModeChangedCmd()
+}
+
+func (m *Model) toggleMissingRowFilter() {
+	if m.missingFilterActive {
+		m.missingFilterActive = false
+		m.missingFilterCols = nil
+		m.filterRows = -1 // symmetric with activation path below
+		return
+	}
+
+	// Snapshot the current column set. If the user later changes column
+	// selection or showSelected, the active filter keeps its original columns.
+	selected := m.sel.Selected()
+	if len(selected) > 0 {
+		m.missingFilterCols = append([]string(nil), selected...)
+	} else {
+		names := make([]string, len(m.filteredCols))
+		for i, c := range m.filteredCols {
+			names[i] = c.Name
+		}
+		m.missingFilterCols = names
+	}
+	m.missingFilterActive = len(m.missingFilterCols) > 0
+	m.filterRows = -1
 }
 
 // tableColCursor returns the index of selectedColName in tableCols, or -1.
@@ -790,7 +872,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
 		} else {
 			m.tableData = msg.rows
-			m.tableRowHasMissing = rowHasMissingFlags(msg.rows)
+			m.tableRowHasMissing = rowHasMissingFlags(msg.rows, m.missingMode)
 			m.tableCols = msg.colNames
 			m.reconcileSelectedColNameWithTableCols()
 			m.totalRows = msg.totalRows
@@ -948,7 +1030,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "t":
 			m.detailTab = (m.detailTab + 1) % 3
 		case "n":
-			return m, m.jumpToFirstNull(m.detailCol, m.rowFilter)
+			return m, m.jumpToFirstNull(m.detailCol, m.activeFilterCols())
+		case "m":
+			return m, m.cycleMissingMode()
 		}
 		return m, nil
 	}
@@ -968,6 +1052,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.overlay = OverlayHelp
 		return m, nil
+	case "m":
+		return m, m.cycleMissingMode()
 	case "tab":
 		if m.focus == FocusTable {
 			m.focus = FocusColumns
@@ -2034,23 +2120,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Wide columns off (%d)", tableColWidth)
 		}
 	case "f":
-		// Toggle null filter
-		if m.rowFilter != "" {
-			m.rowFilter = ""
-			m.filterRows = -1
-		} else {
-			selected := m.sel.Selected()
-			if len(selected) > 0 {
-				m.rowFilter = engine.BuildNullFilter(selected)
-			} else {
-				// Use all visible columns
-				names := make([]string, len(m.filteredCols))
-				for i, c := range m.filteredCols {
-					names[i] = c.Name
-				}
-				m.rowFilter = engine.BuildNullFilter(names)
-			}
-		}
+		m.toggleMissingRowFilter()
 		m.tableOffset = 0
 		m.tableRowCursor = 0
 		return m, m.nextPreviewCmd()
@@ -2071,7 +2141,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		currentRow := int64(m.tableOffset + m.tableRowCursor)
-		return m, m.jumpToNextNullInColumn(colName, m.rowFilter, currentRow, false)
+		return m, m.jumpToNextNullInColumn(colName, m.activeFilterCols(), currentRow, false)
 	case "C":
 		colName := m.selectedColName
 		if colName == "" {
@@ -2079,7 +2149,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		currentRow := int64(m.tableOffset + m.tableRowCursor)
-		return m, m.jumpToNextNullInColumn(colName, m.rowFilter, currentRow, true)
+		return m, m.jumpToNextNullInColumn(colName, m.activeFilterCols(), currentRow, true)
 	}
 	return m, nil
 }
@@ -2151,7 +2221,7 @@ func (m Model) loadPreviewCmd(seq uint64) tea.Cmd {
 		return nil
 	}
 	colNames := m.projectionCols()
-	rowFilter := m.rowFilter
+	rowFilter := m.activeRowFilter()
 	limit := m.previewLimit()
 	offset := m.tableOffset
 	maxOffset := m.maxTableOffset()
@@ -2207,9 +2277,15 @@ func (m Model) profileNext() tea.Cmd {
 	cols := m.columns
 	summaries := m.summaries
 
-	// Find the next column that hasn't been profiled yet
+	// Find the next column that hasn't been profiled yet.
+	// Skip the detail column when the detail panel is open: loadDetail handles
+	// both ProfileBasic and ProfileDetail for it, avoiding double-profiling.
+	detailColOpen := m.overlay == OverlayDetail && m.detailCol != ""
 	var target string
 	for _, c := range cols {
+		if detailColOpen && c.Name == m.detailCol {
+			continue
+		}
 		if _, ok := summaries[c.Name]; !ok {
 			target = c.Name
 			break
@@ -2220,8 +2296,9 @@ func (m Model) profileNext() tea.Cmd {
 	}
 
 	colName := target
+	missingMode := m.missingMode
 	return func() tea.Msg {
-		summary, err := eng.ProfileBasic(context.Background(), colName)
+		summary, err := eng.ProfileBasic(context.Background(), colName, missingMode)
 		return profileBasicDoneMsg{colName: colName, summary: summary, token: m.dataToken, err: err}
 	}
 }
@@ -2231,58 +2308,61 @@ func (m Model) loadDetail(colName string, existing *types.ColumnSummary, colType
 	if eng == nil {
 		return nil
 	}
+	missingMode := m.missingMode
 
 	return func() tea.Msg {
 		ctx := context.Background()
 		summary := existing
 		if summary == nil {
 			var err error
-			summary, err = eng.ProfileBasic(ctx, colName)
+			summary, err = eng.ProfileBasic(ctx, colName, missingMode)
 			if err != nil {
 				return profileDetailDoneMsg{colName: colName, token: m.dataToken, err: err}
 			}
 		}
 
-		if err := eng.ProfileDetail(ctx, colName, summary, colType); err != nil {
+		if err := eng.ProfileDetail(ctx, colName, summary, colType, missingMode); err != nil {
 			return profileDetailDoneMsg{colName: colName, token: m.dataToken, err: err}
 		}
 		return profileDetailDoneMsg{colName: colName, summary: summary, token: m.dataToken}
 	}
 }
 
-func (m Model) jumpToFirstNull(colName, rowFilter string) tea.Cmd {
+func (m Model) jumpToFirstNull(colName string, filterCols []string) tea.Cmd {
 	eng := m.engine
 	if eng == nil {
 		return nil
 	}
+	missingMode := m.missingMode
 	return func() tea.Msg {
 		ctx := context.Background()
-		rowID, err := eng.FirstNullRow(ctx, colName, rowFilter)
+		rowID, err := eng.FirstNullRow(ctx, colName, filterCols, missingMode)
 		if err != nil || rowID == 0 {
 			return firstNullMsg{rowID: rowID, token: m.dataToken, err: err}
 		}
-		offset, err := eng.OffsetForRowID(ctx, rowID, rowFilter)
+		offset, err := eng.OffsetForRowID(ctx, rowID, filterCols, missingMode)
 		return firstNullMsg{rowID: rowID, offset: offset, token: m.dataToken, err: err}
 	}
 }
 
-func (m Model) jumpToNextNullInColumn(colName, rowFilter string, currentOffset int64, reverse bool) tea.Cmd {
+func (m Model) jumpToNextNullInColumn(colName string, filterCols []string, currentOffset int64, reverse bool) tea.Cmd {
 	eng := m.engine
 	if eng == nil {
 		return nil
 	}
+	missingMode := m.missingMode
 	return func() tea.Msg {
 		ctx := context.Background()
-		rowID, err := eng.RowIDForOffset(ctx, currentOffset, rowFilter)
+		rowID, err := eng.RowIDForOffset(ctx, currentOffset, filterCols, missingMode)
 		if err != nil {
 			return nextNullMsg{token: m.dataToken, colName: colName, reverse: reverse, err: err}
 		}
 		var nextRowID int64
 		var wrapped bool
 		if reverse {
-			nextRowID, wrapped, err = eng.PrevNullRow(ctx, colName, rowFilter, rowID)
+			nextRowID, wrapped, err = eng.PrevNullRow(ctx, colName, filterCols, missingMode, rowID)
 		} else {
-			nextRowID, wrapped, err = eng.NextNullRow(ctx, colName, rowFilter, rowID)
+			nextRowID, wrapped, err = eng.NextNullRow(ctx, colName, filterCols, missingMode, rowID)
 		}
 		if err != nil || nextRowID == 0 {
 			return nextNullMsg{
@@ -2295,7 +2375,7 @@ func (m Model) jumpToNextNullInColumn(colName, rowFilter string, currentOffset i
 				err:      err,
 			}
 		}
-		offset, err := eng.OffsetForRowID(ctx, nextRowID, rowFilter)
+		offset, err := eng.OffsetForRowID(ctx, nextRowID, filterCols, missingMode)
 		return nextNullMsg{
 			rowID:    nextRowID,
 			offset:   offset,
@@ -2331,7 +2411,7 @@ func (m *Model) jumpToNextMissingInRow(reverse bool) bool {
 		} else {
 			idx = (start + step) % len(row)
 		}
-		if missing.IsDisplayMissing(row[idx]) {
+		if m.missingMode.IsDisplayMissing(row[idx]) {
 			if idx < len(m.tableCols) {
 				m.selectedColName = m.tableCols[idx]
 				m.syncCursorFromSelectedColName()
@@ -2404,23 +2484,41 @@ func (m Model) viewTopBar() string {
 		fileLabel = "(no file)"
 	}
 	left := fmt.Sprintf(" %s  %d rows × %d cols", fileLabel, m.totalRows, len(m.columns))
-	rightPlain := ""
-	if m.rowFilter != "" {
-		filterInfo := "Filter: rows with missing values"
+	contentW := max(0, m.width-topBottomBarPadW)
+	badge := missingModeBadge(m.missingMode, false)
+	if lipgloss.Width(badge) > contentW {
+		badge = missingModeBadge(m.missingMode, true)
+	}
+	if lipgloss.Width(badge) > contentW {
+		badge = ""
+	}
+	filterInfo := ""
+	if m.missingFilterActive {
+		filterInfo = "Filter: rows with missing values"
 		if m.filterRows >= 0 {
 			filterInfo += fmt.Sprintf(" (%d rows)", m.filterRows)
 		}
-		rightPlain = filterInfo
 	}
-	contentW := max(0, m.width-topBottomBarPadW)
+	right := badge
+	if filterInfo != "" {
+		spacer := 0
+		if badge != "" {
+			spacer = 2
+		}
+		filterWidth := max(0, contentW-lipgloss.Width(badge)-spacer)
+		if filterWidth > 0 {
+			filterInfo = truncateDisplay(filterInfo, filterWidth)
+			if filterInfo != "" {
+				right = filterStyle.Render(filterInfo)
+				if badge != "" {
+					right += "  " + badge
+				}
+			}
+		}
+	}
 	left = truncateDisplay(left, contentW)
-	rightPlain = truncateDisplay(rightPlain, contentW)
-	if lipgloss.Width(left)+lipgloss.Width(rightPlain) > contentW {
-		left = truncateDisplay(left, max(0, contentW-lipgloss.Width(rightPlain)))
-	}
-	var right string
-	if rightPlain != "" {
-		right = filterStyle.Render(rightPlain)
+	if lipgloss.Width(left)+lipgloss.Width(right) > contentW {
+		left = truncateDisplay(left, max(0, contentW-lipgloss.Width(right)))
 	}
 	gap := contentW - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 0 {
@@ -2433,9 +2531,9 @@ func (m Model) viewBottomBar() string {
 	selCount := m.sel.Count()
 	var hints string
 	if m.focus == FocusColumns {
-		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  /:search  v:sel-list  x:toggle  a/d/y:sel"
+		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  m:missing-mode  /:search  v:sel-list  x:toggle  a/d/y:sel"
 	} else {
-		hints = "Ctrl+O:open  hjkl:move  w:fit-col  Ctrl+W:wide-cols  r/R:row missing ±  c/C:col missing ±  f:missing-filter  drag:divider  Ctrl+L:redraw"
+		hints = "Ctrl+O:open  hjkl:move  w:fit-col  Ctrl+W:wide-cols  m:missing-mode  r/R:row missing ±  c/C:col missing ±  f:missing-filter  drag:divider  Ctrl+L:redraw"
 	}
 	status := fmt.Sprintf("  Sel: %d/%d", selCount, len(m.columns))
 	if m.showSelected {
@@ -2505,13 +2603,13 @@ func (m Model) viewTable(w, h int) string {
 		}
 		if i == cursorColIdx {
 			if hasMissing {
-				header += activeColHeaderStyle.Render(nameStr) + nullDotActiveHeader
+				header += activeColHeaderStyle.Render(nameStr) + missingDotActiveHeader(m.missingMode)
 			} else {
 				header += activeColHeaderStyle.Render(nameStr + " ")
 			}
 		} else {
 			if hasMissing {
-				header += headerStyle.Render(nameStr) + nullDotHeader
+				header += headerStyle.Render(nameStr) + missingDotHeader(m.missingMode)
 			} else {
 				header += headerStyle.Render(nameStr + " ")
 			}
@@ -2533,7 +2631,7 @@ func (m Model) viewTable(w, h int) string {
 		rowHasMissing := m.rowHasMissingAt(r)
 		rowDot := " "
 		if rowHasMissing {
-			rowDot = nullDot
+			rowDot = missingDot(m.missingMode)
 		}
 
 		// Row number
@@ -2563,24 +2661,24 @@ func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, 
 		colW := m.columnWidth(m.tableCols[i], colAreaWidth)
 		val := truncateDisplayMiddle(row[i], max(0, colW-1))
 		cell := " " + padDisplayRight(val, max(0, colW-1))
-		isMissing := missing.IsDisplayMissing(row[i])
+		isMissing := m.missingMode.IsDisplayMissing(row[i])
 		isSelectedCol := i == cursorColIdx
 
 		switch {
 		case isSelectedRow && isSelectedCol && isMissing:
-			b.WriteString(crosshairNullStyle.Render(cell))
+			b.WriteString(crosshairNullStyle(m.missingMode).Render(cell))
 		case isSelectedRow && isSelectedCol:
 			b.WriteString(crosshairCellStyle.Render(cell))
 		case isSelectedRow && isMissing:
-			b.WriteString(activeRowNullStyle.Render(cell))
+			b.WriteString(activeRowNullStyle(m.missingMode).Render(cell))
 		case isSelectedRow:
 			b.WriteString(activeRowCellStyle.Render(cell))
 		case isSelectedCol && isMissing:
-			b.WriteString(activeColNullStyle.Render(cell))
+			b.WriteString(activeColNullStyle(m.missingMode).Render(cell))
 		case isSelectedCol:
 			b.WriteString(activeColCellStyle.Render(cell))
 		case isMissing:
-			b.WriteString(nullStyle.Render(cell))
+			b.WriteString(nullStyle(m.missingMode).Render(cell))
 		default:
 			b.WriteString(cellStyle.Render(cell))
 		}
@@ -2588,10 +2686,10 @@ func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, 
 	return b.String()
 }
 
-func rowHasMissingFlags(rows [][]string) []bool {
+func rowHasMissingFlags(rows [][]string, mode missing.Mode) []bool {
 	flags := make([]bool, len(rows))
 	for i, row := range rows {
-		flags[i] = rowHasMissing(row)
+		flags[i] = rowHasMissing(row, mode)
 	}
 	return flags
 }
@@ -2604,7 +2702,7 @@ func (m Model) rowHasMissingAt(rowIdx int) bool {
 	}
 	if len(m.tableRowHasMissing) != len(m.tableData) {
 		if rowIdx < len(m.tableData) {
-			return rowHasMissing(m.tableData[rowIdx])
+			return rowHasMissing(m.tableData[rowIdx], m.missingMode)
 		}
 		return false
 	}
@@ -2616,9 +2714,9 @@ func (m Model) rowHasMissingAt(rowIdx int) bool {
 	return false
 }
 
-func rowHasMissing(row []string) bool {
+func rowHasMissing(row []string, mode missing.Mode) bool {
 	for _, v := range row {
-		if missing.IsDisplayMissing(v) {
+		if mode.IsDisplayMissing(v) {
 			return true
 		}
 	}
@@ -2629,7 +2727,7 @@ func (m Model) viewTableFooter() string {
 	var parts []string
 	if len(m.tableData) == 0 {
 		parts = append(parts, "No rows in current result")
-		if m.rowFilter != "" {
+		if m.missingFilterActive {
 			filterInfo := "Filter active"
 			// -1 sentinel means filtered row count is unavailable.
 			if m.filterRows >= 0 {
@@ -2720,7 +2818,7 @@ func (m Model) viewColumns(w, h int) string {
 		name := truncate(col.Name, nameWidth)
 		namePart := name
 		if hasMissing && nameWidth > 0 {
-			namePart += " " + nullDot
+			namePart += " " + missingDot(m.missingMode)
 		}
 		typeStr := truncate(col.DuckType, 8)
 		statsStr := ""
@@ -2822,17 +2920,21 @@ func (m Model) viewDetail(w int) string {
 		}
 
 	case 1: // Stats
-		if s.Numeric != nil {
+		switch {
+		case s.Numeric != nil:
 			lines = append(lines, fmt.Sprintf("  Min:    %.4g", s.Numeric.Min))
 			lines = append(lines, fmt.Sprintf("  Max:    %.4g", s.Numeric.Max))
 			lines = append(lines, fmt.Sprintf("  Mean:   %.4g", s.Numeric.Mean))
 			lines = append(lines, fmt.Sprintf("  Stddev: %.4g", s.Numeric.Stddev))
-		} else {
+		case util.IsNumericDuckType(colType):
+			lines = append(lines, "  No numeric values under current missing mode")
+		default:
 			lines = append(lines, "  Not a numeric column")
 		}
 
 	case 2: // Histogram
-		if s.Hist != nil && len(s.Hist.Bins) > 0 {
+		switch {
+		case s.Hist != nil && len(s.Hist.Bins) > 0:
 			maxCount := int64(0)
 			for _, b := range s.Hist.Bins {
 				if b.Count > maxCount {
@@ -2852,13 +2954,15 @@ func (m Model) viewDetail(w int) string {
 				bar := strings.Repeat("█", barLen)
 				lines = append(lines, fmt.Sprintf("  %s |%s %d", label, bar, b.Count))
 			}
-		} else {
+		case util.IsNumericDuckType(colType):
+			lines = append(lines, "  No numeric values under current missing mode")
+		default:
 			lines = append(lines, "  No histogram available")
 		}
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, detailLabelStyle.Render("t:tab  n:jump-to-missing  Esc:close"))
+	lines = append(lines, detailLabelStyle.Render("t:tab  n:jump-to-missing  m:missing-mode  Esc:close"))
 
 	return strings.Join(lines, "\n")
 }
@@ -2920,6 +3024,7 @@ func (m Model) viewHelp() string {
 		{"Ctrl+O", "Open file picker (.parquet/.csv)"},
 		{"Ctrl+L", "Redraw screen"},
 		{"?", "Toggle help"},
+		{"m", "Cycle missing mode"},
 		{"s / S", "Toggle selected columns in data pane"},
 		{"v / V", "Toggle selected columns in columns pane"},
 		{"Space", "Page down (rows or columns list)"},
@@ -3197,7 +3302,7 @@ func defaultDetailTab(colType string) int {
 }
 
 func (m Model) activeRowCount() int64 {
-	if m.rowFilter != "" && m.filterRows >= 0 {
+	if m.missingFilterActive && m.filterRows >= 0 {
 		return m.filterRows
 	}
 	return m.totalRows

@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/robince/parqview/internal/engine"
+	"github.com/robince/parqview/internal/missing"
 	"github.com/robince/parqview/internal/selection"
 	"github.com/robince/parqview/internal/types"
 )
@@ -14,6 +15,7 @@ import (
 func newTestModel() Model {
 	return Model{
 		engine:          nil,
+		missingMode:     missing.ModeNullAndNaN,
 		sel:             selection.New(nil),
 		summaries:       make(map[string]*types.ColumnSummary),
 		tableColWidths:  make(map[string]int),

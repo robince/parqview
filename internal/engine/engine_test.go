@@ -80,7 +80,7 @@ func TestProfileBasic(t *testing.T) {
 	eng := openSampleParquet(t)
 
 	col := eng.Columns()[0]
-	summary, err := eng.ProfileBasic(bg(), col.Name)
+	summary, err := eng.ProfileBasic(bg(), col.Name, missing.ModeNullAndNaN)
 	if err != nil {
 		t.Fatalf("ProfileBasic: %v", err)
 	}
@@ -95,11 +95,11 @@ func TestProfileDetail(t *testing.T) {
 	eng := openSampleParquet(t)
 	ctx := bg()
 
-	summary, err := eng.ProfileBasic(ctx, "score")
+	summary, err := eng.ProfileBasic(ctx, "score", missing.ModeNullAndNaN)
 	if err != nil {
 		t.Fatalf("ProfileBasic(score): %v", err)
 	}
-	if err := eng.ProfileDetail(ctx, "score", summary, "INTEGER"); err != nil {
+	if err := eng.ProfileDetail(ctx, "score", summary, "INTEGER", missing.ModeNullAndNaN); err != nil {
 		t.Fatalf("ProfileDetail(score): %v", err)
 	}
 	if !summary.DetailLoaded {
@@ -109,11 +109,11 @@ func TestProfileDetail(t *testing.T) {
 		t.Fatal("expected numeric stats for score")
 	}
 
-	catSummary, err := eng.ProfileBasic(ctx, "category")
+	catSummary, err := eng.ProfileBasic(ctx, "category", missing.ModeNullAndNaN)
 	if err != nil {
 		t.Fatalf("ProfileBasic(category): %v", err)
 	}
-	if err := eng.ProfileDetail(ctx, "category", catSummary, "VARCHAR"); err != nil {
+	if err := eng.ProfileDetail(ctx, "category", catSummary, "VARCHAR", missing.ModeNullAndNaN); err != nil {
 		t.Fatalf("ProfileDetail(category): %v", err)
 	}
 	if !catSummary.DetailLoaded {
@@ -127,7 +127,7 @@ func TestProfileDetailTreatsProvidedFloatAliasesAsNumeric(t *testing.T) {
 
 	for _, duckType := range []string{"FLOAT4", "FLOAT8"} {
 		t.Run(duckType, func(t *testing.T) {
-			summary, err := eng.ProfileBasic(ctx, "score")
+			summary, err := eng.ProfileBasic(ctx, "score", missing.ModeNullAndNaN)
 			if err != nil {
 				t.Fatalf("ProfileBasic(score): %v", err)
 			}
@@ -137,7 +137,7 @@ func TestProfileDetailTreatsProvidedFloatAliasesAsNumeric(t *testing.T) {
 			if summary.Hist != nil {
 				t.Fatalf("expected histogram to be empty before ProfileDetail for %s", duckType)
 			}
-			if err := eng.ProfileDetail(ctx, "score", summary, duckType); err != nil {
+			if err := eng.ProfileDetail(ctx, "score", summary, duckType, missing.ModeNullAndNaN); err != nil {
 				t.Fatalf("ProfileDetail(score): %v", err)
 			}
 			if summary.Numeric == nil {
@@ -153,9 +153,10 @@ func TestProfileDetailTreatsProvidedFloatAliasesAsNumeric(t *testing.T) {
 func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	eng := openSampleParquet(t)
 	ctx := bg()
-	filter := BuildNullFilter([]string{"score", "category"})
+	filterCols := []string{"score", "category"}
+	filter := BuildMissingFilter(filterCols, missing.ModeNullAndNaN)
 
-	rowID, err := eng.FirstNullRow(ctx, "score", filter)
+	rowID, err := eng.FirstNullRow(ctx, "score", filterCols, missing.ModeNullAndNaN)
 	if err != nil {
 		t.Fatalf("FirstNullRow: %v", err)
 	}
@@ -164,7 +165,7 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 	}
 
 	var expectedRowID int64
-	q := `SELECT min(` + quoteIdent(eng.internalRowIDCol) + `) FROM t_base WHERE ` + missing.SQLPredicate(`"score"`) + ` AND (` + filter + `)`
+	q := `SELECT min(` + quoteIdent(eng.internalRowIDCol) + `) FROM t_base WHERE ` + missing.ModeNullAndNaN.SQLPredicate(`"score"`) + ` AND ` + filter
 	if err := eng.db.QueryRowContext(ctx, q).Scan(&expectedRowID); err != nil {
 		t.Fatalf("query expected row id: %v", err)
 	}
@@ -172,13 +173,13 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 		t.Fatalf("row id mismatch: got %d want %d", rowID, expectedRowID)
 	}
 
-	offset, err := eng.OffsetForRowID(ctx, rowID, filter)
+	offset, err := eng.OffsetForRowID(ctx, rowID, filterCols, missing.ModeNullAndNaN)
 	if err != nil {
 		t.Fatalf("OffsetForRowID: %v", err)
 	}
 
 	var expectedOffset int64
-	oq := `SELECT count(*) FROM t_base WHERE ` + quoteIdent(eng.internalRowIDCol) + ` < ? AND (` + filter + `)`
+	oq := `SELECT count(*) FROM t_base WHERE ` + quoteIdent(eng.internalRowIDCol) + ` < ? AND ` + filter
 	if err := eng.db.QueryRowContext(ctx, oq, rowID).Scan(&expectedOffset); err != nil {
 		t.Fatalf("query expected offset: %v", err)
 	}
@@ -188,34 +189,16 @@ func TestFirstNullRowAndOffsetWithFilter(t *testing.T) {
 
 	rows := mustPreview(t, eng, []string{"score"}, filter, 1, int(offset))
 	requirePreviewShape(t, rows, 1, 1)
-	requireNullCell(t, rows, 0, 0)
-}
-
-func TestRejectsUnsupportedFilter(t *testing.T) {
-	eng := openSampleParquet(t)
-	ctx := bg()
-
-	t.Run("FirstNullRow", func(t *testing.T) {
-		_, err := eng.FirstNullRow(ctx, "score", `1=1`)
-		if err == nil {
-			t.Fatal("expected unsupported filter error")
-		}
-	})
-
-	t.Run("OffsetForRowID", func(t *testing.T) {
-		_, err := eng.OffsetForRowID(ctx, 5, `1=1`)
-		if err == nil {
-			t.Fatal("expected unsupported filter error")
-		}
-	})
+	requireNullCell(t, rows, 0)
 }
 
 func TestFirstNullRowStableAcrossQueries(t *testing.T) {
 	eng := openSampleParquet(t)
 	ctx := bg()
-	filter := BuildNullFilter([]string{"score", "category"})
+	filterCols := []string{"score", "category"}
+	filter := BuildMissingFilter(filterCols, missing.ModeNullAndNaN)
 
-	rowID1, err := eng.FirstNullRow(ctx, "score", filter)
+	rowID1, err := eng.FirstNullRow(ctx, "score", filterCols, missing.ModeNullAndNaN)
 	if err != nil {
 		t.Fatalf("FirstNullRow baseline: %v", err)
 	}
@@ -228,7 +211,7 @@ func TestFirstNullRowStableAcrossQueries(t *testing.T) {
 			t.Fatalf("Preview iteration %d: %v", i, err)
 		}
 
-		rowID2, err := eng.FirstNullRow(ctx, "score", filter)
+		rowID2, err := eng.FirstNullRow(ctx, "score", filterCols, missing.ModeNullAndNaN)
 		if err != nil {
 			t.Fatalf("FirstNullRow iteration %d: %v", i, err)
 		}
@@ -236,13 +219,13 @@ func TestFirstNullRowStableAcrossQueries(t *testing.T) {
 			t.Fatalf("unstable row id across queries at iter %d: first=%d now=%d", i, rowID1, rowID2)
 		}
 
-		offset, err := eng.OffsetForRowID(ctx, rowID2, filter)
+		offset, err := eng.OffsetForRowID(ctx, rowID2, filterCols, missing.ModeNullAndNaN)
 		if err != nil {
 			t.Fatalf("OffsetForRowID iteration %d: %v", i, err)
 		}
 		rows := mustPreview(t, eng, []string{"score"}, filter, 1, int(offset))
 		requirePreviewShape(t, rows, 1, 1)
-		requireNullCell(t, rows, 0, 0)
+		requireNullCell(t, rows, 0)
 	}
 }
 
@@ -325,7 +308,7 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 			}
 
 			ctx := bg()
-			rowID, err := eng.FirstNullRow(ctx, "value", "")
+			rowID, err := eng.FirstNullRow(ctx, "value", nil, missing.ModeNullAndNaN)
 			if err != nil {
 				t.Fatalf("FirstNullRow: %v", err)
 			}
@@ -333,7 +316,7 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 				t.Fatalf("unexpected null row id: got %d want 2", rowID)
 			}
 
-			offset, err := eng.OffsetForRowID(ctx, rowID, "")
+			offset, err := eng.OffsetForRowID(ctx, rowID, nil, missing.ModeNullAndNaN)
 			if err != nil {
 				t.Fatalf("OffsetForRowID: %v", err)
 			}
@@ -346,7 +329,7 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 			if got := fmt.Sprintf("%v", rows[0][0]); got != "user-2" {
 				t.Fatalf("unexpected user row id value: got %q want %q", got, "user-2")
 			}
-			requireNullCell(t, rows, 0, 1)
+			requireNullCell(t, rows, 1)
 		})
 	}
 }
@@ -400,83 +383,16 @@ func TestOpenLargeCSVOptIn(t *testing.T) {
 	t.Logf("opened %d-row csv in %s", nRows, elapsed)
 }
 
-func TestParseNullFilterColumnsQuotedIdentifiers(t *testing.T) {
-	tests := []struct {
-		name      string
-		filter    string
-		wantCols  []string
-		wantError bool
-	}{
-		{
-			name:     "quoted identifier containing OR",
-			filter:   `("A OR B" IS NULL OR "score" IS NULL)`,
-			wantCols: []string{"A OR B", "score"},
-		},
-		{
-			name:     "quoted identifier containing quote",
-			filter:   `("a""b" IS NULL OR "score" IS NULL)`,
-			wantCols: []string{`a"b`, "score"},
-		},
-		{
-			name:      "unbalanced quote",
-			filter:    `("a""b IS NULL OR "score" IS NULL)`,
-			wantError: true,
-		},
+func TestBuildMissingFilterUsesModeSpecificPredicate(t *testing.T) {
+	filter := BuildMissingFilter([]string{"score", "A OR B"}, missing.ModeNaNOnly)
+	if filter == "" {
+		t.Fatal("expected non-empty filter")
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			gotCols, err := parseNullFilterColumns(tc.filter)
-			if tc.wantError {
-				if err == nil {
-					t.Fatal("expected parse error")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("parseNullFilterColumns: %v", err)
-			}
-			if !slices.Equal(gotCols, tc.wantCols) {
-				t.Fatalf("columns mismatch: got %v want %v", gotCols, tc.wantCols)
-			}
-		})
+	if strings.Contains(filter, "IS NULL") {
+		t.Fatalf("did not expect NULL predicate in NaN-only filter: %q", filter)
 	}
-}
-
-func TestParseNullFilterColumnsWithNaNPredicate(t *testing.T) {
-	filter := BuildNullFilter([]string{"score", "A OR B"})
-	gotCols, err := parseNullFilterColumns(filter)
-	if err != nil {
-		t.Fatalf("parseNullFilterColumns: %v", err)
-	}
-	wantCols := []string{"score", "A OR B"}
-	if !slices.Equal(gotCols, wantCols) {
-		t.Fatalf("columns mismatch: got %v want %v", gotCols, wantCols)
-	}
-}
-
-func TestParseNullFilterColumnsQuotedIdentifierContainingIsNull(t *testing.T) {
-	col := "foo IS NULL bar"
-	filter := BuildNullFilter([]string{col})
-	if filter == "" || strings.Count(filter, "IS NULL") < 2 {
-		t.Fatalf("expected non-trivial filter containing IS NULL: %q", filter)
-	}
-	gotCols, err := parseNullFilterColumns(filter)
-	if err != nil {
-		t.Fatalf("parseNullFilterColumns: %v", err)
-	}
-	wantCols := []string{col}
-	if !slices.Equal(gotCols, wantCols) {
-		t.Fatalf("columns mismatch: got %v want %v", gotCols, wantCols)
-	}
-}
-
-func TestParseNullFilterColumnsRejectsIsNullable(t *testing.T) {
-	filter := BuildNullFilter([]string{"foo"})
-	filter = strings.Replace(filter, " IS NULL", " IS NULLABLE", 1)
-	_, err := parseNullFilterColumns(filter)
-	if err == nil {
-		t.Fatal("expected parse error")
+	if strings.Count(filter, "isnan") != 2 {
+		t.Fatalf("expected NaN predicate for both columns, got %q", filter)
 	}
 }
 
@@ -489,49 +405,365 @@ func TestProfileBasicUsesMissingPredicate(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = eng.Close() })
 
-	summary, err := eng.ProfileBasic(bg(), "score")
-	if err != nil {
-		t.Fatalf("ProfileBasic: %v", err)
+	tests := []struct {
+		name      string
+		mode      missing.Mode
+		wantCount int64
+	}{
+		{name: "null+nan", mode: missing.ModeNullAndNaN, wantCount: 2},
+		{name: "null only", mode: missing.ModeNullOnly, wantCount: 1},
+		{name: "nan only", mode: missing.ModeNaNOnly, wantCount: 1},
 	}
-
-	var expected int64
-	q := `SELECT sum(CASE WHEN ` + missing.SQLPredicate(`"score"`) + ` THEN 1 ELSE 0 END)::BIGINT FROM t_base`
-	if err := eng.db.QueryRowContext(bg(), q).Scan(&expected); err != nil {
-		t.Fatalf("expected missing count query: %v", err)
-	}
-	if summary.MissingCount != expected {
-		t.Fatalf("missing count mismatch: got %d want %d", summary.MissingCount, expected)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			summary, err := eng.ProfileBasic(bg(), "score", tc.mode)
+			if err != nil {
+				t.Fatalf("ProfileBasic: %v", err)
+			}
+			if summary.MissingCount != tc.wantCount {
+				t.Fatalf("missing count mismatch: got %d want %d", summary.MissingCount, tc.wantCount)
+			}
+		})
 	}
 }
 
-func TestProfileDetailExcludesMissingPredicate(t *testing.T) {
+func TestProfileBasicAndFilterVarcharWithModeNaNOnly(t *testing.T) {
+	// Regression: ModeNaNOnly must not error on VARCHAR columns.
+	// isnan() is numeric-only in DuckDB; SQLNaNPredicate uses TRY_CAST to be safe.
 	dir := t.TempDir()
-	path := mustWriteCSV(t, dir, "nan_detail.csv", "category\nalpha\nNaN\n\nbeta\nalpha\n")
+	path := mustWriteCSV(t, dir, "varchar_nan.csv", "category\nalpha\nNaN\n\nbeta\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	ctx := bg()
+
+	summary, err := eng.ProfileBasic(ctx, "category", missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic(VARCHAR, ModeNaNOnly) unexpected error: %v", err)
+	}
+	// "NaN" is a literal string in a VARCHAR column; TRY_CAST("NaN" AS DOUBLE) = NaN,
+	// so isnan() should return true for it.
+	if summary.MissingCount != 1 {
+		t.Fatalf("expected MissingCount=1 for NaN string in VARCHAR, got %d", summary.MissingCount)
+	}
+
+	filterCols := []string{"category"}
+	rowID, err := eng.FirstNullRow(ctx, "category", filterCols, missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("FirstNullRow(VARCHAR, ModeNaNOnly) unexpected error: %v", err)
+	}
+	if rowID == 0 {
+		t.Fatal("expected a NaN row for VARCHAR column under ModeNaNOnly")
+	}
+}
+
+func TestProfileBasicDistinctStatsExcludeModeSpecificMissingValues(t *testing.T) {
+	dir := t.TempDir()
+	var csv strings.Builder
+	csv.WriteString("category\n")
+	for i := 0; i < 188; i++ {
+		for j := 0; j < 10; j++ {
+			fmt.Fprintf(&csv, "value-%03d\n", i)
+		}
+	}
+	csv.WriteString("NaN\n")
+
+	path := mustWriteCSV(t, dir, "distinct_mode_nan.csv", csv.String())
 	eng, err := New(path)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	t.Cleanup(func() { _ = eng.Close() })
 
-	summary, err := eng.ProfileBasic(bg(), "category")
+	nullOnly, err := eng.ProfileBasic(bg(), "category", missing.ModeNullOnly)
 	if err != nil {
 		t.Fatalf("ProfileBasic: %v", err)
 	}
-	if !summary.IsDiscrete {
-		t.Fatal("expected category to be discrete")
+	nanOnly, err := eng.ProfileBasic(bg(), "category", missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
 	}
-	if err := eng.ProfileDetail(bg(), "category", summary, "VARCHAR"); err != nil {
-		t.Fatalf("ProfileDetail: %v", err)
+	if nullOnly.MissingCount != 0 {
+		t.Fatalf("expected NULL-only MissingCount=0, got %d", nullOnly.MissingCount)
 	}
-	if len(summary.Top3) == 0 {
-		t.Fatal("expected Top3 values when discrete profiling is enabled")
+	if nanOnly.MissingCount != 1 {
+		t.Fatalf("expected NaN-only MissingCount=1, got %d", nanOnly.MissingCount)
+	}
+	if nanOnly.DistinctApprox >= nullOnly.DistinctApprox {
+		t.Fatalf("expected NaN-only distinct count to exclude missing NaN: null-only=%d nan-only=%d", nullOnly.DistinctApprox, nanOnly.DistinctApprox)
+	}
+	if nanOnly.DistinctPct >= nullOnly.DistinctPct {
+		t.Fatalf("expected NaN-only distinct pct to drop when NaN is missing: null-only=%v nan-only=%v", nullOnly.DistinctPct, nanOnly.DistinctPct)
+	}
+}
+
+func TestProfileBasicAndDetailModeNaNOnlyIncludesSQLNullCategorically(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "nan_only_mixed.csv", "category\nalpha\n\nNaN\nalpha\nbeta\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "category", missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if summary.MissingCount != 1 {
+		t.Fatalf("expected MissingCount=1, got %d", summary.MissingCount)
+	}
+	if summary.DistinctApprox != 3 {
+		t.Fatalf("expected DistinctApprox=3 after excluding only NaN, got %d", summary.DistinctApprox)
+	}
+	if summary.DistinctPct < 74 || summary.DistinctPct > 76 {
+		t.Fatalf("expected DistinctPct near 75, got %v", summary.DistinctPct)
 	}
 
+	if err := eng.ProfileDetail(bg(), "category", summary, "VARCHAR", missing.ModeNaNOnly); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if len(summary.Top3) != 3 {
+		t.Fatalf("expected 3 top values after excluding only NaN, got %+v", summary.Top3)
+	}
+	if summary.Top3[0].Value != "alpha" || summary.Top3[0].Count != 2 {
+		t.Fatalf("unexpected first top value: %+v", summary.Top3[0])
+	}
+	// Ties are ordered by value ascending, so the ASCII string sorts before the Unicode null sentinel.
+	if summary.Top3[1].Value != "beta" || summary.Top3[1].Count != 1 {
+		t.Fatalf("unexpected second top value: %+v", summary.Top3[1])
+	}
+	if summary.Top3[2].Value != "⟨SQL null⟩" || summary.Top3[2].Count != 1 {
+		t.Fatalf("unexpected third top value: %+v", summary.Top3[2])
+	}
+	if summary.Top3[0].Pct < 49 || summary.Top3[0].Pct > 51 {
+		t.Fatalf("expected alpha pct near 50, got %v", summary.Top3[0].Pct)
+	}
 	for _, tv := range summary.Top3 {
-		if strings.EqualFold(strings.TrimSpace(tv.Value), "nan") {
-			t.Fatalf("unexpected NaN top value when NaN is configured as missing: %+v", tv)
+		if tv.Value == "" || strings.EqualFold(strings.TrimSpace(tv.Value), "nan") {
+			t.Fatalf("unexpected missing-like top value under NaN-only mode: %+v", tv)
 		}
 	}
+}
+
+func TestProfileDetailModeNaNOnlyDisambiguatesSQLNullFromLiteralNULL(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "nan_only_literal_null.csv", "category\nNULL\n\nNULL\nalpha\nNaN\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "category", missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if err := eng.ProfileDetail(bg(), "category", summary, "VARCHAR", missing.ModeNaNOnly); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if len(summary.Top3) != 3 {
+		t.Fatalf("expected 3 top values, got %+v", summary.Top3)
+	}
+	if summary.Top3[0].Value != "NULL" || summary.Top3[0].Count != 2 {
+		t.Fatalf("unexpected first top value: %+v", summary.Top3[0])
+	}
+	// Ties are ordered by value ascending, so the ASCII string sorts before the Unicode null sentinel.
+	if summary.Top3[1].Value != "alpha" || summary.Top3[1].Count != 1 {
+		t.Fatalf("unexpected second top value: %+v", summary.Top3[1])
+	}
+	if summary.Top3[2].Value != "⟨SQL null⟩" || summary.Top3[2].Count != 1 {
+		t.Fatalf("unexpected third top value: %+v", summary.Top3[2])
+	}
+}
+
+func TestProfileDetailDisambiguatesSQLNullFromLiteralNullSentinel(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "literal_null_sentinel.csv", "category\n⟨null⟩\n\n⟨null⟩\nalpha\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "category", missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if err := eng.ProfileDetail(bg(), "category", summary, "VARCHAR", missing.ModeNaNOnly); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if len(summary.Top3) != 3 {
+		t.Fatalf("expected 3 top values, got %+v", summary.Top3)
+	}
+	if summary.Top3[0].Value != "⟨null⟩" || summary.Top3[0].Count != 2 {
+		t.Fatalf("unexpected first top value: %+v", summary.Top3[0])
+	}
+	if summary.Top3[1].Value != "alpha" || summary.Top3[1].Count != 1 {
+		t.Fatalf("unexpected second top value: %+v", summary.Top3[1])
+	}
+	if summary.Top3[2].Value != "⟨SQL null⟩" || summary.Top3[2].Count != 1 {
+		t.Fatalf("unexpected third top value: %+v", summary.Top3[2])
+	}
+	// ModeNaNOnly excludes only NaN here, so all 4 rows remain in the categorical denominator.
+	if summary.Top3[0].Pct < 49 || summary.Top3[0].Pct > 51 {
+		t.Fatalf("expected literal sentinel pct near 50, got %v", summary.Top3[0].Pct)
+	}
+	if summary.Top3[2].Pct < 24 || summary.Top3[2].Pct > 26 {
+		t.Fatalf("expected SQL null pct near 25, got %v", summary.Top3[2].Pct)
+	}
+}
+
+func TestProfileDetailModeNaNOnlyStillExcludesSQLNullFromNumericStats(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "nan_only_numeric.csv", "score\n1.0\n\nNaN\n2.5\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "score", missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE", missing.ModeNaNOnly); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if summary.Numeric == nil {
+		t.Fatal("expected numeric stats")
+	}
+	if summary.Numeric.Min < 0.99 || summary.Numeric.Min > 1.01 {
+		t.Fatalf("unexpected min: got %v", summary.Numeric.Min)
+	}
+	if summary.Numeric.Max < 2.49 || summary.Numeric.Max > 2.51 {
+		t.Fatalf("unexpected max: got %v", summary.Numeric.Max)
+	}
+}
+
+func TestProfileDetailModeNullOnlyStillExcludesNaNFromNumericStats(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "null_only_numeric.csv", "score\n1.0\n\nNaN\n2.5\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "score", missing.ModeNullOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE", missing.ModeNullOnly); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if summary.Numeric == nil {
+		t.Fatal("expected numeric stats")
+	}
+	if summary.Numeric.Min < 0.99 || summary.Numeric.Min > 1.01 {
+		t.Fatalf("unexpected min: got %v", summary.Numeric.Min)
+	}
+	if summary.Numeric.Max < 2.49 || summary.Numeric.Max > 2.51 {
+		t.Fatalf("unexpected max: got %v", summary.Numeric.Max)
+	}
+}
+
+func TestProfileDetailModeNullOnlyWithOnlyNaNHasNoNumericStats(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "null_only_all_nan.csv", "score\nNaN\nNaN\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "score", missing.ModeNullOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE", missing.ModeNullOnly); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if summary.Numeric != nil {
+		t.Fatalf("expected no numeric stats when only NaN values remain, got %+v", summary.Numeric)
+	}
+	if summary.Hist != nil {
+		t.Fatalf("expected no histogram when only NaN values remain, got %+v", summary.Hist)
+	}
+}
+
+func TestProfileDetailModeNaNOnlyWithOnlySQLNullHasNoNumericStats(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "nan_only_all_null.csv", "score\n\n\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "score", missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE", missing.ModeNaNOnly); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if summary.Numeric != nil {
+		t.Fatalf("expected no numeric stats when only SQL NULL values remain, got %+v", summary.Numeric)
+	}
+	if summary.Hist != nil {
+		t.Fatalf("expected no histogram when only SQL NULL values remain, got %+v", summary.Hist)
+	}
+}
+
+func TestProfileDetailExcludesMissingPredicate(t *testing.T) {
+	dir := t.TempDir()
+	// NaN appears 3× so it dominates Top3 under ModeNullOnly regardless of tie-breaking.
+	path := mustWriteCSV(t, dir, "nan_detail.csv", "category\nNaN\nNaN\nNaN\nalpha\n\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	t.Run("null+nan excludes NaN", func(t *testing.T) {
+		summary, err := eng.ProfileBasic(bg(), "category", missing.ModeNullAndNaN)
+		if err != nil {
+			t.Fatalf("ProfileBasic: %v", err)
+		}
+		if !summary.IsDiscrete {
+			t.Fatal("expected category to be discrete")
+		}
+		if err := eng.ProfileDetail(bg(), "category", summary, "VARCHAR", missing.ModeNullAndNaN); err != nil {
+			t.Fatalf("ProfileDetail: %v", err)
+		}
+		for _, tv := range summary.Top3 {
+			if strings.EqualFold(strings.TrimSpace(tv.Value), "nan") {
+				t.Fatalf("unexpected NaN top value when NaN is configured as missing: %+v", tv)
+			}
+		}
+	})
+
+	t.Run("null only keeps NaN", func(t *testing.T) {
+		summary, err := eng.ProfileBasic(bg(), "category", missing.ModeNullOnly)
+		if err != nil {
+			t.Fatalf("ProfileBasic: %v", err)
+		}
+		if err := eng.ProfileDetail(bg(), "category", summary, "VARCHAR", missing.ModeNullOnly); err != nil {
+			t.Fatalf("ProfileDetail: %v", err)
+		}
+		foundNaN := false
+		for _, tv := range summary.Top3 {
+			if strings.EqualFold(strings.TrimSpace(tv.Value), "nan") {
+				foundNaN = true
+			}
+		}
+		if !foundNaN {
+			t.Fatalf("expected NaN to remain a top value when only NULL is missing: %+v", summary.Top3)
+		}
+	})
 }
 
 func TestProfileDetailNumericExcludesMissingPredicate(t *testing.T) {
@@ -543,14 +775,14 @@ func TestProfileDetailNumericExcludesMissingPredicate(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = eng.Close() })
 
-	summary, err := eng.ProfileBasic(bg(), "score")
+	summary, err := eng.ProfileBasic(bg(), "score", missing.ModeNullAndNaN)
 	if err != nil {
 		t.Fatalf("ProfileBasic: %v", err)
 	}
 	if summary.IsDiscrete {
 		t.Skip("score column unexpectedly classified as discrete; numeric path not exercised")
 	}
-	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE"); err != nil {
+	if err := eng.ProfileDetail(bg(), "score", summary, "DOUBLE", missing.ModeNullAndNaN); err != nil {
 		t.Fatalf("ProfileDetail: %v", err)
 	}
 	if summary.Numeric == nil {
@@ -571,7 +803,7 @@ func TestNextNullRowWrapAndRowIDForOffset(t *testing.T) {
 	eng := openSampleParquet(t)
 	ctx := bg()
 
-	first, err := eng.FirstNullRow(ctx, "score", "")
+	first, err := eng.FirstNullRow(ctx, "score", nil, missing.ModeNullAndNaN)
 	if err != nil {
 		t.Fatalf("FirstNullRow: %v", err)
 	}
@@ -579,7 +811,7 @@ func TestNextNullRowWrapAndRowIDForOffset(t *testing.T) {
 		t.Fatal("expected at least one missing score row")
 	}
 
-	rowIDAtZero, err := eng.RowIDForOffset(ctx, 0, "")
+	rowIDAtZero, err := eng.RowIDForOffset(ctx, 0, nil, missing.ModeNullAndNaN)
 	if err != nil {
 		t.Fatalf("RowIDForOffset(0): %v", err)
 	}
@@ -587,7 +819,7 @@ func TestNextNullRowWrapAndRowIDForOffset(t *testing.T) {
 		t.Fatal("expected a row id at offset 0")
 	}
 
-	next, wrapped, err := eng.NextNullRow(ctx, "score", "", eng.TotalRows()+1)
+	next, wrapped, err := eng.NextNullRow(ctx, "score", nil, missing.ModeNullAndNaN, eng.TotalRows()+1)
 	if err != nil {
 		t.Fatalf("NextNullRow(wrap): %v", err)
 	}
@@ -604,7 +836,7 @@ func TestPrevNullRowWrap(t *testing.T) {
 	ctx := bg()
 
 	var last int64
-	q := `SELECT max(` + quoteIdent(eng.internalRowIDCol) + `) FROM t_base WHERE ` + missing.SQLPredicate(`"score"`)
+	q := `SELECT max(` + quoteIdent(eng.internalRowIDCol) + `) FROM t_base WHERE ` + missing.ModeNullAndNaN.SQLPredicate(`"score"`)
 	if err := eng.db.QueryRowContext(ctx, q).Scan(&last); err != nil {
 		t.Fatalf("query last missing row: %v", err)
 	}
@@ -612,7 +844,7 @@ func TestPrevNullRowWrap(t *testing.T) {
 		t.Fatal("expected at least one missing score row")
 	}
 
-	prev, wrapped, err := eng.PrevNullRow(ctx, "score", "", 1)
+	prev, wrapped, err := eng.PrevNullRow(ctx, "score", nil, missing.ModeNullAndNaN, 1)
 	if err != nil {
 		t.Fatalf("PrevNullRow(wrap): %v", err)
 	}
@@ -622,6 +854,131 @@ func TestPrevNullRowWrap(t *testing.T) {
 	if prev != last {
 		t.Fatalf("wrapped row mismatch: got %d want %d", prev, last)
 	}
+}
+
+func TestFirstNullRowModeNullOnly(t *testing.T) {
+	dir := t.TempDir()
+	// Row 2 is NULL, row 3 is NaN — ModeNullOnly should find only row 2.
+	path := mustWriteCSV(t, dir, "null_and_nan.csv", "score\n1.0\n\nNaN\n2.5\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	ctx := bg()
+
+	rowID, err := eng.FirstNullRow(ctx, "score", nil, missing.ModeNullOnly)
+	if err != nil {
+		t.Fatalf("FirstNullRow(NullOnly): %v", err)
+	}
+	if rowID == 0 {
+		t.Fatal("expected a NULL row under ModeNullOnly")
+	}
+
+	// Confirm the found row is actually NULL (not NaN).
+	offset, err := eng.OffsetForRowID(ctx, rowID, nil, missing.ModeNullOnly)
+	if err != nil {
+		t.Fatalf("OffsetForRowID: %v", err)
+	}
+	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(offset))
+	requirePreviewShape(t, rows, 1, 1)
+	requireNullCell(t, rows, 0)
+}
+
+func TestFirstNullRowModeNaNOnly(t *testing.T) {
+	dir := t.TempDir()
+	// Row 2 is NULL, row 3 is NaN — ModeNaNOnly should only find the NaN row.
+	path := mustWriteCSV(t, dir, "null_and_nan2.csv", "score\n1.0\n\nNaN\n2.5\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	ctx := bg()
+
+	rowID, err := eng.FirstNullRow(ctx, "score", nil, missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("FirstNullRow(NaNOnly): %v", err)
+	}
+	if rowID == 0 {
+		t.Fatal("expected a NaN row under ModeNaNOnly")
+	}
+
+	// Confirm the found row is actually NaN (not NULL).
+	offset, err := eng.OffsetForRowID(ctx, rowID, nil, missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("OffsetForRowID: %v", err)
+	}
+	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(offset))
+	requirePreviewShape(t, rows, 1, 1)
+	requireNaNCell(t, rows, 0)
+}
+
+func TestNextNullRowModeNaNOnly(t *testing.T) {
+	dir := t.TempDir()
+	// Three rows: NaN, 1.0, NaN — two NaN rows, zero NULL rows.
+	path := mustWriteCSV(t, dir, "two_nan.csv", "score\nNaN\n1.0\nNaN\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	ctx := bg()
+
+	first, err := eng.FirstNullRow(ctx, "score", nil, missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("FirstNullRow(NaNOnly): %v", err)
+	}
+	if first == 0 {
+		t.Fatal("expected at least one NaN row")
+	}
+
+	next, wrapped, err := eng.NextNullRow(ctx, "score", nil, missing.ModeNaNOnly, first)
+	if err != nil {
+		t.Fatalf("NextNullRow(NaNOnly): %v", err)
+	}
+	if next == 0 {
+		t.Fatal("expected a second NaN row")
+	}
+	if next == first {
+		t.Fatalf("NextNullRow returned same row as first: %d", next)
+	}
+	if wrapped {
+		t.Fatal("expected wrapped=false when second NaN row exists after first")
+	}
+}
+
+func TestPrevNullRowModeNullOnly(t *testing.T) {
+	dir := t.TempDir()
+	// Two NULL rows: rows 1 and 3 (1-indexed). Row 2 is 1.0 (non-missing).
+	path := mustWriteCSV(t, dir, "two_null.csv", "score\n\n1.0\n\n2.0\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	ctx := bg()
+
+	// Get the last NULL row ID by finding it via wrap from row 1.
+	prev, wrapped, err := eng.PrevNullRow(ctx, "score", nil, missing.ModeNullOnly, 1)
+	if err != nil {
+		t.Fatalf("PrevNullRow(NullOnly): %v", err)
+	}
+	if prev == 0 {
+		t.Fatal("expected a previous NULL row (wrapped)")
+	}
+	if !wrapped {
+		t.Fatal("expected wrapped=true when searching before first row")
+	}
+
+	// Confirm the found row is actually NULL (not NaN or a regular value).
+	offset, err := eng.OffsetForRowID(ctx, prev, nil, missing.ModeNullOnly)
+	if err != nil {
+		t.Fatalf("OffsetForRowID: %v", err)
+	}
+	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(offset))
+	requirePreviewShape(t, rows, 1, 1)
+	requireNullCell(t, rows, 0)
 }
 
 func TestNextPrevNullRowSingleMissingDoNotWrapToSameRow(t *testing.T) {
@@ -634,7 +991,7 @@ func TestNextPrevNullRowSingleMissingDoNotWrapToSameRow(t *testing.T) {
 	t.Cleanup(func() { _ = eng.Close() })
 	ctx := bg()
 
-	rowID, err := eng.FirstNullRow(ctx, "score", "")
+	rowID, err := eng.FirstNullRow(ctx, "score", nil, missing.ModeNullAndNaN)
 	if err != nil {
 		t.Fatalf("FirstNullRow: %v", err)
 	}
@@ -642,7 +999,7 @@ func TestNextPrevNullRowSingleMissingDoNotWrapToSameRow(t *testing.T) {
 		t.Fatal("expected one missing row")
 	}
 
-	next, wrapped, err := eng.NextNullRow(ctx, "score", "", rowID)
+	next, wrapped, err := eng.NextNullRow(ctx, "score", nil, missing.ModeNullAndNaN, rowID)
 	if err != nil {
 		t.Fatalf("NextNullRow: %v", err)
 	}
@@ -653,7 +1010,7 @@ func TestNextPrevNullRowSingleMissingDoNotWrapToSameRow(t *testing.T) {
 		t.Fatalf("expected no next missing row, got %d", next)
 	}
 
-	prev, wrapped, err := eng.PrevNullRow(ctx, "score", "", rowID)
+	prev, wrapped, err := eng.PrevNullRow(ctx, "score", nil, missing.ModeNullAndNaN, rowID)
 	if err != nil {
 		t.Fatalf("PrevNullRow: %v", err)
 	}

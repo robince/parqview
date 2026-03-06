@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/robince/parqview/internal/missing"
 	"github.com/robince/parqview/internal/types"
@@ -176,21 +174,31 @@ func (e *Engine) FilteredRowCount(ctx context.Context, rowFilter string) (int64,
 }
 
 // ProfileBasic computes missing count, missing%, approx distinct, distinct% for a column.
-func (e *Engine) ProfileBasic(ctx context.Context, colName string) (*types.ColumnSummary, error) {
+func (e *Engine) ProfileBasic(ctx context.Context, colName string, mode missing.Mode) (*types.ColumnSummary, error) {
 	col := quoteIdent(colName)
-	missingExpr := missing.SQLPredicate(col)
+	missingExpr := mode.SQLPredicate(col)
+	profiledExpr := categoricalProfileExpr(col, mode)
+	profiledNonNullExpr := profiledExpr + " AND " + col + " IS NOT NULL"
 	q := fmt.Sprintf(`SELECT
 		sum(CASE WHEN %s THEN 1 ELSE 0 END)::BIGINT AS n_null,
-		approx_count_distinct(%s) AS n_distinct
-		FROM t`, missingExpr, col)
+		sum(CASE WHEN %s THEN 1 ELSE 0 END)::BIGINT AS n_profiled,
+		sum(CASE WHEN %s AND %s IS NULL THEN 1 ELSE 0 END)::BIGINT AS n_profiled_null,
+		approx_count_distinct(CASE WHEN %s THEN %s END) AS n_distinct_non_null
+		FROM t`, missingExpr, profiledExpr, profiledExpr, col, profiledNonNullExpr, col)
 
-	var nNull, nDistinct int64
-	if err := e.db.QueryRowContext(ctx, q).Scan(&nNull, &nDistinct); err != nil {
+	var nNull, nProfiled, nProfiledNull, nDistinctNonNull int64
+	if err := e.db.QueryRowContext(ctx, q).Scan(&nNull, &nProfiled, &nProfiledNull, &nDistinctNonNull); err != nil {
 		return nil, err
+	}
+	nDistinct := nDistinctNonNull
+	if nProfiledNull > 0 {
+		nDistinct++
+	}
+	if nDistinct > nProfiled {
+		nDistinct = nProfiled
 	}
 
 	total := e.totalRows
-	nonNull := total - nNull
 
 	summary := &types.ColumnSummary{
 		MissingCount:   nNull,
@@ -201,41 +209,52 @@ func (e *Engine) ProfileBasic(ctx context.Context, colName string) (*types.Colum
 	if total > 0 {
 		summary.MissingPct = float64(nNull) / float64(total) * 100
 	}
-	if nonNull > 0 {
-		summary.DistinctPct = float64(nDistinct) / float64(nonNull) * 100
+	if nProfiled > 0 {
+		summary.DistinctPct = float64(nDistinct) / float64(nProfiled) * 100
 	}
 
 	// Determine if discrete-like
-	summary.IsDiscrete = nDistinct <= 200 || (nonNull > 0 && float64(nDistinct)/float64(nonNull) <= 0.05)
+	summary.IsDiscrete = nDistinct <= 200 || (nProfiled > 0 && float64(nDistinct)/float64(nProfiled) <= 0.05)
 
 	return summary, nil
 }
 
 // ProfileDetail computes top values and/or numeric stats for a column.
-func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *types.ColumnSummary, colType string) error {
+func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *types.ColumnSummary, colType string, mode missing.Mode) error {
 	col := quoteIdent(colName)
-	nonMissingExpr := "NOT (" + missing.SQLPredicate(col) + ")"
+	profiledExpr := categoricalProfileExpr(col, mode)
+	numericExpr := numericProfileExpr(col, mode)
 
 	// Top values for discrete-like columns
 	if summary.IsDiscrete {
-		q := fmt.Sprintf(`SELECT %s::VARCHAR AS value, count(*) AS cnt
+		q := fmt.Sprintf(`SELECT %s::VARCHAR AS value, %s IS NULL AS is_null, count(*) AS cnt
 			FROM t WHERE %s
-			GROUP BY %s ORDER BY cnt DESC LIMIT 3`, col, nonMissingExpr, col)
+			GROUP BY 1, 2 ORDER BY cnt DESC, is_null ASC, value ASC LIMIT 3`, col, col, profiledExpr)
 		rows, err := e.db.QueryContext(ctx, q)
 		if err != nil {
 			return err
 		}
 		defer func() { _ = rows.Close() }()
 
-		nonNull := e.totalRows - summary.MissingCount
+		profiledCount, err := e.categoricalProfiledValueCount(ctx, col, mode)
+		if err != nil {
+			return err
+		}
 		var top3 []types.TopValue
 		for rows.Next() {
 			var tv types.TopValue
-			if err := rows.Scan(&tv.Value, &tv.Count); err != nil {
+			var rawValue sql.NullString
+			var isNull bool
+			if err := rows.Scan(&rawValue, &isNull, &tv.Count); err != nil {
 				return err
 			}
-			if nonNull > 0 {
-				tv.Pct = float64(tv.Count) / float64(nonNull) * 100
+			if isNull {
+				tv.Value = "⟨SQL null⟩"
+			} else {
+				tv.Value = rawValue.String
+			}
+			if profiledCount > 0 {
+				tv.Pct = float64(tv.Count) / float64(profiledCount) * 100
 			}
 			top3 = append(top3, tv)
 		}
@@ -247,8 +266,19 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 
 	// Numeric stats
 	if isNumericType(colType) {
+		profiledCount, err := e.numericProfiledValueCount(ctx, col, mode)
+		if err != nil {
+			return err
+		}
+		if profiledCount == 0 {
+			summary.Numeric = nil
+			summary.Hist = nil
+			summary.DetailLoaded = true
+			return nil
+		}
+
 		q := fmt.Sprintf(`SELECT min(%s)::DOUBLE, max(%s)::DOUBLE, avg(%s)::DOUBLE, stddev_pop(%s)::DOUBLE
-			FROM t WHERE %s`, col, col, col, col, nonMissingExpr)
+			FROM t WHERE %s`, col, col, col, col, numericExpr)
 		var ns types.NumericStats
 		if err := e.db.QueryRowContext(ctx, q).Scan(&ns.Min, &ns.Max, &ns.Mean, &ns.Stddev); err != nil {
 			return err
@@ -263,7 +293,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 			)
 			hq := fmt.Sprintf(`SELECT %s AS b, count(*) AS cnt
 				FROM t WHERE %s
-				GROUP BY b ORDER BY b`, binExpr, nonMissingExpr)
+				GROUP BY b ORDER BY b`, binExpr, numericExpr)
 			hrows, err := e.db.QueryContext(ctx, hq, ns.Min, ns.Max-ns.Min)
 			if err != nil {
 				return err
@@ -289,10 +319,8 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 			}
 			summary.Hist = &types.Histogram{Bins: bins}
 		} else {
-			// Single bin for constant column
-			nonNull := e.totalRows - summary.MissingCount
 			summary.Hist = &types.Histogram{
-				Bins: []types.HistBin{{Low: ns.Min, High: ns.Max, Count: nonNull}},
+				Bins: []types.HistBin{{Low: ns.Min, High: ns.Max, Count: profiledCount}},
 			}
 		}
 	}
@@ -301,17 +329,36 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 	return nil
 }
 
+func (e *Engine) categoricalProfiledValueCount(ctx context.Context, quotedCol string, mode missing.Mode) (int64, error) {
+	q := fmt.Sprintf(`SELECT count(*)::BIGINT FROM t WHERE %s`, categoricalProfileExpr(quotedCol, mode))
+	var count int64
+	err := e.db.QueryRowContext(ctx, q).Scan(&count)
+	return count, err
+}
+
+func (e *Engine) numericProfiledValueCount(ctx context.Context, quotedCol string, mode missing.Mode) (int64, error) {
+	q := fmt.Sprintf(`SELECT count(*)::BIGINT FROM t WHERE %s`, numericProfileExpr(quotedCol, mode))
+	var count int64
+	err := e.db.QueryRowContext(ctx, q).Scan(&count)
+	return count, err
+}
+
+func categoricalProfileExpr(quotedCol string, mode missing.Mode) string {
+	return "NOT (" + mode.SQLPredicate(quotedCol) + ")"
+}
+
+func numericProfileExpr(quotedCol string, mode missing.Mode) string {
+	return categoricalProfileExpr(quotedCol, mode) +
+		" AND " + quotedCol + " IS NOT NULL" +
+		" AND NOT (" + missing.SQLNaNPredicate(quotedCol) + ")"
+}
+
 // FirstNullRow returns the internal row id of the first missing-like value in a column, or 0 if none.
-// rowFilter must be empty or produced by BuildNullFilter.
-func (e *Engine) FirstNullRow(ctx context.Context, colName, rowFilter string) (int64, error) {
+func (e *Engine) FirstNullRow(ctx context.Context, colName string, filterCols []string, mode missing.Mode) (int64, error) {
 	col := quoteIdent(colName)
-	q := fmt.Sprintf("SELECT min(%s) FROM t_base WHERE %s", quoteIdent(e.internalRowIDCol), missing.SQLPredicate(col))
-	filterCols, err := parseNullFilterColumns(rowFilter)
-	if err != nil {
-		return 0, err
-	}
+	q := fmt.Sprintf("SELECT min(%s) FROM t_base WHERE %s", quoteIdent(e.internalRowIDCol), mode.SQLPredicate(col))
 	if len(filterCols) > 0 {
-		q += " AND (" + buildNullFilter(filterCols) + ")"
+		q += " AND (" + buildMissingFilter(filterCols, mode) + ")"
 	}
 	var rn sql.NullInt64
 	if err := e.db.QueryRowContext(ctx, q).Scan(&rn); err != nil {
@@ -324,19 +371,14 @@ func (e *Engine) FirstNullRow(ctx context.Context, colName, rowFilter string) (i
 }
 
 // OffsetForRowID returns the row offset of rowID in the active (optionally filtered) view.
-// rowFilter must be empty or produced by BuildNullFilter.
-func (e *Engine) OffsetForRowID(ctx context.Context, rowID int64, rowFilter string) (int64, error) {
+func (e *Engine) OffsetForRowID(ctx context.Context, rowID int64, filterCols []string, mode missing.Mode) (int64, error) {
 	if rowID <= 1 {
 		return 0, nil
 	}
 
 	q := fmt.Sprintf("SELECT count(*) FROM t_base WHERE %s < ?", quoteIdent(e.internalRowIDCol))
-	filterCols, err := parseNullFilterColumns(rowFilter)
-	if err != nil {
-		return 0, err
-	}
 	if len(filterCols) > 0 {
-		q += " AND (" + buildNullFilter(filterCols) + ")"
+		q += " AND (" + buildMissingFilter(filterCols, mode) + ")"
 	}
 
 	var offset int64
@@ -347,24 +389,19 @@ func (e *Engine) OffsetForRowID(ctx context.Context, rowID int64, rowFilter stri
 }
 
 // RowIDForOffset returns the internal row id at a filtered-view offset.
-// rowFilter must be empty or produced by BuildNullFilter.
-func (e *Engine) RowIDForOffset(ctx context.Context, offset int64, rowFilter string) (int64, error) {
+func (e *Engine) RowIDForOffset(ctx context.Context, offset int64, filterCols []string, mode missing.Mode) (int64, error) {
 	if offset < 0 {
 		return 0, nil
 	}
 
 	q := fmt.Sprintf("SELECT %s FROM t_base", quoteIdent(e.internalRowIDCol))
-	filterCols, err := parseNullFilterColumns(rowFilter)
-	if err != nil {
-		return 0, err
-	}
 	if len(filterCols) > 0 {
-		q += " WHERE (" + buildNullFilter(filterCols) + ")"
+		q += " WHERE (" + buildMissingFilter(filterCols, mode) + ")"
 	}
 	q += fmt.Sprintf(" ORDER BY %s LIMIT 1 OFFSET %d", quoteIdent(e.internalRowIDCol), offset)
 
 	var rowID int64
-	err = e.db.QueryRowContext(ctx, q).Scan(&rowID)
+	err := e.db.QueryRowContext(ctx, q).Scan(&rowID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -376,16 +413,11 @@ func (e *Engine) RowIDForOffset(ctx context.Context, offset int64, rowFilter str
 
 // NextNullRow returns the next missing-like row id in a column after rowID in the active
 // (optionally filtered) view. When no later row exists, it wraps and returns the first one.
-// rowFilter must be empty or produced by BuildNullFilter.
-func (e *Engine) NextNullRow(ctx context.Context, colName, rowFilter string, rowID int64) (nextRowID int64, wrapped bool, err error) {
+func (e *Engine) NextNullRow(ctx context.Context, colName string, filterCols []string, mode missing.Mode, rowID int64) (nextRowID int64, wrapped bool, err error) {
 	col := quoteIdent(colName)
-	conds := []string{missing.SQLPredicate(col)}
-	filterCols, err := parseNullFilterColumns(rowFilter)
-	if err != nil {
-		return 0, false, err
-	}
+	conds := []string{mode.SQLPredicate(col)}
 	if len(filterCols) > 0 {
-		conds = append(conds, "("+buildNullFilter(filterCols)+")")
+		conds = append(conds, "("+buildMissingFilter(filterCols, mode)+")")
 	}
 
 	baseWhere := strings.Join(conds, " AND ")
@@ -418,16 +450,11 @@ func (e *Engine) NextNullRow(ctx context.Context, colName, rowFilter string, row
 
 // PrevNullRow returns the previous missing-like row id in a column before rowID in the active
 // (optionally filtered) view. When no earlier row exists, it wraps and returns the last one.
-// rowFilter must be empty or produced by BuildNullFilter.
-func (e *Engine) PrevNullRow(ctx context.Context, colName, rowFilter string, rowID int64) (prevRowID int64, wrapped bool, err error) {
+func (e *Engine) PrevNullRow(ctx context.Context, colName string, filterCols []string, mode missing.Mode, rowID int64) (prevRowID int64, wrapped bool, err error) {
 	col := quoteIdent(colName)
-	conds := []string{missing.SQLPredicate(col)}
-	filterCols, err := parseNullFilterColumns(rowFilter)
-	if err != nil {
-		return 0, false, err
-	}
+	conds := []string{mode.SQLPredicate(col)}
 	if len(filterCols) > 0 {
-		conds = append(conds, "("+buildNullFilter(filterCols)+")")
+		conds = append(conds, "("+buildMissingFilter(filterCols, mode)+")")
 	}
 
 	baseWhere := strings.Join(conds, " AND ")
@@ -458,12 +485,12 @@ func (e *Engine) PrevNullRow(ctx context.Context, colName, rowFilter string, row
 	return rn.Int64, true, nil
 }
 
-// BuildNullFilter builds a SQL WHERE clause for rows with missing-like values in the given columns.
-func BuildNullFilter(colNames []string) string {
+// BuildMissingFilter builds a SQL WHERE clause for rows with missing-like values in the given columns.
+func BuildMissingFilter(colNames []string, mode missing.Mode) string {
 	if len(colNames) == 0 {
 		return ""
 	}
-	return "(" + buildNullFilter(colNames) + ")"
+	return "(" + buildMissingFilter(colNames, mode) + ")"
 }
 
 // Close closes the DuckDB connection.
@@ -513,183 +540,10 @@ func uniqueInternalRowIDCol(db *sql.DB, sourceExpr string) (string, error) {
 	}
 }
 
-func buildNullFilter(colNames []string) string {
+func buildMissingFilter(colNames []string, mode missing.Mode) string {
 	parts := make([]string, len(colNames))
 	for i, c := range colNames {
-		parts[i] = missing.SQLPredicate(quoteIdent(c))
+		parts[i] = mode.SQLPredicate(quoteIdent(c))
 	}
 	return strings.Join(parts, " OR ")
-}
-
-func parseNullFilterColumns(rowFilter string) ([]string, error) {
-	filter := strings.TrimSpace(rowFilter)
-	if filter == "" {
-		return nil, nil
-	}
-	if len(filter) < 2 || filter[0] != '(' || filter[len(filter)-1] != ')' {
-		return nil, fmt.Errorf("unsupported null row filter format")
-	}
-	inner := strings.TrimSpace(filter[1 : len(filter)-1])
-	if inner == "" {
-		return nil, nil
-	}
-
-	rawParts, err := splitByOrOutsideQuotedIdent(inner)
-	if err != nil {
-		return nil, fmt.Errorf("unsupported null row filter format")
-	}
-	colNames := make([]string, 0, len(rawParts))
-	for _, part := range rawParts {
-		part = strings.TrimSpace(stripOuterParens(part))
-		if part == "" {
-			return nil, fmt.Errorf("unsupported null row filter term")
-		}
-
-		ident, remainder, ok := splitLeadingQuotedIdent(part)
-		if !ok {
-			return nil, fmt.Errorf("unsupported null row filter identifier")
-		}
-		remainder = strings.TrimSpace(remainder)
-		if !strings.HasPrefix(remainder, "IS NULL") {
-			return nil, fmt.Errorf("unsupported null row filter term")
-		}
-		tail := remainder[len("IS NULL"):]
-		if tail != "" {
-			r, _ := utf8.DecodeRuneInString(tail)
-			if r == utf8.RuneError || !unicode.IsSpace(r) {
-				return nil, fmt.Errorf("unsupported null row filter term")
-			}
-		}
-		remainder = strings.TrimSpace(tail)
-
-		col, ok := unquoteIdent(ident)
-		if !ok {
-			return nil, fmt.Errorf("unsupported null row filter identifier")
-		}
-		if remainder != "" {
-			expected := "OR " + missing.SQLNaNPredicate(ident)
-			if remainder != expected {
-				return nil, fmt.Errorf("unsupported null row filter term")
-			}
-		}
-		colNames = append(colNames, col)
-	}
-	return colNames, nil
-}
-
-func splitByOrOutsideQuotedIdent(s string) ([]string, error) {
-	const sep = " OR "
-
-	var (
-		parts    []string
-		start    int
-		inQuotes bool
-		depth    int
-	)
-	for i := 0; i < len(s); i++ {
-		if s[i] == '"' {
-			if inQuotes && i+1 < len(s) && s[i+1] == '"' {
-				i++
-				continue
-			}
-			inQuotes = !inQuotes
-			continue
-		}
-		if inQuotes {
-			continue
-		}
-		switch s[i] {
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth < 0 {
-				return nil, fmt.Errorf("unbalanced parentheses")
-			}
-		}
-		if depth == 0 && i+len(sep) <= len(s) && s[i:i+len(sep)] == sep {
-			parts = append(parts, s[start:i])
-			i += len(sep) - 1
-			start = i + 1
-		}
-	}
-	if inQuotes || depth != 0 {
-		return nil, fmt.Errorf("unbalanced filter")
-	}
-	parts = append(parts, s[start:])
-	return parts, nil
-}
-
-func splitLeadingQuotedIdent(s string) (ident, remainder string, ok bool) {
-	if s == "" || s[0] != '"' {
-		return "", "", false
-	}
-	for i := 1; i < len(s); i++ {
-		if s[i] != '"' {
-			continue
-		}
-		if i+1 < len(s) && s[i+1] == '"' {
-			i++
-			continue
-		}
-		return s[:i+1], s[i+1:], true
-	}
-	return "", "", false
-}
-
-func stripOuterParens(s string) string {
-	s = strings.TrimSpace(s)
-	for len(s) >= 2 && s[0] == '(' && s[len(s)-1] == ')' {
-		depth := 0
-		inQuotes := false
-		matches := true
-		for i := 0; i < len(s); i++ {
-			ch := s[i]
-			if ch == '"' {
-				if inQuotes && i+1 < len(s) && s[i+1] == '"' {
-					i++
-					continue
-				}
-				inQuotes = !inQuotes
-				continue
-			}
-			if inQuotes {
-				continue
-			}
-			switch ch {
-			case '(':
-				depth++
-			case ')':
-				depth--
-				if depth < 0 {
-					return s
-				}
-				if depth == 0 && i != len(s)-1 {
-					matches = false
-				}
-			}
-		}
-		if inQuotes || depth != 0 || !matches {
-			return s
-		}
-		s = strings.TrimSpace(s[1 : len(s)-1])
-	}
-	return s
-}
-
-func unquoteIdent(ident string) (string, bool) {
-	if len(ident) < 2 || ident[0] != '"' || ident[len(ident)-1] != '"' {
-		return "", false
-	}
-	inner := ident[1 : len(ident)-1]
-	for i := 0; i < len(inner); i++ {
-		if inner[i] == '"' {
-			if i+1 < len(inner) && inner[i+1] == '"' {
-				i++
-				continue
-			}
-			return "", false
-		}
-	}
-	return strings.ReplaceAll(inner, `""`, `"`), true
 }

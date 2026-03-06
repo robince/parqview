@@ -23,16 +23,19 @@ func main() {
 			SELECT
 				i AS id,
 				'item_' || i::VARCHAR AS name,
-				round(random() * 100, 2) AS value,
-				CASE WHEN random() < 0.1 THEN NULL
-				     WHEN random() < 0.4 THEN 'A'
-				     WHEN random() < 0.7 THEN 'B'
+				CASE WHEN i % 11 = 0 THEN CAST('NaN' AS DOUBLE)
+				     WHEN i % 7 = 0 THEN NULL
+				     ELSE round(((i * 37) % 10000)::DOUBLE / 100, 2) END AS value,
+				CASE WHEN i % 10 = 0 THEN NULL
+				     WHEN i % 3 = 0 THEN 'A'
+				     WHEN i % 3 = 1 THEN 'B'
 				     ELSE 'C' END AS category,
-				CASE WHEN random() < 0.15 THEN NULL
-				     ELSE (random() * 100)::INTEGER END AS score,
-				CASE WHEN random() < 0.2 THEN NULL
-				     ELSE current_date - (random() * 365)::INTEGER END AS created_date,
-				random() < 0.5 AS active
+				CASE WHEN i % 15 = 0 THEN CAST('NaN' AS DOUBLE)
+				     WHEN i % 6 = 0 THEN NULL
+				     ELSE ((i * 17) % 101)::DOUBLE END AS score,
+				CASE WHEN i % 5 = 0 THEN NULL
+				     ELSE current_date - ((i % 365)::INTEGER) END AS created_date,
+				i % 2 = 0 AS active
 			FROM generate_series(1, 200) t(i)
 		) TO 'testdata/sample.parquet' (FORMAT PARQUET);
 	`)
@@ -47,8 +50,8 @@ func main() {
 			SELECT
 				i AS id,
 				'item_' || i::VARCHAR AS name,
-				round(random() * 100, 2) AS value,
-				CASE WHEN random() < 0.1 THEN NULL ELSE 'cat_' || (random()*5)::INTEGER::VARCHAR END AS category
+				round(((i * 23) % 5000)::DOUBLE / 100, 2) AS value,
+				CASE WHEN i % 9 = 0 THEN NULL ELSE 'cat_' || (i % 5)::VARCHAR END AS category
 			FROM generate_series(1, 50) t(i)
 		) TO 'testdata/sample.csv' (FORMAT CSV, HEADER);
 	`)
