@@ -93,7 +93,7 @@ var (
 
 	// Null indicator dots (pre-rendered strings, not reusable styles)
 	inlineNullDotW      = lipgloss.Width(" " + nullDotChar) // inline indicator is rendered as " " + dot
-	tableHeaderNullDotW = lipgloss.Width(lipgloss.NewStyle().Render(nullDotChar)) // all mode dots share the same rune; lipgloss.Width strips ANSI
+	tableHeaderNullDotW = lipgloss.Width(nullDotChar) // all mode dots share the same rune; lipgloss.Width strips ANSI
 
 	// Column list
 	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)

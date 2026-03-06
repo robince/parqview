@@ -2689,6 +2689,26 @@ func TestCycleMissingModeRebuildsActiveFilter(t *testing.T) {
 	}
 }
 
+func TestToggleMissingRowFilterDeactivationViaFKey(t *testing.T) {
+	m := newCmdTestModel()
+	m.focus = FocusTable
+	m.missingFilterActive = true
+	m.missingFilterCols = []string{"score"}
+	m.filterRows = 10
+
+	updated, _ := m.handleTableKey("f")
+	m = updated.(Model)
+	if m.missingFilterActive {
+		t.Fatal("expected filter to be deactivated after second f key press")
+	}
+	if m.missingFilterCols != nil {
+		t.Fatalf("expected missingFilterCols to be nil after deactivation, got %v", m.missingFilterCols)
+	}
+	if m.filterRows != -1 {
+		t.Fatalf("expected filterRows reset to -1 after deactivation, got %d", m.filterRows)
+	}
+}
+
 func TestViewTableTinyViewportDoesNotOverflowHeight(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a", "b"}

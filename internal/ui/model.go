@@ -341,6 +341,8 @@ func (m *Model) toggleMissingRowFilter() {
 		return
 	}
 
+	// Snapshot the current column set. If the user later changes column
+	// selection or showSelected, the active filter keeps its original columns.
 	selected := m.sel.Selected()
 	if len(selected) > 0 {
 		m.missingFilterCols = append([]string(nil), selected...)
@@ -2269,9 +2271,15 @@ func (m Model) profileNext() tea.Cmd {
 	cols := m.columns
 	summaries := m.summaries
 
-	// Find the next column that hasn't been profiled yet
+	// Find the next column that hasn't been profiled yet.
+	// Skip the detail column when the detail panel is open: loadDetail handles
+	// both ProfileBasic and ProfileDetail for it, avoiding double-profiling.
+	detailColOpen := m.overlay == OverlayDetail && m.detailCol != ""
 	var target string
 	for _, c := range cols {
+		if detailColOpen && c.Name == m.detailCol {
+			continue
+		}
 		if _, ok := summaries[c.Name]; !ok {
 			target = c.Name
 			break
