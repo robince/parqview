@@ -670,6 +670,11 @@ func TestPrevNullRowModeNullOnly(t *testing.T) {
 	if !wrapped {
 		t.Fatal("expected wrapped=true when searching before first row")
 	}
+
+	// Confirm the found row is actually NULL (not NaN or a regular value).
+	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(prev-1))
+	requirePreviewShape(t, rows, 1, 1)
+	requireNullCell(t, rows, 0, 0)
 }
 
 func TestNextPrevNullRowSingleMissingDoNotWrapToSameRow(t *testing.T) {

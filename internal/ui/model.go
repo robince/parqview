@@ -292,6 +292,13 @@ func (m Model) activeRowFilter() string {
 	return engine.BuildMissingFilter(m.missingFilterCols, m.missingMode)
 }
 
+func (m Model) activeFilterCols() []string {
+	if !m.missingFilterActive {
+		return nil
+	}
+	return m.missingFilterCols
+}
+
 func (m Model) toggleMissingModeCmd() tea.Cmd {
 	if m.engine == nil {
 		return nil
@@ -1007,7 +1014,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "t":
 			m.detailTab = (m.detailTab + 1) % 3
 		case "n":
-			return m, m.jumpToFirstNull(m.detailCol, m.missingFilterCols)
+			return m, m.jumpToFirstNull(m.detailCol, m.activeFilterCols())
 		case "m":
 			return m, m.cycleMissingMode()
 		}
@@ -2118,7 +2125,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		currentRow := int64(m.tableOffset + m.tableRowCursor)
-		return m, m.jumpToNextNullInColumn(colName, m.missingFilterCols, currentRow, false)
+		return m, m.jumpToNextNullInColumn(colName, m.activeFilterCols(), currentRow, false)
 	case "C":
 		colName := m.selectedColName
 		if colName == "" {
@@ -2126,7 +2133,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		currentRow := int64(m.tableOffset + m.tableRowCursor)
-		return m, m.jumpToNextNullInColumn(colName, m.missingFilterCols, currentRow, true)
+		return m, m.jumpToNextNullInColumn(colName, m.activeFilterCols(), currentRow, true)
 	}
 	return m, nil
 }
@@ -2459,6 +2466,9 @@ func (m Model) viewTopBar() string {
 	badge := missingModeBadge(m.missingMode, false)
 	if lipgloss.Width(badge) > contentW {
 		badge = missingModeBadge(m.missingMode, true)
+	}
+	if lipgloss.Width(badge) > contentW {
+		badge = ""
 	}
 	filterInfo := ""
 	if m.missingFilterActive {
