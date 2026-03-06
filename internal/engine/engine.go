@@ -194,6 +194,9 @@ func (e *Engine) ProfileBasic(ctx context.Context, colName string, mode missing.
 	if nProfiledNull > 0 {
 		nDistinct++
 	}
+	if nDistinct > nProfiled {
+		nDistinct = nProfiled
+	}
 
 	total := e.totalRows
 
@@ -224,7 +227,7 @@ func (e *Engine) ProfileDetail(ctx context.Context, colName string, summary *typ
 
 	// Top values for discrete-like columns
 	if summary.IsDiscrete {
-		displayExpr := fmt.Sprintf(`CASE WHEN %s IS NULL THEN 'NULL' ELSE %s::VARCHAR END`, col, col)
+		displayExpr := fmt.Sprintf(`CASE WHEN %s IS NULL THEN '(null)' ELSE %s::VARCHAR END`, col, col)
 		q := fmt.Sprintf(`SELECT %s AS value, count(*) AS cnt
 			FROM t WHERE %s
 			GROUP BY 1 ORDER BY cnt DESC, value ASC LIMIT 3`, displayExpr, profiledExpr)

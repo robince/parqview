@@ -531,7 +531,7 @@ func TestProfileBasicAndDetailModeNaNOnlyIncludesSQLNullCategorically(t *testing
 	if summary.Top3[0].Value != "alpha" || summary.Top3[0].Count != 2 {
 		t.Fatalf("unexpected first top value: %+v", summary.Top3[0])
 	}
-	if summary.Top3[1].Value != "NULL" || summary.Top3[1].Count != 1 {
+	if summary.Top3[1].Value != "(null)" || summary.Top3[1].Count != 1 {
 		t.Fatalf("unexpected second top value: %+v", summary.Top3[1])
 	}
 	if summary.Top3[2].Value != "beta" || summary.Top3[2].Count != 1 {
@@ -544,6 +544,36 @@ func TestProfileBasicAndDetailModeNaNOnlyIncludesSQLNullCategorically(t *testing
 		if tv.Value == "" || strings.EqualFold(strings.TrimSpace(tv.Value), "nan") {
 			t.Fatalf("unexpected missing-like top value under NaN-only mode: %+v", tv)
 		}
+	}
+}
+
+func TestProfileDetailModeNaNOnlyDisambiguatesSQLNullFromLiteralNULL(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "nan_only_literal_null.csv", "category\nNULL\n\nNULL\nalpha\nNaN\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "category", missing.ModeNaNOnly)
+	if err != nil {
+		t.Fatalf("ProfileBasic: %v", err)
+	}
+	if err := eng.ProfileDetail(bg(), "category", summary, "VARCHAR", missing.ModeNaNOnly); err != nil {
+		t.Fatalf("ProfileDetail: %v", err)
+	}
+	if len(summary.Top3) != 3 {
+		t.Fatalf("expected 3 top values, got %+v", summary.Top3)
+	}
+	if summary.Top3[0].Value != "NULL" || summary.Top3[0].Count != 2 {
+		t.Fatalf("unexpected first top value: %+v", summary.Top3[0])
+	}
+	if summary.Top3[1].Value != "(null)" || summary.Top3[1].Count != 1 {
+		t.Fatalf("unexpected second top value: %+v", summary.Top3[1])
+	}
+	if summary.Top3[2].Value != "alpha" || summary.Top3[2].Count != 1 {
+		t.Fatalf("unexpected third top value: %+v", summary.Top3[2])
 	}
 }
 
