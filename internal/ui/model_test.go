@@ -2105,23 +2105,27 @@ func TestProfileSummaryOrderingPreservesDetail(t *testing.T) {
 }
 
 func TestViewDetailNumericColumnWithNoProfiledValuesShowsModeAwareMessage(t *testing.T) {
-	m := newTestModel()
-	m.detailCol = "score"
-	m.detailTab = 1
-	m.columns = []types.ColumnInfo{{Name: "score", DuckType: "DOUBLE"}}
-	m.summaries["score"] = &types.ColumnSummary{
-		Loaded:       true,
-		DetailLoaded: true,
-		Numeric:      nil,
-		Hist:         nil,
-	}
+	for _, detailTab := range []int{1, 2} {
+		t.Run(fmt.Sprintf("tab_%d", detailTab), func(t *testing.T) {
+			m := newTestModel()
+			m.detailCol = "score"
+			m.detailTab = detailTab
+			m.columns = []types.ColumnInfo{{Name: "score", DuckType: "DOUBLE"}}
+			m.summaries["score"] = &types.ColumnSummary{
+				Loaded:       true,
+				DetailLoaded: true,
+				Numeric:      nil,
+				Hist:         nil,
+			}
 
-	out := m.viewDetail(60)
-	if !strings.Contains(out, "No numeric values under current missing mode") {
-		t.Fatalf("expected mode-aware empty numeric message, got %q", out)
-	}
-	if strings.Contains(out, "Not a numeric column") {
-		t.Fatalf("expected numeric-column empty-state message, got %q", out)
+			out := m.viewDetail(60)
+			if !strings.Contains(out, "No numeric values under current missing mode") {
+				t.Fatalf("expected mode-aware empty numeric message, got %q", out)
+			}
+			if strings.Contains(out, "Not a numeric column") {
+				t.Fatalf("expected numeric-column empty-state message, got %q", out)
+			}
+		})
 	}
 }
 
