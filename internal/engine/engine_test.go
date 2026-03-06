@@ -713,7 +713,11 @@ func TestPrevNullRowModeNullOnly(t *testing.T) {
 	}
 
 	// Confirm the found row is actually NULL (not NaN or a regular value).
-	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(prev-1))
+	offset, err := eng.OffsetForRowID(ctx, prev, nil, missing.ModeNullOnly)
+	if err != nil {
+		t.Fatalf("OffsetForRowID: %v", err)
+	}
+	rows := mustPreview(t, eng, []string{"score"}, "", 1, int(offset))
 	requirePreviewShape(t, rows, 1, 1)
 	requireNullCell(t, rows, 0, 0)
 }
