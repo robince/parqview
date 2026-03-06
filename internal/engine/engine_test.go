@@ -531,6 +531,7 @@ func TestProfileBasicAndDetailModeNaNOnlyIncludesSQLNullCategorically(t *testing
 	if summary.Top3[0].Value != "alpha" || summary.Top3[0].Count != 2 {
 		t.Fatalf("unexpected first top value: %+v", summary.Top3[0])
 	}
+	// Ties are ordered by value ascending, so the ASCII string sorts before the Unicode null sentinel.
 	if summary.Top3[1].Value != "beta" || summary.Top3[1].Count != 1 {
 		t.Fatalf("unexpected second top value: %+v", summary.Top3[1])
 	}
