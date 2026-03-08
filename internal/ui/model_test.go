@@ -1526,6 +1526,57 @@ func TestHandleTableKeyWOpensJSONReaderWithWrapOffByDefault(t *testing.T) {
 	}
 }
 
+func TestHandleTableKeyWFallsBackToFitWidthWhenCurrentRowHasNoCell(t *testing.T) {
+	m := newTestModel()
+	m.width = 90
+	m.height = 12
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+	m.tableData = [][]string{
+		{"1"},
+		{"2", strings.Repeat("this long row should not block fit width ", 2)},
+	}
+
+	wantWidth, ok := m.fitWidthForActiveColumn()
+	if !ok {
+		t.Fatal("expected fit width to be computable")
+	}
+
+	updated, cmd := m.handleTableKey("w")
+	if cmd != nil {
+		t.Fatalf("expected no load command for w, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.overlay != OverlayNone {
+		t.Fatalf("expected fit-width fallback instead of reader, got overlay %v", m.overlay)
+	}
+	if got := m.tableColWidths["body"]; got != wantWidth {
+		t.Fatalf("expected override width %d for body, got %d", wantWidth, got)
+	}
+}
+
+func TestHandleTableKeyWUsesHeaderFitWidthWhenNoRowsVisible(t *testing.T) {
+	m := newTestModel()
+	m.width = 90
+	m.height = 12
+	m.tableCols = []string{"body"}
+	m.selectedColName = "body"
+
+	wantWidth, ok := m.fitWidthForActiveColumn()
+	if !ok {
+		t.Fatal("expected header-only fit width to be computable")
+	}
+
+	updated, _ := m.handleTableKey("w")
+	m = updated.(Model)
+	if m.overlay != OverlayNone {
+		t.Fatalf("expected no reader overlay without visible rows, got %v", m.overlay)
+	}
+	if got := m.tableColWidths["body"]; got != wantWidth {
+		t.Fatalf("expected override width %d for body, got %d", wantWidth, got)
+	}
+}
+
 func TestReaderKeepsRowNavigationExplicitAndClampsOffsets(t *testing.T) {
 	m := newTestModel()
 	m.width = 80
@@ -1565,6 +1616,40 @@ func TestReaderKeepsRowNavigationExplicitAndClampsOffsets(t *testing.T) {
 	}
 	if m.tableRowCursor != 1 {
 		t.Fatalf("expected table row cursor preserved on close, got %d", m.tableRowCursor)
+	}
+}
+
+func TestReaderUsesLoadedPreviewOffsetWhenPagingPastVisibleWindow(t *testing.T) {
+	m := newCmdTestModel()
+	m.width = 80
+	m.height = 12
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+
+	visibleRows := m.visibleTableRows()
+	if visibleRows < 1 {
+		t.Fatal("expected at least one visible row")
+	}
+
+	rows := make([][]string, visibleRows+2)
+	for i := range rows {
+		rows[i] = []string{fmt.Sprintf("%d", i+1), fmt.Sprintf("row-%d", i+1)}
+	}
+	m.totalRows = int64(len(rows) + 1)
+	m.tableData = rows
+	m.tableRowCursor = visibleRows - 1
+	m.openCellReader("body", rows[m.tableRowCursor][1])
+
+	updated, cmd := m.handleReaderKey("n")
+	if cmd == nil {
+		t.Fatal("expected preview reload command when moving past visible window")
+	}
+	m = updated.(Model)
+	if m.readerAbsRow != visibleRows {
+		t.Fatalf("expected reader absolute row %d, got %d", visibleRows, m.readerAbsRow)
+	}
+	if got, ok := m.readerCurrentValue(); !ok || got != fmt.Sprintf("row-%d", visibleRows+1) {
+		t.Fatalf("expected reader to show next row from loaded preview, got %q ok=%v", got, ok)
 	}
 }
 

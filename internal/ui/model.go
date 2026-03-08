@@ -62,6 +62,7 @@ type previewDoneMsg struct {
 	colNames   []string
 	totalRows  int64
 	filterRows int64
+	offset     int
 	seq        uint64
 	token      uint64
 	err        error
@@ -133,6 +134,7 @@ type Model struct {
 
 	// Table state
 	tableData           [][]string
+	tableDataOffset     int
 	tableRowHasMissing  []bool
 	tableCols           []string // column names in current projection
 	tableOffset         int      // row offset for pagination
@@ -249,6 +251,7 @@ func (m *Model) resetLoadedDataState() {
 	m.colCursor = 0
 	m.selectedColName = ""
 	m.tableData = nil
+	m.tableDataOffset = 0
 	m.tableRowHasMissing = nil
 	m.tableCols = nil
 	m.tableOffset = 0
@@ -887,6 +890,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
 		} else {
 			m.tableData = msg.rows
+			m.tableDataOffset = msg.offset
 			m.tableRowHasMissing = rowHasMissingFlags(msg.rows, m.missingMode)
 			m.tableCols = msg.colNames
 			m.reconcileSelectedColNameWithTableCols()
@@ -2006,10 +2010,7 @@ func (m Model) fitWidthForActiveColumn() (int, bool) {
 	if colAreaWidth < tableColMinWidth {
 		return 0, false
 	}
-	maxValueW, _, ok := m.visibleColumnDisplayStats(colIdx)
-	if !ok {
-		return 0, false
-	}
+	maxValueW, _, _ := m.visibleColumnDisplayStats(colIdx)
 	headerW := lipgloss.Width(m.tableCols[colIdx]) + 1
 	if s, ok := m.summaries[m.tableCols[colIdx]]; ok && s.Loaded && s.MissingCount > 0 {
 		headerW += tableHeaderNullDotWidth()
@@ -2028,8 +2029,8 @@ func (m Model) currentAbsoluteRow() int {
 	return m.tableOffset + m.tableRowCursor
 }
 
-func (m Model) valueForVisibleCell(colName string) (string, bool) {
-	rowIdx := m.tableRowCursor
+func (m Model) valueForAbsoluteCell(absRow int, colName string) (string, bool) {
+	rowIdx := absRow - m.tableDataOffset
 	if rowIdx < 0 || rowIdx >= len(m.tableData) {
 		return "", false
 	}
@@ -2041,6 +2042,10 @@ func (m Model) valueForVisibleCell(colName string) (string, bool) {
 		return "", false
 	}
 	return m.tableData[rowIdx][colIdx], true
+}
+
+func (m Model) valueForVisibleCell(colName string) (string, bool) {
+	return m.valueForAbsoluteCell(m.currentAbsoluteRow(), colName)
 }
 
 func (m Model) shouldOpenReaderForActiveColumn() bool {
@@ -2101,14 +2106,11 @@ func (m *Model) toggleActiveColumnFitWidth() {
 		m.statusMsg = fmt.Sprintf("Column %q not in projection", colName)
 		return
 	}
-	value, ok := m.valueForVisibleCell(colName)
-	if !ok {
-		m.statusMsg = "No data visible for reader"
-		return
-	}
 	if m.shouldOpenReaderForActiveColumn() {
-		m.openCellReader(colName, value)
-		return
+		if value, ok := m.valueForVisibleCell(colName); ok {
+			m.openCellReader(colName, value)
+			return
+		}
 	}
 	if _, ok := m.tableColWidths[colName]; ok {
 		delete(m.tableColWidths, colName)
@@ -2302,9 +2304,9 @@ func (m Model) readerBodyHeight() int {
 func (m Model) readerCurrentValue() (string, bool) {
 	colName := m.readerCol
 	if colName == "" {
-		colName = m.selectedColName
+		return m.valueForVisibleCell(m.selectedColName)
 	}
-	return m.valueForVisibleCell(colName)
+	return m.valueForAbsoluteCell(m.readerAbsRow, colName)
 }
 
 func (m Model) readerRenderedLines(bodyW int) []string {
@@ -2604,6 +2606,7 @@ func (m Model) loadPreviewCmd(seq uint64) tea.Cmd {
 			colNames:   colNames,
 			totalRows:  totalRows,
 			filterRows: filterRows,
+			offset:     offset,
 			seq:        seq,
 			token:      m.dataToken,
 		}
