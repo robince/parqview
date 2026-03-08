@@ -248,6 +248,209 @@ func TestOpenCSV(t *testing.T) {
 	requireOpenHasData(t, eng)
 }
 
+func TestSupportedExtensions(t *testing.T) {
+	want := []string{".parquet", ".csv", ".json", ".jsonl", ".ndjson"}
+	if got := SupportedExtensions(); !slices.Equal(got, want) {
+		t.Fatalf("SupportedExtensions() = %v, want %v", got, want)
+	}
+	for _, path := range []string{"data.parquet", "data.csv", "data.json", "data.jsonl", "data.ndjson"} {
+		if !IsSupportedDataFile(path) {
+			t.Fatalf("expected %q to be supported", path)
+		}
+	}
+	if IsSupportedDataFile("data.txt") {
+		t.Fatal("expected .txt to be unsupported")
+	}
+}
+
+func TestOpenJSONTopLevelArray(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteFile(t, dir, "sample.json", `[{"id":1,"name":"alpha"},{"id":2,"name":"beta"}]`)
+
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	requireOpenHasData(t, eng)
+	if eng.TotalRows() != 2 {
+		t.Fatalf("expected 2 rows, got %d", eng.TotalRows())
+	}
+	if got := allColumnNames(eng); !slices.Equal(got, []string{"id", "name"}) {
+		t.Fatalf("unexpected columns: %v", got)
+	}
+	rows := mustPreview(t, eng, []string{"id", "name"}, "", 2, 0)
+	requirePreviewShape(t, rows, 2, 2)
+	if rows[0][0] != "1" || rows[0][1] != "alpha" {
+		t.Fatalf("unexpected first row: %v", rows[0])
+	}
+}
+
+func TestOpenJSONTopLevelObject(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteFile(t, dir, "single.json", `{"id":7,"name":"solo"}`)
+
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	if eng.TotalRows() != 1 {
+		t.Fatalf("expected 1 row, got %d", eng.TotalRows())
+	}
+	rows := mustPreview(t, eng, []string{"id", "name"}, "", 1, 0)
+	requirePreviewShape(t, rows, 1, 2)
+	if rows[0][0] != "7" || rows[0][1] != "solo" {
+		t.Fatalf("unexpected row: %v", rows[0])
+	}
+}
+
+func TestOpenJSONLAndNDJSON(t *testing.T) {
+	dir := t.TempDir()
+	content := "{\"id\":1,\"name\":\"alpha\"}\n{\"id\":2,\"name\":\"beta\"}\n"
+
+	tests := []struct {
+		name string
+		file string
+	}{
+		{name: "jsonl", file: "sample.jsonl"},
+		{name: "ndjson", file: "sample.ndjson"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := mustWriteFile(t, dir, tc.file, content)
+			eng, err := New(path)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			t.Cleanup(func() { _ = eng.Close() })
+
+			if eng.TotalRows() != 2 {
+				t.Fatalf("expected 2 rows, got %d", eng.TotalRows())
+			}
+			rows := mustPreview(t, eng, []string{"id", "name"}, "", 2, 0)
+			requirePreviewShape(t, rows, 2, 2)
+			if rows[1][0] != "2" || rows[1][1] != "beta" {
+				t.Fatalf("unexpected second row: %v", rows[1])
+			}
+		})
+	}
+}
+
+func TestOpenJSONMissingFieldsProfileBasic(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteFile(t, dir, "missing.json", `[{"id":1,"city":"Paris"},{"id":2},{"id":3,"city":null}]`)
+
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	summary, err := eng.ProfileBasic(bg(), "city", missing.ModeNullAndNaN)
+	if err != nil {
+		t.Fatalf("ProfileBasic(city): %v", err)
+	}
+	if summary.MissingCount != 2 {
+		t.Fatalf("expected city MissingCount=2, got %d", summary.MissingCount)
+	}
+	rows := mustPreview(t, eng, []string{"city"}, "", 3, 0)
+	requirePreviewShape(t, rows, 3, 1)
+	requireNullCell(t, rows[1:2], 0)
+	requireNullCell(t, rows[2:3], 0)
+}
+
+func TestOpenJSONNestedFieldsPreviewAndProfile(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteFile(t, dir, "nested.json", `[{"id":1,"obj":{"x":10},"arr":[1,2]},{"id":2,"obj":null,"arr":null}]`)
+
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	colTypes := make(map[string]string, len(eng.Columns()))
+	for _, col := range eng.Columns() {
+		colTypes[col.Name] = col.DuckType
+	}
+	if got := colTypes["obj"]; !strings.Contains(got, "STRUCT") {
+		t.Fatalf("expected obj to be STRUCT-like, got %q", got)
+	}
+	if got := colTypes["arr"]; !strings.Contains(got, "[]") && !strings.Contains(got, "LIST") {
+		t.Fatalf("expected arr to be LIST-like, got %q", got)
+	}
+
+	rows := mustPreview(t, eng, []string{"obj", "arr"}, "", 2, 0)
+	requirePreviewShape(t, rows, 2, 2)
+	if rows[0][0] != "map[x:10]" {
+		t.Fatalf("unexpected struct preview rendering: %q", rows[0][0])
+	}
+	if rows[0][1] != "[1 2]" {
+		t.Fatalf("unexpected list preview rendering: %q", rows[0][1])
+	}
+	requireNullCell(t, rows[1:2], 0)
+	requireNullCell(t, rows[1:2], 1)
+
+	for _, colName := range []string{"obj", "arr"} {
+		colType := colTypes[colName]
+		for _, mode := range []missing.Mode{missing.ModeNullAndNaN, missing.ModeNullOnly, missing.ModeNaNOnly} {
+			summary, err := eng.ProfileBasic(bg(), colName, mode)
+			if err != nil {
+				t.Fatalf("ProfileBasic(%s, %s): %v", colName, mode.Label(), err)
+			}
+			if err := eng.ProfileDetail(bg(), colName, summary, colType, mode); err != nil {
+				t.Fatalf("ProfileDetail(%s, %s): %v", colName, mode.Label(), err)
+			}
+			if !summary.DetailLoaded {
+				t.Fatalf("expected DetailLoaded for %s in mode %s", colName, mode.Label())
+			}
+			for _, tv := range summary.Top3 {
+				if tv.Value == "" {
+					t.Fatalf("expected non-empty top-value rendering for %s in mode %s", colName, mode.Label())
+				}
+			}
+		}
+	}
+}
+
+func TestOpenJSONScalarRootUsesDuckDBDefaultHandling(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteFile(t, dir, "scalar.json", `123`)
+
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	if eng.TotalRows() != 1 {
+		t.Fatalf("expected 1 row, got %d", eng.TotalRows())
+	}
+	if got := allColumnNames(eng); !slices.Equal(got, []string{"json"}) {
+		t.Fatalf("unexpected scalar-root columns: %v", got)
+	}
+}
+
+func TestOpenUnsupportedExtension(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteFile(t, dir, "notes.txt", "hello")
+
+	eng, err := New(path)
+	if eng != nil {
+		t.Fatalf("expected nil engine for unsupported extension, got %#v", eng)
+	}
+	if err == nil {
+		t.Fatal("expected unsupported extension error")
+	}
+	if got := err.Error(); got != "unsupported file extension: .txt" {
+		t.Fatalf("unexpected error: %q", got)
+	}
+}
+
 func TestIsNumericType(t *testing.T) {
 	if isNumericType("INTERVAL") {
 		t.Fatal("INTERVAL should not be treated as numeric")

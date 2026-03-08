@@ -94,12 +94,18 @@ func requireNaNCell(t *testing.T, rows [][]string, col int) {
 	}
 }
 
-// mustWriteCSV writes CSV content to a temp file and returns the path.
-func mustWriteCSV(t *testing.T, dir, name, content string) string {
+// mustWriteFile writes test content to a temp file and returns the path.
+func mustWriteFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write csv: %v", err)
+		t.Fatalf("write %s: %v", name, err)
 	}
 	return path
+}
+
+// mustWriteCSV writes CSV content to a temp file and returns the path.
+func mustWriteCSV(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	return mustWriteFile(t, dir, name, content)
 }

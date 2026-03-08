@@ -211,9 +211,13 @@ func NewModel(eng *engine.Engine, fileName, launchDir string) Model {
 		m.applyEngine(eng, fileName)
 	} else {
 		m.updateFilteredCols()
-		m.statusMsg = "No file loaded (Ctrl+O to open .parquet/.csv)"
+		m.statusMsg = fmt.Sprintf("No file loaded (Ctrl+O to open %s)", supportedDataFileTypes())
 	}
 	return m
+}
+
+func supportedDataFileTypes() string {
+	return strings.Join(engine.SupportedExtensions(), "/")
 }
 
 func (m *Model) Close() error {
@@ -1244,7 +1248,7 @@ func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Intentionally handled by textinput.Update below when a query is present.
 	case "enter":
 		typed := strings.TrimSpace(m.pickerInput.Value())
-		if typed != "" && (looksLikePathInput(typed) || isSupportedDataFile(typed)) {
+		if typed != "" && (looksLikePathInput(typed) || engine.IsSupportedDataFile(typed)) {
 			targetPath, targetIsDir, err := m.resolvePickerInputTarget(typed)
 			if err == nil {
 				if targetIsDir {
@@ -1313,7 +1317,7 @@ func (m Model) resolvePickerInputTarget(input string) (path string, isDir bool, 
 	if info.IsDir() {
 		return candidate, true, nil
 	}
-	if !isSupportedDataFile(candidate) {
+	if !engine.IsSupportedDataFile(candidate) {
 		return "", false, fmt.Errorf("unsupported file type: %s", filepath.Ext(candidate))
 	}
 	return candidate, false, nil
@@ -1405,7 +1409,7 @@ func (m *Model) refreshPickerItems() {
 				dirs = append(dirs, filePickerItem{name: name, path: fullPath, isDir: true})
 				continue
 			}
-			if isSupportedDataFile(name) {
+			if engine.IsSupportedDataFile(name) {
 				files = append(files, filePickerItem{name: name, path: fullPath})
 			}
 		}
@@ -1461,7 +1465,7 @@ func (m Model) pathQueryItems(query string) ([]filePickerItem, error) {
 			dirs = append(dirs, filePickerItem{name: name, path: fullPath, isDir: true})
 			continue
 		}
-		if isSupportedDataFile(name) {
+		if engine.IsSupportedDataFile(name) {
 			files = append(files, filePickerItem{name: name, path: fullPath})
 		}
 	}
@@ -1544,15 +1548,6 @@ func (m Model) filterPickerItems(items []filePickerItem, query string) []filePic
 		filtered = append(filtered, s.item)
 	}
 	return filtered
-}
-
-func isSupportedDataFile(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".parquet", ".csv":
-		return true
-	default:
-		return false
-	}
 }
 
 func fuzzyFileScore(candidate, query string) (int, bool) {
@@ -3024,7 +3019,7 @@ func (m Model) viewCellReader(w, h int) string {
 func (m Model) viewTable(w, h int) string {
 	if len(m.tableCols) == 0 {
 		if m.engine == nil {
-			return "No file loaded. Press Ctrl+O to open .parquet/.csv"
+			return fmt.Sprintf("No file loaded. Press Ctrl+O to open %s", supportedDataFileTypes())
 		}
 		return "No data loaded"
 	}
@@ -3442,7 +3437,7 @@ func (m Model) viewFilePicker() string {
 		start = m.pickerCursor - listHeight + 1
 	}
 	if len(m.pickerItems) == 0 {
-		lines = append(lines, detailLabelStyle.Render("No matching folders or .parquet/.csv files"))
+		lines = append(lines, detailLabelStyle.Render(fmt.Sprintf("No matching folders or %s files", supportedDataFileTypes())))
 	} else {
 		for i := start; i < len(m.pickerItems) && i < start+listHeight; i++ {
 			item := m.pickerItems[i]
@@ -3480,7 +3475,7 @@ func (m Model) viewHelp() string {
 	help := []struct{ key, desc string }{
 		{"Tab", "Switch focus (Table ↔ Columns)"},
 		{"q / Ctrl+C", "Quit"},
-		{"Ctrl+O", "Open file picker (.parquet/.csv)"},
+		{"Ctrl+O", fmt.Sprintf("Open file picker (%s)", supportedDataFileTypes())},
 		{"Ctrl+L", "Redraw screen"},
 		{"?", "Toggle help"},
 		{"m", "Cycle missing mode"},
