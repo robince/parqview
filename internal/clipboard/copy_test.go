@@ -51,7 +51,7 @@ func TestCopyIntegration(t *testing.T) {
 	previous, err := systemclipboard.ReadAll()
 	if err == nil {
 		t.Cleanup(func() {
-			_ = Copy(previous)
+			_ = systemclipboard.WriteAll(previous)
 		})
 	}
 
