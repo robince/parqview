@@ -18,9 +18,10 @@ var supportedDataSourceFormats = []dataSourceFormat{
 	{extensions: []string{".jsonl", ".ndjson"}, readerExpr: "read_ndjson_auto"},
 }
 
-// SupportedExtensions returns the extensions recognized by the engine.
+// SupportedExtensions returns the extensions recognized by the engine in
+// display/selection order.
 func SupportedExtensions() []string {
-	var exts []string
+	exts := make([]string, 0, len(supportedDataSourceFormats)+1)
 	for _, format := range supportedDataSourceFormats {
 		exts = append(exts, format.extensions...)
 	}

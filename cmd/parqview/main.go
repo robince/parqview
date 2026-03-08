@@ -64,8 +64,9 @@ func main() {
 }
 
 func supportedFileArgPattern() string {
-	parts := make([]string, 0, len(engine.SupportedExtensions()))
-	for _, ext := range engine.SupportedExtensions() {
+	exts := engine.SupportedExtensions()
+	parts := make([]string, 0, len(exts))
+	for _, ext := range exts {
 		parts = append(parts, "file"+ext)
 	}
 	return strings.Join(parts, "|")
