@@ -2114,6 +2114,10 @@ func (m *Model) toggleActiveColumnFitWidth() {
 		m.statusMsg = fmt.Sprintf("Column %q not in projection", colName)
 		return
 	}
+	if value, ok := m.valueForVisibleCell(colName); ok && m.shouldOpenReaderForActiveColumn() {
+		m.openCellReader(colName, value)
+		return
+	}
 	if _, ok := m.tableColWidths[colName]; ok {
 		delete(m.tableColWidths, colName)
 		m.statusMsg = fmt.Sprintf("Fit width off for %q", colName)
