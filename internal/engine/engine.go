@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/robince/parqview/internal/missing"
@@ -25,11 +24,6 @@ func New(path string) (*Engine, error) {
 	db, err := sql.Open("duckdb", "")
 	if err != nil {
 		return nil, fmt.Errorf("open duckdb: %w", err)
-	}
-
-	if err := ensureFormatSupport(db, path); err != nil {
-		_ = db.Close()
-		return nil, err
 	}
 
 	sourceExpr, err := sourceExprForPath(path)
@@ -69,47 +63,6 @@ func New(path string) (*Engine, error) {
 	}
 
 	return e, nil
-}
-
-func ensureFormatSupport(db *sql.DB, path string) error {
-	format, ok := sourceFormatForPath(path)
-	if !ok {
-		return fmt.Errorf("unsupported file extension: %s", strings.ToLower(filepath.Ext(path)))
-	}
-	if !format.needsJSON {
-		return nil
-	}
-	if err := ensureJSONSupport(db); err != nil {
-		return fmt.Errorf("enable duckdb json support: %w", err)
-	}
-	return nil
-}
-
-func ensureJSONSupport(db *sql.DB) error {
-	_, err := db.Exec("LOAD json")
-	if err == nil {
-		return nil
-	}
-	for _, fn := range []string{"read_json_auto", "read_ndjson_auto"} {
-		ok, checkErr := duckDBFunctionExists(db, fn)
-		if checkErr != nil {
-			return fmt.Errorf("load json extension: %w", checkErr)
-		}
-		if !ok {
-			return fmt.Errorf("load json extension: function %q not found", fn)
-		}
-	}
-	return nil
-}
-
-func duckDBFunctionExists(db *sql.DB, name string) (bool, error) {
-	var ok bool
-	err := db.QueryRow(`
-		SELECT count(*) > 0
-		FROM duckdb_functions()
-		WHERE function_name = ?
-	`, name).Scan(&ok)
-	return ok, err
 }
 
 func (e *Engine) loadSchema() error {
