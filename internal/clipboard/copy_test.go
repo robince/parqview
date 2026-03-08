@@ -3,6 +3,8 @@ package clipboard
 import (
 	"errors"
 	"testing"
+
+	systemclipboard "github.com/atotto/clipboard"
 )
 
 func TestCopyWritesClipboardText(t *testing.T) {
@@ -40,7 +42,17 @@ func TestCopyIntegration(t *testing.T) {
 		t.Skip("skipping clipboard integration test in short mode")
 	}
 
-	if err := Copy("parqview clipboard integration test"); err != nil {
+	const want = "parqview clipboard integration test"
+
+	if err := Copy(want); err != nil {
 		t.Skipf("clipboard unavailable: %v", err)
+	}
+
+	got, err := systemclipboard.ReadAll()
+	if err != nil {
+		t.Skipf("clipboard unavailable for read: %v", err)
+	}
+	if got != want {
+		t.Fatalf("clipboard text = %q, want %q", got, want)
 	}
 }
