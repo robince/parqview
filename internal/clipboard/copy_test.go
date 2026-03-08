@@ -2,6 +2,7 @@ package clipboard
 
 import (
 	"errors"
+	"os"
 	"testing"
 
 	systemclipboard "github.com/atotto/clipboard"
@@ -41,8 +42,18 @@ func TestCopyIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping clipboard integration test in short mode")
 	}
+	if os.Getenv("PARQVIEW_CLIPBOARD_INTEGRATION") == "" {
+		t.Skip("set PARQVIEW_CLIPBOARD_INTEGRATION=1 to run clipboard integration test")
+	}
 
 	const want = "parqview clipboard integration test"
+
+	previous, err := systemclipboard.ReadAll()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = Copy(previous)
+		})
+	}
 
 	if err := Copy(want); err != nil {
 		t.Skipf("clipboard unavailable: %v", err)
