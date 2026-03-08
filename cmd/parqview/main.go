@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	_ "github.com/marcboeker/go-duckdb"
@@ -20,7 +21,7 @@ func main() {
 	}
 
 	if len(os.Args) > 2 {
-		fmt.Fprintf(os.Stderr, "Usage: parqview [file.parquet|file.csv]\n")
+		fmt.Fprintf(os.Stderr, "Usage: parqview [%s]\n", supportedFileArgPattern())
 		fmt.Fprintf(os.Stderr, "       parqview --version\n")
 		os.Exit(1)
 	}
@@ -60,6 +61,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func supportedFileArgPattern() string {
+	parts := make([]string, 0, len(engine.SupportedExtensions()))
+	for _, ext := range engine.SupportedExtensions() {
+		parts = append(parts, "file"+ext)
+	}
+	return strings.Join(parts, "|")
 }
 
 func runApp(eng *engine.Engine, fileName, cwd string) error {

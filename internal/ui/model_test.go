@@ -3452,6 +3452,9 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 	if !strings.Contains(help, "Cycle missing mode") {
 		t.Fatalf("expected help to include missing mode binding, got %q", help)
 	}
+	if !strings.Contains(help, supportedDataFileTypes()) {
+		t.Fatalf("expected help to mention supported formats %q, got %q", supportedDataFileTypes(), help)
+	}
 
 	m.focus = FocusTable
 	bottom := m.viewBottomBar()
@@ -3500,6 +3503,9 @@ func TestNewModelWithoutFileStartsEmpty(t *testing.T) {
 	if m.statusMsg == "" || !strings.Contains(m.statusMsg, "Ctrl+O") {
 		t.Fatalf("expected startup status to mention Ctrl+O, got %q", m.statusMsg)
 	}
+	if !strings.Contains(m.statusMsg, supportedDataFileTypes()) {
+		t.Fatalf("expected startup status to mention supported formats %q, got %q", supportedDataFileTypes(), m.statusMsg)
+	}
 }
 
 func TestFilePickerListsOnlyDirectoriesAndSupportedFiles(t *testing.T) {
@@ -3507,7 +3513,7 @@ func TestFilePickerListsOnlyDirectoriesAndSupportedFiles(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "nested"), 0o755); err != nil {
 		t.Fatalf("mkdir nested: %v", err)
 	}
-	for _, name := range []string{"a.parquet", "b.csv", "c.txt"} {
+	for _, name := range []string{"a.parquet", "b.csv", "c.json", "d.jsonl", "e.ndjson", "f.txt"} {
 		if err := os.WriteFile(filepath.Join(root, name), []byte("x"), 0o644); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
@@ -3525,13 +3531,13 @@ func TestFilePickerListsOnlyDirectoriesAndSupportedFiles(t *testing.T) {
 		got = append(got, item.name)
 	}
 
-	for _, want := range []string{"nested", "a.parquet", "b.csv"} {
+	for _, want := range []string{"nested", "a.parquet", "b.csv", "c.json", "d.jsonl", "e.ndjson"} {
 		if !slices.Contains(got, want) {
 			t.Fatalf("expected picker to include %q, got %v", want, got)
 		}
 	}
-	if slices.Contains(got, "c.txt") {
-		t.Fatalf("expected picker to exclude unsupported file c.txt, got %v", got)
+	if slices.Contains(got, "f.txt") {
+		t.Fatalf("expected picker to exclude unsupported file f.txt, got %v", got)
 	}
 }
 
@@ -3543,7 +3549,7 @@ func TestFilePickerSupportsNavigationAndFuzzyFilter(t *testing.T) {
 	}
 	for _, path := range []string{
 		filepath.Join(root, "alpha_data.parquet"),
-		filepath.Join(nested, "inside.csv"),
+		filepath.Join(nested, "inside.json"),
 	} {
 		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
 			t.Fatalf("write %s: %v", path, err)
@@ -3578,14 +3584,14 @@ func TestFilePickerSupportsNavigationAndFuzzyFilter(t *testing.T) {
 
 	foundFile := false
 	for i, item := range m.pickerItems {
-		if !item.isDir && item.name == "inside.csv" {
+		if !item.isDir && item.name == "inside.json" {
 			m.pickerCursor = i
 			foundFile = true
 			break
 		}
 	}
 	if !foundFile {
-		t.Fatalf("expected nested picker entries to include inside.csv, got %+v", m.pickerItems)
+		t.Fatalf("expected nested picker entries to include inside.json, got %+v", m.pickerItems)
 	}
 
 	updated, cmd = m.handleFilePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -3603,15 +3609,15 @@ func TestFilePickerPathInputExpandsTilde(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	target := filepath.Join(home, "from_go_home.csv")
+	target := filepath.Join(home, "from_go_home.json")
 	if err := os.WriteFile(target, []byte("x"), 0o644); err != nil {
 		t.Fatalf("write target: %v", err)
 	}
 
 	m := NewModel(nil, "", root)
 	m.openFilePicker()
-	m.pickerInput.SetValue("~/from_go_home.csv")
-	m.pickerQuery = "~/from_go_home.csv"
+	m.pickerInput.SetValue("~/from_go_home.json")
+	m.pickerQuery = "~/from_go_home.json"
 
 	updated, cmd := m.handleFilePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
@@ -3739,9 +3745,9 @@ func TestOpenFileDoneIgnoresStaleRequest(t *testing.T) {
 	m := NewModel(nil, "", t.TempDir())
 	m.openReqID = 2
 
-	currentPath := filepath.Join(t.TempDir(), "new.csv")
-	if err := os.WriteFile(currentPath, []byte("a\n1\n"), 0o644); err != nil {
-		t.Fatalf("write csv: %v", err)
+	currentPath := filepath.Join(t.TempDir(), "new.json")
+	if err := os.WriteFile(currentPath, []byte(`[{"a":1}]`), 0o644); err != nil {
+		t.Fatalf("write json: %v", err)
 	}
 
 	currentEngine, err := engine.New(currentPath)
@@ -3760,15 +3766,15 @@ func TestOpenFileDoneIgnoresStaleRequest(t *testing.T) {
 	if m.engine != currentEngine {
 		t.Fatal("expected current request engine to be applied")
 	}
-	if m.fileName != "new.csv" {
+	if m.fileName != "new.json" {
 		t.Fatalf("expected current request file name to be applied, got %q", m.fileName)
 	}
-	if got := m.statusMsg; got != "Opened new.csv" {
+	if got := m.statusMsg; got != "Opened new.json" {
 		t.Fatalf("expected open status for current request, got %q", got)
 	}
 
 	updated, _ = m.Update(openFileDoneMsg{
-		path:  "/tmp/old.csv",
+		path:  "/tmp/old.json",
 		reqID: 1,
 	})
 	m = updated.(Model)
@@ -3776,10 +3782,10 @@ func TestOpenFileDoneIgnoresStaleRequest(t *testing.T) {
 	if m.engine != currentEngine {
 		t.Fatal("expected stale request to be ignored")
 	}
-	if m.fileName != "new.csv" {
-		t.Fatalf("expected stale request to keep file name new.csv, got %q", m.fileName)
+	if m.fileName != "new.json" {
+		t.Fatalf("expected stale request to keep file name new.json, got %q", m.fileName)
 	}
-	if got := m.statusMsg; got != "Opened new.csv" {
+	if got := m.statusMsg; got != "Opened new.json" {
 		t.Fatalf("expected stale request to keep status, got %q", got)
 	}
 }
@@ -3862,8 +3868,8 @@ func TestFilePickerPathQueryShowsHomeAutocomplete(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(home, "datasets"), 0o755); err != nil {
 		t.Fatalf("mkdir datasets: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "from_home.csv"), []byte("x"), 0o644); err != nil {
-		t.Fatalf("write from_home.csv: %v", err)
+	if err := os.WriteFile(filepath.Join(home, "from_home.jsonl"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write from_home.jsonl: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(home, "ignored.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write ignored.txt: %v", err)
@@ -3882,11 +3888,26 @@ func TestFilePickerPathQueryShowsHomeAutocomplete(t *testing.T) {
 	if !slices.Contains(got, "datasets") {
 		t.Fatalf("expected ~/ autocomplete to include datasets directory, got %v", got)
 	}
-	if !slices.Contains(got, "from_home.csv") {
-		t.Fatalf("expected ~/ autocomplete to include csv file, got %v", got)
+	if !slices.Contains(got, "from_home.jsonl") {
+		t.Fatalf("expected ~/ autocomplete to include jsonl file, got %v", got)
 	}
 	if slices.Contains(got, "ignored.txt") {
 		t.Fatalf("expected ~/ autocomplete to exclude unsupported files, got %v", got)
+	}
+}
+
+func TestFilePickerEmptyStateMentionsJSONFormats(t *testing.T) {
+	root := t.TempDir()
+	m := NewModel(nil, "", root)
+	m.openFilePicker()
+	m.pickerQuery = "zzz"
+	m.refreshPickerItems()
+
+	view := m.viewFilePicker()
+	for _, ext := range engine.SupportedExtensions() {
+		if !strings.Contains(view, ext) {
+			t.Fatalf("expected picker empty state to mention %q, got %q", ext, view)
+		}
 	}
 }
 
