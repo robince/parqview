@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/robince/parqview/internal/missing"
@@ -27,16 +26,10 @@ func New(path string) (*Engine, error) {
 		return nil, fmt.Errorf("open duckdb: %w", err)
 	}
 
-	ext := strings.ToLower(filepath.Ext(path))
-	var sourceExpr string
-	switch ext {
-	case ".parquet":
-		sourceExpr = fmt.Sprintf("read_parquet('%s')", escapeSQLString(path))
-	case ".csv":
-		sourceExpr = fmt.Sprintf("read_csv_auto('%s')", escapeSQLString(path))
-	default:
+	sourceExpr, err := sourceExprForPath(path)
+	if err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("unsupported file extension: %s", ext)
+		return nil, err
 	}
 
 	internalRowIDCol, err := uniqueInternalRowIDCol(db, sourceExpr)
