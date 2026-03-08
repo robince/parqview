@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [1.2.0] - 2026-03-08
+
+### Added
+- Long-text field reader support
+- JSON and JSONL/NDJSON support
+
 ## [1.1.1] - 2026-03-08
 
 ### Added

@@ -1,10 +1,10 @@
 # parqview
 
-Keyboard-first terminal UI for exploring Parquet and CSV files with DuckDB-backed preview and profiling.
+Keyboard-first terminal UI for exploring Parquet, CSV, JSON, JSONL, and NDJSON files with DuckDB-backed preview and profiling.
 
 ## Why This Exists
 
-`parqview` is for fast inspection of data in parquet or csv files.
+`parqview` is for fast inspection of parquet, csv, json, jsonl, and ndjson files.
 
 Key features:
 
@@ -15,7 +15,8 @@ Key features:
 - fast vim-inspired keyboard navigation and scrolling
 - visual indication of missing data in rows and columns, jump to next missing value
 - missing definition can toggle between NULL+NaN, NULL, NaN 
-- autofit column widths, resize panels with the mouse
+- adaptive column width controls with an expanded reader for long text columns
+- resize panels with the mouse
 - fast mouse scrolling
 
 Use it to quickly catch:
@@ -72,16 +73,21 @@ xattr -dr com.apple.quarantine ./parqview
 Open a file directly:
 
 ```bash
-./parqview <file.parquet|file.csv>
+./parqview <file.parquet|file.csv|file.json|file.jsonl|file.ndjson>
 ```
 
 Or run from source:
 
 ```bash
-go run ./cmd/parqview <file.parquet|file.csv>
+go run ./cmd/parqview <file.parquet|file.csv|file.json|file.jsonl|file.ndjson>
 ```
 
 If the app starts without a file, press `Ctrl+O` to open the file picker.
+
+JSON support uses DuckDB's default auto-detection readers:
+- `.json` uses `read_json_auto`
+- `.jsonl` and `.ndjson` use `read_ndjson_auto`
+- nested `LIST` and `STRUCT` values are preserved as DuckDB returns them
 
 ## Screens and Keys
 
@@ -94,7 +100,7 @@ These keys are global commands that work whichever pane has focus.
 | Key | Action |
 | --- | --- |
 | `Tab` | Switch focus between table and columns panes |
-| `Ctrl+O` | Open/close file picker (`.parquet`/`.csv`) |
+| `Ctrl+O` | Open/close file picker (`.parquet`/`.csv`/`.json`/`.jsonl`/`.ndjson`) |
 | `q`, `Ctrl+C` | Quit |
 | `Ctrl+L` | Redraw screen |
 | `?` | Open/close help overlay |
@@ -144,7 +150,7 @@ Use this pane to inspect row values, navigate missingness, and check distributio
 | `$` | Jump to last visible table column |
 | `[` | Page table columns left |
 | `]` | Page table columns right |
-| `w` | Toggle fit-width for active column |
+| `w` | Toggle fit-width for ordinary values, or open the expanded reader when the visible column sample is too wide/multiline |
 | `Ctrl+W` | Toggle global wide-columns mode |
 | `g` | Jump to top row |
 | `G` | Jump to bottom row |
@@ -175,6 +181,26 @@ Use this pane to inspect row values, navigate missingness, and check distributio
 | `t` | Cycle tabs (Top Values, Stats, Histogram) |
 | `n` | Jump to first missing value for detail column |
 | `Esc`, `q` | Close detail panel |
+
+### Expanded Reader Overlay
+
+Use this overlay for long text cells, JSON payloads, and other values that do not fit comfortably in the table.
+
+| Key | Action |
+| --- | --- |
+| `Up`, `k` | Scroll up |
+| `Down`, `j` | Scroll down |
+| `Left`, `h` | Pan left when wrap is off |
+| `Right`, `l` | Pan right when wrap is off |
+| `n`, `p` | Move to next/previous row in the same column |
+| `W` | Toggle wrap |
+| `Space`, `Ctrl+F` | Page down |
+| `Ctrl+B` | Page up |
+| `Ctrl+D` | Half-page down |
+| `Ctrl+U` | Half-page up |
+| `g` | Jump to top of current cell |
+| `G` | Jump to bottom of current cell |
+| `Esc`, `q`, `w` | Close expanded reader |
 
 ### File Picker Overlay
 
