@@ -289,6 +289,28 @@ func TestWindowSizeMsgClampsOffsetAndKeepsPageDownMonotonic(t *testing.T) {
 	}
 }
 
+func TestWindowSizeMsgClampsReaderOffsetsWhenReaderIsOpen(t *testing.T) {
+	m := newTestModel()
+	m.width = 80
+	m.height = 14
+	m.tableCols = []string{"body"}
+	m.selectedColName = "body"
+	m.tableData = [][]string{{strings.Join([]string{"line 1", "line 2", "line 3"}, "\n")}}
+	m.openCellReader("body", m.tableData[0][0])
+	m.readerWrap = true
+	m.readerVertOff = 3
+	m.readerHorizOff = 9
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 1, Height: 6})
+	m = updated.(Model)
+	if m.readerVertOff != 0 {
+		t.Fatalf("expected reader vertical offset to clamp on resize, got %d", m.readerVertOff)
+	}
+	if m.readerHorizOff != 0 {
+		t.Fatalf("expected reader horizontal offset to clamp on resize, got %d", m.readerHorizOff)
+	}
+}
+
 func TestHandleTableKeyCtrlPagingLoadsOnlyWhenOffsetChanges(t *testing.T) {
 	base := newCmdTestModel()
 	base.width = 120
@@ -1649,12 +1671,21 @@ func TestReaderUsesLoadedPreviewOffsetWhenPagingPastVisibleWindow(t *testing.T) 
 
 	rows := make([][]string, visibleRows+2)
 	for i := range rows {
-		rows[i] = []string{fmt.Sprintf("%d", i+1), fmt.Sprintf("row-%d", i+1)}
+		body := fmt.Sprintf("row-%d", i+1)
+		if i == visibleRows-1 {
+			body = strings.Repeat("this is a much longer row ", 8)
+		}
+		if i == visibleRows {
+			body = "short"
+		}
+		rows[i] = []string{fmt.Sprintf("%d", i+1), body}
 	}
 	m.totalRows = int64(len(rows) + 1)
 	m.tableData = rows
 	m.tableRowCursor = visibleRows - 1
 	m.openCellReader("body", rows[m.tableRowCursor][1])
+	m.readerWrap = false
+	m.readerHorizOff = 25
 
 	updated, cmd := m.handleReaderKey("n")
 	if cmd == nil {
@@ -1664,8 +1695,11 @@ func TestReaderUsesLoadedPreviewOffsetWhenPagingPastVisibleWindow(t *testing.T) 
 	if m.readerAbsRow != visibleRows {
 		t.Fatalf("expected reader absolute row %d, got %d", visibleRows, m.readerAbsRow)
 	}
-	if got, ok := m.readerCurrentValue(); !ok || got != fmt.Sprintf("row-%d", visibleRows+1) {
+	if got, ok := m.readerCurrentValue(); !ok || got != "short" {
 		t.Fatalf("expected reader to show next row from loaded preview, got %q ok=%v", got, ok)
+	}
+	if m.readerHorizOff != 0 {
+		t.Fatalf("expected horizontal offset to clamp before preview reload, got %d", m.readerHorizOff)
 	}
 }
 

@@ -842,6 +842,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		prevOffset := m.tableOffset
 		m.clampTableOffset()
 		m.clampTableRowCursor()
+		if m.overlay == OverlayCellReader {
+			m.clampReaderOffsets()
+		}
 		if m.tableOffset != prevOffset {
 			return m, m.nextPreviewCmd()
 		}
@@ -2465,6 +2468,7 @@ func (m Model) moveReaderRow(delta int) (tea.Model, tea.Cmd) {
 			}
 			m.tableOffset++
 			m.readerAbsRow = m.currentAbsoluteRow()
+			m.clampReaderOffsets()
 			return m, m.nextPreviewCmd()
 		}
 	default:
@@ -2477,6 +2481,7 @@ func (m Model) moveReaderRow(delta int) (tea.Model, tea.Cmd) {
 			}
 			m.tableOffset--
 			m.readerAbsRow = m.currentAbsoluteRow()
+			m.clampReaderOffsets()
 			return m, m.nextPreviewCmd()
 		}
 	}
