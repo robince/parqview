@@ -2,6 +2,7 @@
 /parqview
 /large_sample.parquet
 *.test
+*.exe
 
 # Test data (generated)
 testdata/sample.parquet
