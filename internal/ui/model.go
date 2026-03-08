@@ -1060,13 +1060,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if key == "ctrl+c" {
+		return m, tea.Quit
+	}
+
 	if m.overlay == OverlayCellReader {
 		return m.handleReaderKey(key)
 	}
 
 	// Global keys
 	switch key {
-	case "q", "ctrl+c":
+	case "q":
 		return m, tea.Quit
 	case "ctrl+l":
 		m.clampSplitPct()
@@ -2106,12 +2110,6 @@ func (m *Model) toggleActiveColumnFitWidth() {
 		m.statusMsg = fmt.Sprintf("Column %q not in projection", colName)
 		return
 	}
-	if m.shouldOpenReaderForActiveColumn() {
-		if value, ok := m.valueForVisibleCell(colName); ok {
-			m.openCellReader(colName, value)
-			return
-		}
-	}
 	if _, ok := m.tableColWidths[colName]; ok {
 		delete(m.tableColWidths, colName)
 		m.statusMsg = fmt.Sprintf("Fit width off for %q", colName)
@@ -2243,6 +2241,18 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		return m.pageTableOffset(-(m.pageSize / 2))
 	case "w":
 		m.toggleActiveColumnFitWidth()
+	case "W":
+		colName := m.selectedColName
+		if colName == "" {
+			m.statusMsg = "No active column"
+			return m, nil
+		}
+		value, ok := m.valueForVisibleCell(colName)
+		if !ok {
+			m.statusMsg = "No data visible for reader"
+			return m, nil
+		}
+		m.openCellReader(colName, value)
 	case "ctrl+w":
 		if len(m.tableColWidths) > 0 {
 			m.tableColWidths = make(map[string]int)
@@ -2903,7 +2913,7 @@ func (m Model) viewBottomBar() string {
 	case m.focus == FocusColumns:
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  m:missing-mode  /:search  v:sel-list  x:toggle  a/d/y:sel"
 	default:
-		hints = "Ctrl+O:open  hjkl:move  w:fit-col/reader  Ctrl+W:wide-cols  m:missing-mode  r/R:row missing ±  c/C:col missing ±  f:missing-filter  drag:divider  Ctrl+L:redraw"
+		hints = "Ctrl+O:open  hjkl:move  w:fit-col  W:reader  Ctrl+W:wide-cols  m:missing-mode  r/R:row missing ±  c/C:col missing ±  f:missing-filter  drag:divider  Ctrl+L:redraw"
 	}
 	status := fmt.Sprintf("  Sel: %d/%d", selCount, len(m.columns))
 	if m.showSelected {
@@ -3490,7 +3500,8 @@ func (m Model) viewHelp() string {
 		{"←/→ or h/l", "Move column cursor"},
 		{"0 / $", "First / last column"},
 		{"[ / ]", "Page columns left / right"},
-		{"w", "Fit width or open expanded reader"},
+		{"w", "Toggle fit width for active column"},
+		{"W", "Open expanded reader for active cell"},
 		{"Ctrl+W", "Toggle global wide columns"},
 		{"g / G", "Top / Bottom of file"},
 		{"Ctrl+F / Space", "Page down"},

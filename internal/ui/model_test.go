@@ -1426,7 +1426,7 @@ func TestHandleTableKeyWToggleFitWidth(t *testing.T) {
 	}
 }
 
-func TestHandleTableKeyWOpensReaderForMultilineCell(t *testing.T) {
+func TestHandleTableKeyShiftWOpensReaderForMultilineCell(t *testing.T) {
 	m := newTestModel()
 	m.width = 120
 	m.height = 12
@@ -1434,9 +1434,9 @@ func TestHandleTableKeyWOpensReaderForMultilineCell(t *testing.T) {
 	m.selectedColName = "body"
 	m.tableData = [][]string{{"1", "line one\nline two"}}
 
-	updated, cmd := m.handleTableKey("w")
+	updated, cmd := m.handleTableKey("W")
 	if cmd != nil {
-		t.Fatalf("expected no load command for w, got %v", cmd)
+		t.Fatalf("expected no load command for W, got %v", cmd)
 	}
 	m = updated.(Model)
 	if m.overlay != OverlayCellReader {
@@ -1453,7 +1453,7 @@ func TestHandleTableKeyWOpensReaderForMultilineCell(t *testing.T) {
 	}
 }
 
-func TestHandleTableKeyWOpensReaderForLongSingleLineCell(t *testing.T) {
+func TestHandleTableKeyShiftWOpensReaderForLongSingleLineCell(t *testing.T) {
 	m := newTestModel()
 	m.width = 70
 	m.height = 12
@@ -1461,7 +1461,7 @@ func TestHandleTableKeyWOpensReaderForLongSingleLineCell(t *testing.T) {
 	m.selectedColName = "body"
 	m.tableData = [][]string{{"1", strings.Repeat("very long prose ", 10)}}
 
-	updated, _ := m.handleTableKey("w")
+	updated, _ := m.handleTableKey("W")
 	m = updated.(Model)
 	if m.overlay != OverlayCellReader {
 		t.Fatalf("expected expanded reader overlay for long single-line cell, got %v", m.overlay)
@@ -1471,7 +1471,7 @@ func TestHandleTableKeyWOpensReaderForLongSingleLineCell(t *testing.T) {
 	}
 }
 
-func TestHandleTableKeyWMixedVisibleLengthsOpensReaderFromColumnSample(t *testing.T) {
+func TestHandleTableKeyShiftWMixedVisibleLengthsOpensReaderFromColumnSample(t *testing.T) {
 	m := newTestModel()
 	m.width = 90
 	m.height = 12
@@ -1483,7 +1483,7 @@ func TestHandleTableKeyWMixedVisibleLengthsOpensReaderFromColumnSample(t *testin
 		{"3", "tiny"},
 	}
 
-	updated, _ := m.handleTableKey("w")
+	updated, _ := m.handleTableKey("W")
 	m = updated.(Model)
 	if m.overlay != OverlayCellReader {
 		t.Fatalf("expected mixed-width visible column to open reader, got %v", m.overlay)
@@ -1493,7 +1493,7 @@ func TestHandleTableKeyWMixedVisibleLengthsOpensReaderFromColumnSample(t *testin
 	}
 }
 
-func TestHandleTableKeyWOpensJSONReaderWithWrapOffByDefault(t *testing.T) {
+func TestHandleTableKeyShiftWOpensJSONReaderWithWrapOffByDefault(t *testing.T) {
 	m := newTestModel()
 	m.width = 70
 	m.height = 12
@@ -1501,7 +1501,7 @@ func TestHandleTableKeyWOpensJSONReaderWithWrapOffByDefault(t *testing.T) {
 	m.selectedColName = "payload"
 	m.tableData = [][]string{{"1", strings.Repeat(`{"alpha":1,"beta":2,"gamma":"delta"}`, 4)}}
 
-	updated, _ := m.handleTableKey("w")
+	updated, _ := m.handleTableKey("W")
 	m = updated.(Model)
 	if m.overlay != OverlayCellReader {
 		t.Fatalf("expected expanded reader overlay, got %v", m.overlay)
@@ -1577,6 +1577,22 @@ func TestHandleTableKeyWUsesHeaderFitWidthWhenNoRowsVisible(t *testing.T) {
 	}
 }
 
+func TestHandleKeyCtrlCQuitsFromReaderOverlay(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"body"}
+	m.selectedColName = "body"
+	m.tableData = [][]string{{"value"}}
+	m.openCellReader("body", "value")
+
+	_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("expected quit command for ctrl+c in reader overlay")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("expected tea.QuitMsg, got %T", cmd())
+	}
+}
+
 func TestReaderKeepsRowNavigationExplicitAndClampsOffsets(t *testing.T) {
 	m := newTestModel()
 	m.width = 80
@@ -1589,7 +1605,7 @@ func TestReaderKeepsRowNavigationExplicitAndClampsOffsets(t *testing.T) {
 		{"3", strings.Repeat("another long line ", 12)},
 	}
 
-	updated, _ := m.handleTableKey("w")
+	updated, _ := m.handleTableKey("W")
 	m = updated.(Model)
 	m.readerWrap = false
 	m.readerHorizOff = 25
@@ -1665,7 +1681,7 @@ func TestReaderPagingKeysMoveWithinCurrentCell(t *testing.T) {
 	}
 	m.tableData = [][]string{{"1", strings.Join(lines, "\n")}}
 
-	updated, _ := m.handleTableKey("w")
+	updated, _ := m.handleTableKey("W")
 	m = updated.(Model)
 	bodyH := m.readerBodyHeight()
 
