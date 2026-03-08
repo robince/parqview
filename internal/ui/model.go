@@ -39,6 +39,7 @@ const (
 	OverlayHelp
 	OverlayDetail
 	OverlayFilePicker
+	OverlayCellReader
 )
 
 // Messages
@@ -61,6 +62,7 @@ type previewDoneMsg struct {
 	colNames   []string
 	totalRows  int64
 	filterRows int64
+	offset     int
 	seq        uint64
 	token      uint64
 	err        error
@@ -132,6 +134,7 @@ type Model struct {
 
 	// Table state
 	tableData           [][]string
+	tableDataOffset     int
 	tableRowHasMissing  []bool
 	tableCols           []string // column names in current projection
 	tableOffset         int      // row offset for pagination
@@ -155,6 +158,11 @@ type Model struct {
 	overlay         Overlay
 	detailCol       string // column shown in detail panel
 	detailTab       int    // 0=TopValues, 1=Stats, 2=Histogram
+	readerCol       string
+	readerAbsRow    int
+	readerWrap      bool
+	readerVertOff   int
+	readerHorizOff  int
 	width           int
 	height          int
 	statusMsg       string
@@ -243,6 +251,7 @@ func (m *Model) resetLoadedDataState() {
 	m.colCursor = 0
 	m.selectedColName = ""
 	m.tableData = nil
+	m.tableDataOffset = 0
 	m.tableRowHasMissing = nil
 	m.tableCols = nil
 	m.tableOffset = 0
@@ -260,6 +269,11 @@ func (m *Model) resetLoadedDataState() {
 	m.summaries = make(map[string]*types.ColumnSummary)
 	m.detailCol = ""
 	m.detailTab = 0
+	m.readerCol = ""
+	m.readerAbsRow = 0
+	m.readerWrap = false
+	m.readerVertOff = 0
+	m.readerHorizOff = 0
 	m.updateFilteredCols()
 }
 
@@ -363,14 +377,18 @@ func (m *Model) toggleMissingRowFilter() {
 	m.filterRows = -1
 }
 
-// tableColCursor returns the index of selectedColName in tableCols, or -1.
-func (m Model) tableColCursor() int {
+func (m Model) tableColIndex(colName string) int {
 	for i, name := range m.tableCols {
-		if name == m.selectedColName {
+		if name == colName {
 			return i
 		}
 	}
 	return -1
+}
+
+// tableColCursor returns the index of selectedColName in tableCols, or -1.
+func (m Model) tableColCursor() int {
+	return m.tableColIndex(m.selectedColName)
 }
 
 // computeTableColOff returns the current left edge of the table viewport.
@@ -872,6 +890,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
 		} else {
 			m.tableData = msg.rows
+			m.tableDataOffset = msg.offset
 			m.tableRowHasMissing = rowHasMissingFlags(msg.rows, m.missingMode)
 			m.tableCols = msg.colNames
 			m.reconcileSelectedColNameWithTableCols()
@@ -885,6 +904,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.nextPreviewCmd()
 			}
 			m.clampTableRowCursor()
+			if m.overlay == OverlayCellReader {
+				m.readerAbsRow = m.tableOffset + m.tableRowCursor
+				m.clampReaderOffsets()
+			}
 			if m.needsMorePreviewRows() {
 				return m, m.nextPreviewCmd()
 			}
@@ -1035,6 +1058,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.cycleMissingMode()
 		}
 		return m, nil
+	}
+
+	if m.overlay == OverlayCellReader {
+		return m.handleReaderKey(key)
 	}
 
 	// Global keys
@@ -1931,6 +1958,46 @@ func (m Model) visibleTableDataRows() int {
 	return dataRows
 }
 
+func (m Model) fitWidthCap() int {
+	colAreaWidth := m.tableColAreaWidth()
+	if colAreaWidth <= 0 {
+		return 0
+	}
+	cap := colAreaWidth / 2
+	if cap < 32 {
+		cap = 32
+	}
+	if cap > 72 {
+		cap = 72
+	}
+	if cap > colAreaWidth {
+		cap = colAreaWidth
+	}
+	return cap
+}
+
+func (m Model) visibleColumnDisplayStats(colIdx int) (maxDisplayW int, hasMultiline bool, ok bool) {
+	if colIdx < 0 || colIdx >= len(m.tableCols) {
+		return 0, false, false
+	}
+	visibleRows := m.visibleTableDataRows()
+	for r := 0; r < visibleRows; r++ {
+		if colIdx >= len(m.tableData[r]) {
+			continue
+		}
+		ok = true
+		value := m.tableData[r][colIdx]
+		if strings.Contains(value, "\n") || strings.Contains(value, "\r") {
+			hasMultiline = true
+		}
+		displayW := lipgloss.Width(sanitizeInlineDisplay(value))
+		if displayW > maxDisplayW {
+			maxDisplayW = displayW
+		}
+	}
+	return maxDisplayW, hasMultiline, ok
+}
+
 func (m Model) fitWidthForActiveColumn() (int, bool) {
 	if len(m.tableCols) == 0 {
 		return 0, false
@@ -1943,16 +2010,9 @@ func (m Model) fitWidthForActiveColumn() (int, bool) {
 	if colAreaWidth < tableColMinWidth {
 		return 0, false
 	}
-	maxValueW := 0
-	visibleRows := m.visibleTableDataRows()
-	for r := 0; r < visibleRows; r++ {
-		if colIdx >= len(m.tableData[r]) {
-			continue
-		}
-		valueW := lipgloss.Width(m.tableData[r][colIdx])
-		if valueW > maxValueW {
-			maxValueW = valueW
-		}
+	maxValueW, _, ok := m.visibleColumnDisplayStats(colIdx)
+	if !ok {
+		return 0, false
 	}
 	headerW := lipgloss.Width(m.tableCols[colIdx]) + 1
 	if s, ok := m.summaries[m.tableCols[colIdx]]; ok && s.Loaded && s.MissingCount > 0 {
@@ -1968,6 +2028,73 @@ func (m Model) fitWidthForActiveColumn() (int, bool) {
 	return fitWidth, true
 }
 
+func (m Model) currentAbsoluteRow() int {
+	return m.tableOffset + m.tableRowCursor
+}
+
+func (m Model) valueForVisibleCell(colName string) (string, bool) {
+	rowIdx := m.tableRowCursor
+	if rowIdx < 0 || rowIdx >= len(m.tableData) {
+		return "", false
+	}
+	colIdx := m.tableColIndex(colName)
+	if colIdx < 0 || colIdx >= len(m.tableCols) {
+		return "", false
+	}
+	if colIdx >= len(m.tableData[rowIdx]) {
+		return "", false
+	}
+	return m.tableData[rowIdx][colIdx], true
+}
+
+func (m Model) shouldOpenReaderForActiveColumn() bool {
+	colIdx := m.tableColCursor()
+	if colIdx < 0 {
+		return false
+	}
+	maxValueW, hasMultiline, ok := m.visibleColumnDisplayStats(colIdx)
+	if !ok {
+		return false
+	}
+	if hasMultiline {
+		return true
+	}
+	return maxValueW > m.fitWidthCap()
+}
+
+func defaultReaderWrap(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return true
+	}
+	// Future: detect valid compact JSON here and offer pretty-formatting before
+	// rendering, while still defaulting structured payloads to wrap:off.
+	switch trimmed[0] {
+	case '{', '[':
+		return false
+	default:
+		return true
+	}
+}
+
+func (m *Model) openCellReader(colName, value string) {
+	m.overlay = OverlayCellReader
+	m.readerCol = colName
+	m.readerAbsRow = m.currentAbsoluteRow()
+	m.readerWrap = defaultReaderWrap(value)
+	m.readerVertOff = 0
+	m.readerHorizOff = 0
+	m.statusMsg = fmt.Sprintf("Opened expanded reader for %q", colName)
+}
+
+func (m *Model) closeCellReader() {
+	m.overlay = OverlayNone
+	m.readerCol = ""
+	m.readerAbsRow = 0
+	m.readerVertOff = 0
+	m.readerHorizOff = 0
+}
+
 func (m *Model) toggleActiveColumnFitWidth() {
 	colName := m.selectedColName
 	if colName == "" {
@@ -1976,6 +2103,15 @@ func (m *Model) toggleActiveColumnFitWidth() {
 	}
 	if m.tableColCursor() < 0 {
 		m.statusMsg = fmt.Sprintf("Column %q not in projection", colName)
+		return
+	}
+	value, ok := m.valueForVisibleCell(colName)
+	if !ok {
+		m.statusMsg = "No data visible for reader"
+		return
+	}
+	if m.shouldOpenReaderForActiveColumn() {
+		m.openCellReader(colName, value)
 		return
 	}
 	if _, ok := m.tableColWidths[colName]; ok {
@@ -2154,6 +2290,230 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) readerInnerDimensions() (int, int) {
+	return max(0, m.width-paneBorderW), max(0, m.mainHeight()-paneBorderH)
+}
+
+func (m Model) readerBodyHeight() int {
+	_, h := m.readerInnerDimensions()
+	bodyH := h - 4
+	if bodyH < 1 {
+		return 1
+	}
+	return bodyH
+}
+
+func (m Model) readerCurrentValue() (string, bool) {
+	colName := m.readerCol
+	if colName == "" {
+		colName = m.selectedColName
+	}
+	return m.valueForVisibleCell(colName)
+}
+
+func (m Model) readerRenderedLines(bodyW int) []string {
+	value, ok := m.readerCurrentValue()
+	if !ok {
+		return []string{""}
+	}
+	logical := sanitizeMultilineLogicalLines(value)
+
+	// Future: swap in structured renderers here (JSON pretty-format/highlight,
+	// Markdown, lists, key-value views) once the expanded reader supports them.
+	if m.readerWrap {
+		return wrapLogicalLines(logical, bodyW)
+	}
+	return sliceLogicalLines(logical, m.readerHorizOff, bodyW)
+}
+
+func (m Model) maxReaderVerticalOffset() int {
+	innerW, _ := m.readerInnerDimensions()
+	lines := m.readerRenderedLines(innerW)
+	maxOff := len(lines) - m.readerBodyHeight()
+	if maxOff < 0 {
+		return 0
+	}
+	return maxOff
+}
+
+func (m Model) maxReaderHorizontalOffset() int {
+	if m.readerWrap {
+		return 0
+	}
+	innerW, _ := m.readerInnerDimensions()
+	value, ok := m.readerCurrentValue()
+	if !ok {
+		return 0
+	}
+	maxLineW := 0
+	for _, line := range sanitizeMultilineLogicalLines(value) {
+		if w := lipgloss.Width(line); w > maxLineW {
+			maxLineW = w
+		}
+	}
+	maxOff := maxLineW - innerW
+	if maxOff < 0 {
+		return 0
+	}
+	return maxOff
+}
+
+func (m *Model) clampReaderOffsets() {
+	if m.readerVertOff < 0 {
+		m.readerVertOff = 0
+	}
+	maxVert := m.maxReaderVerticalOffset()
+	if m.readerVertOff > maxVert {
+		m.readerVertOff = maxVert
+	}
+	if m.readerWrap {
+		m.readerHorizOff = 0
+		return
+	}
+	if m.readerHorizOff < 0 {
+		m.readerHorizOff = 0
+	}
+	maxHoriz := m.maxReaderHorizontalOffset()
+	if m.readerHorizOff > maxHoriz {
+		m.readerHorizOff = maxHoriz
+	}
+}
+
+func (m *Model) scrollReader(delta int) {
+	m.readerVertOff += delta
+	m.clampReaderOffsets()
+}
+
+func (m *Model) scrollReaderHoriz(delta int) {
+	if m.readerWrap {
+		return
+	}
+	m.readerHorizOff += delta
+	m.clampReaderOffsets()
+}
+
+func (m *Model) pageReader(delta int) {
+	bodyH := m.readerBodyHeight()
+	if bodyH < 1 {
+		bodyH = 1
+	}
+	m.readerVertOff += delta * bodyH
+	m.clampReaderOffsets()
+}
+
+func (m *Model) halfPageReader(delta int) {
+	bodyH := m.readerBodyHeight() / 2
+	if bodyH < 1 {
+		bodyH = 1
+	}
+	m.readerVertOff += delta * bodyH
+	m.clampReaderOffsets()
+}
+
+func (m *Model) moveReaderToBoundary(bottom bool) {
+	if bottom {
+		m.readerVertOff = m.maxReaderVerticalOffset()
+	} else {
+		m.readerVertOff = 0
+	}
+	m.clampReaderOffsets()
+}
+
+func (m *Model) toggleReaderWrap() {
+	m.readerWrap = !m.readerWrap
+	m.clampReaderOffsets()
+	if m.readerWrap {
+		m.statusMsg = "Reader wrap on"
+	} else {
+		m.statusMsg = "Reader wrap off"
+	}
+}
+
+func (m Model) moveReaderRow(delta int) (tea.Model, tea.Cmd) {
+	if delta == 0 {
+		return m, nil
+	}
+	if m.visibleTableRows() == 0 {
+		return m, nil
+	}
+
+	switch {
+	case delta > 0:
+		maxVisibleRows := m.visibleTableRows()
+		if len(m.tableData) < maxVisibleRows {
+			maxVisibleRows = len(m.tableData)
+		}
+		maxVisibleCursor := maxVisibleRows - 1
+		if maxVisibleCursor < 0 {
+			maxVisibleCursor = 0
+		}
+		if m.tableRowCursor < maxVisibleCursor {
+			m.tableRowCursor++
+		} else {
+			maxOff := m.maxTableOffset()
+			if m.tableOffset >= maxOff {
+				m.statusMsg = "Already at last row"
+				return m, nil
+			}
+			m.tableOffset++
+			m.readerAbsRow = m.currentAbsoluteRow()
+			return m, m.nextPreviewCmd()
+		}
+	default:
+		if m.tableRowCursor > 0 {
+			m.tableRowCursor--
+		} else {
+			if m.tableOffset <= 0 {
+				m.statusMsg = "Already at first row"
+				return m, nil
+			}
+			m.tableOffset--
+			m.readerAbsRow = m.currentAbsoluteRow()
+			return m, m.nextPreviewCmd()
+		}
+	}
+
+	m.readerAbsRow = m.currentAbsoluteRow()
+	m.clampReaderOffsets()
+	return m, nil
+}
+
+func (m Model) handleReaderKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "q", "w":
+		m.closeCellReader()
+	case "up", "k":
+		m.scrollReader(-1)
+	case "down", "j":
+		m.scrollReader(1)
+	case "left", "h":
+		m.scrollReaderHoriz(-1)
+	case "right", "l":
+		m.scrollReaderHoriz(1)
+	case "W":
+		m.toggleReaderWrap()
+	case "n":
+		return m.moveReaderRow(1)
+	case "p":
+		return m.moveReaderRow(-1)
+	case " ":
+		m.pageReader(1)
+	case "ctrl+f":
+		m.pageReader(1)
+	case "ctrl+b":
+		m.pageReader(-1)
+	case "ctrl+d":
+		m.halfPageReader(1)
+	case "ctrl+u":
+		m.halfPageReader(-1)
+	case "g":
+		m.moveReaderToBoundary(false)
+	case "G":
+		m.moveReaderToBoundary(true)
+	}
+	return m, nil
+}
+
 // visibleColCount returns how many columns fit in the table pane.
 func (m Model) visibleColCount() int {
 	startCol, endCol := m.tableViewport()
@@ -2248,6 +2608,7 @@ func (m Model) loadPreviewCmd(seq uint64) tea.Cmd {
 			colNames:   colNames,
 			totalRows:  totalRows,
 			filterRows: filterRows,
+			offset:     offset,
 			seq:        seq,
 			token:      m.dataToken,
 		}
@@ -2473,6 +2834,14 @@ func (m Model) View() string {
 		colPane = activeBorderStyle.Width(max(0, colWidth-2)).Height(max(0, mainHeight-2)).Render(m.viewDetail(max(0, colWidth-4)))
 	}
 
+	if m.overlay == OverlayCellReader {
+		reader := activeBorderStyle.
+			Width(max(0, m.width-2)).
+			Height(max(0, mainHeight-2)).
+			Render(m.viewCellReader(max(0, m.width-paneBorderW), max(0, mainHeight-paneBorderH)))
+		return lipgloss.JoinVertical(lipgloss.Left, topBar, reader, bottomBar)
+	}
+
 	main := lipgloss.JoinHorizontal(lipgloss.Top, tablePane, colPane)
 
 	return lipgloss.JoinVertical(lipgloss.Left, topBar, main, bottomBar)
@@ -2530,10 +2899,13 @@ func (m Model) viewTopBar() string {
 func (m Model) viewBottomBar() string {
 	selCount := m.sel.Count()
 	var hints string
-	if m.focus == FocusColumns {
+	switch {
+	case m.overlay == OverlayCellReader:
+		hints = "w/Esc:close  ↑↓/jk:scroll  ←→/hl:pan  W:wrap  n/p:row  Space/C-f/C-b:page  C-d/u:half  g/G:top/bottom"
+	case m.focus == FocusColumns:
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  m:missing-mode  /:search  v:sel-list  x:toggle  a/d/y:sel"
-	} else {
-		hints = "Ctrl+O:open  hjkl:move  w:fit-col  Ctrl+W:wide-cols  m:missing-mode  r/R:row missing ±  c/C:col missing ±  f:missing-filter  drag:divider  Ctrl+L:redraw"
+	default:
+		hints = "Ctrl+O:open  hjkl:move  w:fit-col/reader  Ctrl+W:wide-cols  m:missing-mode  r/R:row missing ±  c/C:col missing ±  f:missing-filter  drag:divider  Ctrl+L:redraw"
 	}
 	status := fmt.Sprintf("  Sel: %d/%d", selCount, len(m.columns))
 	if m.showSelected {
@@ -2560,6 +2932,72 @@ func (m Model) viewBottomBar() string {
 		gap = 0
 	}
 	return bottomBarStyle.Width(m.width).Render(hints + strings.Repeat(" ", gap) + status)
+}
+
+func (m Model) viewCellReader(w, h int) string {
+	if w <= 0 || h <= 0 {
+		return ""
+	}
+
+	colName := m.readerCol
+	if colName == "" {
+		colName = m.selectedColName
+	}
+	colType := m.columnType(colName)
+	value, ok := m.readerCurrentValue()
+	if !ok {
+		value = ""
+	}
+	rowCount := m.activeRowCount()
+	rowLabel := m.readerAbsRow + 1
+	if rowLabel < 1 {
+		rowLabel = 1
+	}
+	header := fmt.Sprintf(" R%d/%d  %s", rowLabel, rowCount, colName)
+	if colType != "" {
+		header += "  " + colType
+	}
+	if m.readerWrap {
+		header += "  wrap:on"
+	} else {
+		header += "  wrap:off"
+	}
+	header += fmt.Sprintf("  len:%d", utf8.RuneCountInString(value))
+	header = clampLineWidth(readerHeaderStyle.Render(header), w)
+
+	topEdge := readerEdgeStyle.Width(w).Render(strings.Repeat("─", max(1, w)))
+	if m.readerVertOff == 0 {
+		topEdge = readerEdgeActiveStyle.Width(w).Render(strings.Repeat("═", max(1, w)))
+	}
+
+	bottomEdge := readerEdgeStyle.Width(w).Render(strings.Repeat("─", max(1, w)))
+	if m.readerVertOff >= m.maxReaderVerticalOffset() {
+		bottomEdge = readerEdgeActiveStyle.Width(w).Render(strings.Repeat("═", max(1, w)))
+	}
+
+	lines := m.readerRenderedLines(w)
+	bodyH := h - 4
+	if bodyH < 1 {
+		bodyH = 1
+	}
+	start := m.readerVertOff
+	if start > len(lines) {
+		start = len(lines)
+	}
+	end := min(len(lines), start+bodyH)
+
+	bodyLines := make([]string, 0, bodyH)
+	for _, line := range lines[start:end] {
+		bodyLines = append(bodyLines, clampLineWidth(readerBodyStyle.Render(padDisplayRight(line, w)), w))
+	}
+	for len(bodyLines) < bodyH {
+		bodyLines = append(bodyLines, readerBodyStyle.Render(strings.Repeat(" ", w)))
+	}
+
+	footer := " Scroll: ↑↓/jk  Row: n/p  Wrap: W  Page: Space/C-f/C-b  Close: Esc/w"
+	footer = clampLineWidth(readerFooterStyle.Render(footer), w)
+
+	return strings.Join(append([]string{header, topEdge}, append(bodyLines, bottomEdge, footer)...), "\n")
 }
 
 func (m Model) viewTable(w, h int) string {
@@ -2659,7 +3097,8 @@ func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, 
 	var b strings.Builder
 	for i := startCol; i < endCol && i < len(row); i++ {
 		colW := m.columnWidth(m.tableCols[i], colAreaWidth)
-		val := truncateDisplayMiddle(row[i], max(0, colW-1))
+		inline := sanitizeInlineDisplayPreview(row[i], max(0, colW-1))
+		val := truncateDisplayMiddle(inline, max(0, colW-1))
 		cell := " " + padDisplayRight(val, max(0, colW-1))
 		isMissing := m.missingMode.IsDisplayMissing(row[i])
 		isSelectedCol := i == cursorColIdx
@@ -3053,7 +3492,7 @@ func (m Model) viewHelp() string {
 		{"←/→ or h/l", "Move column cursor"},
 		{"0 / $", "First / last column"},
 		{"[ / ]", "Page columns left / right"},
-		{"w", "Toggle fit width for active column"},
+		{"w", "Fit width or open expanded reader"},
 		{"Ctrl+W", "Toggle global wide columns"},
 		{"g / G", "Top / Bottom of file"},
 		{"Ctrl+F / Space", "Page down"},
@@ -3076,6 +3515,17 @@ func (m Model) viewHelp() string {
 		{"t", "Cycle tabs (Top Values / Stats / Histogram)"},
 		{"n", "Jump to first missing"},
 		{"Esc", "Close"},
+		{"", ""},
+		{"── Expanded Reader ──", ""},
+		{"↑/↓ or j/k", "Scroll content"},
+		{"←/→ or h/l", "Pan horizontally (wrap off)"},
+		{"n / p", "Next / previous row in same column"},
+		{"W", "Toggle wrap"},
+		{"Ctrl+F / Space", "Page down"},
+		{"Ctrl+B", "Page up"},
+		{"Ctrl+D / Ctrl+U", "Half page down / up"},
+		{"g / G", "Top / bottom of current cell"},
+		{"Esc / q / w", "Close"},
 	}
 
 	var lines []string
@@ -3271,6 +3721,147 @@ func sanitizeInlineDisplayPreview(s string, maxW int) string {
 
 	preview := sanitizeInlineDisplay(left) + "…" + sanitizeInlineDisplay(right)
 	return truncateDisplayMiddle(preview, maxW)
+}
+
+func sanitizeMultilineLogicalLines(s string) []string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	rawLines := strings.Split(s, "\n")
+	lines := make([]string, 0, len(rawLines))
+	for _, line := range rawLines {
+		lines = append(lines, sanitizeMultilineLine(line))
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
+}
+
+func sanitizeMultilineLine(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '\t':
+			b.WriteString("    ")
+		case '\x1b':
+			b.WriteString(`\x1b`)
+		default:
+			if unicode.IsControl(r) || (unicode.Is(unicode.Cf, r) && r != '\u200c' && r != '\u200d') {
+				switch {
+				case r <= 0xFF:
+					fmt.Fprintf(&b, `\x%02x`, r)
+				case r <= 0xFFFF:
+					fmt.Fprintf(&b, `\u%04x`, r)
+				default:
+					fmt.Fprintf(&b, `\U%08x`, r)
+				}
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return b.String()
+}
+
+func wrapLogicalLines(lines []string, maxW int) []string {
+	if maxW <= 0 {
+		return []string{""}
+	}
+	var out []string
+	for _, line := range lines {
+		out = append(out, splitDisplayWidth(line, maxW)...)
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
+}
+
+func sliceLogicalLines(lines []string, startW, maxW int) []string {
+	if maxW <= 0 {
+		return []string{""}
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, sliceDisplayWidth(line, startW, maxW))
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
+}
+
+func splitDisplayWidth(s string, maxW int) []string {
+	if maxW <= 0 {
+		return []string{""}
+	}
+	if s == "" {
+		return []string{""}
+	}
+
+	var out []string
+	var cur strings.Builder
+	curW := 0
+	g := uniseg.NewGraphemes(s)
+	for g.Next() {
+		cluster := g.Str()
+		clusterW := lipgloss.Width(cluster)
+		if clusterW > maxW {
+			if curW > 0 {
+				out = append(out, cur.String())
+				cur.Reset()
+				curW = 0
+			}
+			out = append(out, truncateDisplay(cluster, maxW))
+			continue
+		}
+		if curW > 0 && curW+clusterW > maxW {
+			out = append(out, cur.String())
+			cur.Reset()
+			curW = 0
+		}
+		cur.WriteString(cluster)
+		curW += clusterW
+	}
+	if curW > 0 {
+		out = append(out, cur.String())
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
+}
+
+func sliceDisplayWidth(s string, startW, maxW int) string {
+	if maxW <= 0 {
+		return ""
+	}
+	if startW < 0 {
+		startW = 0
+	}
+	if s == "" {
+		return ""
+	}
+
+	var out strings.Builder
+	curW := 0
+	writtenW := 0
+	g := uniseg.NewGraphemes(s)
+	for g.Next() {
+		cluster := g.Str()
+		clusterW := lipgloss.Width(cluster)
+		if curW+clusterW <= startW {
+			curW += clusterW
+			continue
+		}
+		if writtenW+clusterW > maxW {
+			break
+		}
+		out.WriteString(cluster)
+		writtenW += clusterW
+		curW += clusterW
+	}
+	return out.String()
 }
 
 func clampLineWidth(line string, w int) string {
