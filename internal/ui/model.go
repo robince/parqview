@@ -3118,9 +3118,8 @@ func (m Model) renderRowCells(row []string, startCol, endCol, cursorColIdx int, 
 	var b strings.Builder
 	for i := startCol; i < endCol && i < len(row); i++ {
 		colW := m.columnWidth(m.tableCols[i], colAreaWidth)
-		inline := sanitizeInlineDisplayPreview(row[i], max(0, colW-1))
-		val := truncateDisplayMiddle(inline, max(0, colW-1))
-		cell := " " + padDisplayRight(val, max(0, colW-1))
+		cellPreview := sanitizeInlineDisplayPreview(row[i], max(0, colW-1))
+		cell := " " + padDisplayRight(cellPreview, max(0, colW-1))
 		isMissing := m.missingMode.IsDisplayMissing(row[i])
 		isSelectedCol := i == cursorColIdx
 
