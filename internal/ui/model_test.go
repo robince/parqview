@@ -289,6 +289,73 @@ func TestWindowSizeMsgClampsOffsetAndKeepsPageDownMonotonic(t *testing.T) {
 	}
 }
 
+func TestWindowSizeMsgClampsReaderOffsetsWhenReaderIsOpen(t *testing.T) {
+	m := newTestModel()
+	m.width = 80
+	m.height = 14
+	m.tableCols = []string{"body"}
+	m.selectedColName = "body"
+	m.tableData = [][]string{{strings.Join([]string{"line 1", "line 2", "line 3"}, "\n")}}
+	m.openCellReader("body", m.tableData[0][0])
+	m.readerWrap = true
+	m.readerVertOff = 3
+	m.readerHorizOff = 9
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 1, Height: 6})
+	m = updated.(Model)
+	if m.readerVertOff != 0 {
+		t.Fatalf("expected reader vertical offset to clamp on resize, got %d", m.readerVertOff)
+	}
+	if m.readerHorizOff != 0 {
+		t.Fatalf("expected reader horizontal offset to clamp on resize, got %d", m.readerHorizOff)
+	}
+}
+
+func TestWindowSizeMsgKeepsReaderRowInSyncWhenResizeClampsCursor(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 16
+	m.tableCols = []string{"body"}
+	m.selectedColName = "body"
+	m.tableData = make([][]string, 20)
+	for i := range m.tableData {
+		m.tableData[i] = []string{fmt.Sprintf("row-%d", i+1)}
+	}
+
+	startRows := m.visibleTableRows()
+	if startRows < 2 {
+		t.Fatalf("expected at least two visible rows, got %d", startRows)
+	}
+	m.tableRowCursor = startRows - 1
+	m.openCellReader("body", m.tableData[m.tableRowCursor][0])
+
+	shrunkHeight := 0
+	for height := m.height - 1; height > 0; height-- {
+		candidate := m
+		candidate.height = height
+		if candidate.visibleTableRows() < startRows {
+			shrunkHeight = height
+			break
+		}
+	}
+	if shrunkHeight == 0 {
+		t.Fatal("expected to find a smaller height that reduces visible rows")
+	}
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: m.width, Height: shrunkHeight})
+	m = updated.(Model)
+
+	if m.tableRowCursor != m.visibleTableRows()-1 {
+		t.Fatalf("expected row cursor to clamp to last visible row, got %d with %d visible rows", m.tableRowCursor, m.visibleTableRows())
+	}
+	if m.readerAbsRow != m.currentAbsoluteRow() {
+		t.Fatalf("expected reader absolute row %d after resize, got %d", m.currentAbsoluteRow(), m.readerAbsRow)
+	}
+	if got, ok := m.readerCurrentValue(); !ok || got != m.tableData[m.tableRowCursor][0] {
+		t.Fatalf("expected reader to show clamped row %q, got %q ok=%v", m.tableData[m.tableRowCursor][0], got, ok)
+	}
+}
+
 func TestHandleTableKeyCtrlPagingLoadsOnlyWhenOffsetChanges(t *testing.T) {
 	base := newCmdTestModel()
 	base.width = 120
@@ -1423,6 +1490,377 @@ func TestHandleTableKeyWToggleFitWidth(t *testing.T) {
 	m = updated.(Model)
 	if _, ok := m.tableColWidths["tag"]; ok {
 		t.Fatal("expected tag override to be removed on second w")
+	}
+}
+
+func TestHandleTableKeyShiftWOpensReaderForMultilineCell(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 12
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+	m.tableData = [][]string{{"1", "line one\nline two"}}
+
+	updated, cmd := m.handleTableKey("W")
+	if cmd != nil {
+		t.Fatalf("expected no load command for W, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.overlay != OverlayCellReader {
+		t.Fatalf("expected expanded reader overlay, got %v", m.overlay)
+	}
+	if m.readerCol != "body" {
+		t.Fatalf("expected reader column body, got %q", m.readerCol)
+	}
+	if !m.readerWrap {
+		t.Fatal("expected multiline text reader to default to wrap:on")
+	}
+	if _, ok := m.tableColWidths["body"]; ok {
+		t.Fatal("expected no fit-width override when reader opens")
+	}
+}
+
+func TestHandleTableKeyShiftWOpensReaderForLongSingleLineCell(t *testing.T) {
+	m := newTestModel()
+	m.width = 70
+	m.height = 12
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+	m.tableData = [][]string{{"1", strings.Repeat("very long prose ", 10)}}
+
+	updated, _ := m.handleTableKey("W")
+	m = updated.(Model)
+	if m.overlay != OverlayCellReader {
+		t.Fatalf("expected expanded reader overlay for long single-line cell, got %v", m.overlay)
+	}
+	if !m.readerWrap {
+		t.Fatal("expected prose-like content to default to wrap:on")
+	}
+}
+
+func TestHandleTableKeyShiftWMixedVisibleLengthsOpensReaderFromColumnSample(t *testing.T) {
+	m := newTestModel()
+	m.width = 90
+	m.height = 12
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+	m.tableData = [][]string{
+		{"1", "short"},
+		{"2", strings.Repeat("this long row should force the expanded reader ", 3)},
+		{"3", "tiny"},
+	}
+
+	updated, _ := m.handleTableKey("W")
+	m = updated.(Model)
+	if m.overlay != OverlayCellReader {
+		t.Fatalf("expected mixed-width visible column to open reader, got %v", m.overlay)
+	}
+	if _, ok := m.tableColWidths["body"]; ok {
+		t.Fatal("expected no fit-width override when visible sample exceeds fit cap")
+	}
+}
+
+func TestHandleTableKeyShiftWOpensJSONReaderWithWrapOffByDefault(t *testing.T) {
+	m := newTestModel()
+	m.width = 70
+	m.height = 12
+	m.tableCols = []string{"id", "payload"}
+	m.selectedColName = "payload"
+	m.tableData = [][]string{{"1", strings.Repeat(`{"alpha":1,"beta":2,"gamma":"delta"}`, 4)}}
+
+	updated, _ := m.handleTableKey("W")
+	m = updated.(Model)
+	if m.overlay != OverlayCellReader {
+		t.Fatalf("expected expanded reader overlay, got %v", m.overlay)
+	}
+	if m.readerWrap {
+		t.Fatal("expected JSON-like payload to default to wrap:off")
+	}
+
+	updated, _ = m.handleReaderKey("right")
+	m = updated.(Model)
+	if m.readerHorizOff == 0 {
+		t.Fatal("expected horizontal scroll to advance in wrap:off mode")
+	}
+
+	updated, _ = m.handleReaderKey("W")
+	m = updated.(Model)
+	if !m.readerWrap {
+		t.Fatal("expected W to enable wrap")
+	}
+	if m.readerHorizOff != 0 {
+		t.Fatalf("expected horizontal offset reset on wrap toggle, got %d", m.readerHorizOff)
+	}
+}
+
+func TestHandleTableKeyWFallsBackToFitWidthWhenCurrentRowHasNoCell(t *testing.T) {
+	m := newTestModel()
+	m.width = 90
+	m.height = 12
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+	m.tableData = [][]string{
+		{"1"},
+		{"2", strings.Repeat("this long row should not block fit width ", 2)},
+	}
+
+	wantWidth, ok := m.fitWidthForActiveColumn()
+	if !ok {
+		t.Fatal("expected fit width to be computable")
+	}
+
+	updated, cmd := m.handleTableKey("w")
+	if cmd != nil {
+		t.Fatalf("expected no load command for w, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.overlay != OverlayNone {
+		t.Fatalf("expected fit-width fallback instead of reader, got overlay %v", m.overlay)
+	}
+	if got := m.tableColWidths["body"]; got != wantWidth {
+		t.Fatalf("expected override width %d for body, got %d", wantWidth, got)
+	}
+}
+
+func TestHandleTableKeyWUsesHeaderFitWidthWhenNoRowsVisible(t *testing.T) {
+	m := newTestModel()
+	m.width = 90
+	m.height = 12
+	m.tableCols = []string{"body"}
+	m.selectedColName = "body"
+
+	wantWidth, ok := m.fitWidthForActiveColumn()
+	if !ok {
+		t.Fatal("expected header-only fit width to be computable")
+	}
+
+	updated, _ := m.handleTableKey("w")
+	m = updated.(Model)
+	if m.overlay != OverlayNone {
+		t.Fatalf("expected no reader overlay without visible rows, got %v", m.overlay)
+	}
+	if got := m.tableColWidths["body"]; got != wantWidth {
+		t.Fatalf("expected override width %d for body, got %d", wantWidth, got)
+	}
+}
+
+func TestHandleKeyCtrlCQuitsFromReaderOverlay(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"body"}
+	m.selectedColName = "body"
+	m.tableData = [][]string{{"value"}}
+	m.openCellReader("body", "value")
+
+	_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("expected quit command for ctrl+c in reader overlay")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("expected tea.QuitMsg, got %T", cmd())
+	}
+}
+
+func TestReaderKeepsRowNavigationExplicitAndClampsOffsets(t *testing.T) {
+	m := newTestModel()
+	m.width = 80
+	m.height = 12
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+	m.tableData = [][]string{
+		{"1", strings.Repeat("long line ", 20)},
+		{"2", "short"},
+		{"3", strings.Repeat("another long line ", 12)},
+	}
+
+	updated, _ := m.handleTableKey("W")
+	m = updated.(Model)
+	m.readerWrap = false
+	m.readerHorizOff = 25
+
+	updated, cmd := m.handleReaderKey("n")
+	if cmd != nil {
+		t.Fatalf("expected row move within visible page to avoid reload, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.tableRowCursor != 1 || m.readerAbsRow != 1 {
+		t.Fatalf("expected reader to move to row 2, got cursor=%d abs=%d", m.tableRowCursor, m.readerAbsRow)
+	}
+	if m.readerHorizOff != 0 {
+		t.Fatalf("expected horizontal offset clamped for shorter row, got %d", m.readerHorizOff)
+	}
+	if m.overlay != OverlayCellReader {
+		t.Fatalf("expected reader to remain open, got %v", m.overlay)
+	}
+
+	updated, _ = m.handleReaderKey("w")
+	m = updated.(Model)
+	if m.overlay != OverlayNone {
+		t.Fatalf("expected w to close reader, got %v", m.overlay)
+	}
+	if m.tableRowCursor != 1 {
+		t.Fatalf("expected table row cursor preserved on close, got %d", m.tableRowCursor)
+	}
+}
+
+func TestReaderUsesLoadedPreviewOffsetWhenPagingPastVisibleWindow(t *testing.T) {
+	m := newCmdTestModel()
+	m.width = 80
+	m.height = 12
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+
+	visibleRows := m.visibleTableRows()
+	if visibleRows < 1 {
+		t.Fatal("expected at least one visible row")
+	}
+
+	rows := make([][]string, visibleRows+2)
+	for i := range rows {
+		body := fmt.Sprintf("row-%d", i+1)
+		if i == visibleRows-1 {
+			body = strings.Repeat("this is a much longer row ", 8)
+		}
+		if i == visibleRows {
+			body = "short"
+		}
+		rows[i] = []string{fmt.Sprintf("%d", i+1), body}
+	}
+	m.totalRows = int64(len(rows) + 1)
+	m.tableData = rows
+	m.tableRowCursor = visibleRows - 1
+	m.openCellReader("body", rows[m.tableRowCursor][1])
+	m.readerWrap = false
+	m.readerHorizOff = 25
+
+	updated, cmd := m.handleReaderKey("n")
+	if cmd == nil {
+		t.Fatal("expected preview reload command when moving past visible window")
+	}
+	m = updated.(Model)
+	if m.readerAbsRow != visibleRows {
+		t.Fatalf("expected reader absolute row %d, got %d", visibleRows, m.readerAbsRow)
+	}
+	if got, ok := m.readerCurrentValue(); !ok || got != "short" {
+		t.Fatalf("expected reader to show next row from loaded preview, got %q ok=%v", got, ok)
+	}
+	if m.readerHorizOff != 0 {
+		t.Fatalf("expected horizontal offset to clamp before preview reload, got %d", m.readerHorizOff)
+	}
+}
+
+func TestReaderPagingKeysMoveWithinCurrentCell(t *testing.T) {
+	m := newTestModel()
+	m.width = 70
+	m.height = 14
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+	var lines []string
+	for i := 0; i < 40; i++ {
+		lines = append(lines, fmt.Sprintf("line %02d", i))
+	}
+	m.tableData = [][]string{{"1", strings.Join(lines, "\n")}}
+
+	updated, _ := m.handleTableKey("W")
+	m = updated.(Model)
+	bodyH := m.readerBodyHeight()
+
+	updated, _ = m.handleReaderKey("ctrl+f")
+	m = updated.(Model)
+	if m.readerVertOff != bodyH {
+		t.Fatalf("expected ctrl+f to page down by %d, got %d", bodyH, m.readerVertOff)
+	}
+
+	updated, _ = m.handleReaderKey("ctrl+b")
+	m = updated.(Model)
+	if m.readerVertOff != 0 {
+		t.Fatalf("expected ctrl+b to page back to top, got %d", m.readerVertOff)
+	}
+
+	updated, _ = m.handleReaderKey("ctrl+d")
+	m = updated.(Model)
+	wantHalf := max(1, bodyH/2)
+	if m.readerVertOff != wantHalf {
+		t.Fatalf("expected ctrl+d to half-page by %d, got %d", wantHalf, m.readerVertOff)
+	}
+
+	updated, _ = m.handleReaderKey("ctrl+u")
+	m = updated.(Model)
+	if m.readerVertOff != 0 {
+		t.Fatalf("expected ctrl+u to half-page back to top, got %d", m.readerVertOff)
+	}
+
+	updated, _ = m.handleReaderKey("G")
+	m = updated.(Model)
+	if m.readerVertOff != m.maxReaderVerticalOffset() {
+		t.Fatalf("expected G to jump to bottom, got %d want %d", m.readerVertOff, m.maxReaderVerticalOffset())
+	}
+
+	updated, _ = m.handleReaderKey("g")
+	m = updated.(Model)
+	if m.readerVertOff != 0 {
+		t.Fatalf("expected g to jump to top, got %d", m.readerVertOff)
+	}
+}
+
+func TestViewCellReaderWrapsWithinWidthAndShowsEdgeMarkers(t *testing.T) {
+	m := newTestModel()
+	m.width = 80
+	m.height = 14
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+	m.tableData = [][]string{{"1", strings.Join([]string{
+		"line one is long enough to wrap and keep going",
+		"line two is also long enough to wrap and keep going",
+		"line three is long enough to wrap and keep going",
+		"line four is long enough to wrap and keep going",
+		"line five is long enough to wrap and keep going",
+	}, "\n")}}
+	m.openCellReader("body", m.tableData[0][1])
+
+	outTop := m.viewCellReader(22, 8)
+	topLines := strings.Split(outTop, "\n")
+	if len(topLines) != 8 {
+		t.Fatalf("expected 8 rendered lines, got %d", len(topLines))
+	}
+	for _, line := range topLines {
+		if lipgloss.Width(line) > 22 {
+			t.Fatalf("expected rendered line width <= 22, got %d: %q", lipgloss.Width(line), line)
+		}
+	}
+	if !strings.Contains(outTop, "line one") || !strings.Contains(outTop, "line two") {
+		t.Fatalf("expected wrapped reader view to preserve logical lines, got %q", outTop)
+	}
+	if !strings.Contains(outTop, "═") {
+		t.Fatalf("expected reader view to include graphical edge markers, got %q", outTop)
+	}
+
+	m.readerVertOff = 1
+	outScrolled := m.viewCellReader(22, 8)
+	scrolledLines := strings.Split(outScrolled, "\n")
+	if topLines[1] == scrolledLines[1] {
+		t.Fatalf("expected top edge marker styling to change after scrolling")
+	}
+}
+
+func TestViewTableEscapesMultilineCellsWithoutBreakingLayout(t *testing.T) {
+	m := newTestModel()
+	m.width = 80
+	m.height = 10
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+	m.tableData = [][]string{
+		{"1", "line one\nline two"},
+		{"2", "plain"},
+	}
+
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
+	if !strings.Contains(out, `line one\nline two`) {
+		t.Fatalf("expected multiline cell to render as escaped single-line preview, got %q", out)
+	}
+	lines := strings.Split(out, "\n")
+	if got, wantMax := len(lines), h; got > wantMax {
+		t.Fatalf("expected table view to stay within height %d, got %d lines", wantMax, got)
 	}
 }
 

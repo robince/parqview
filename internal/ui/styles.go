@@ -124,6 +124,23 @@ var (
 	detailValueStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("252"))
 
+	readerHeaderStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("230"))
+
+	readerBodyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252"))
+
+	readerFooterStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("243"))
+
+	readerEdgeStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("238"))
+
+	readerEdgeActiveStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("69")).
+				Bold(true)
+
 	// Search
 	searchPromptStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("62"))
