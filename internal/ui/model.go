@@ -62,7 +62,6 @@ type previewDoneMsg struct {
 	colNames   []string
 	totalRows  int64
 	filterRows int64
-	offset     int
 	seq        uint64
 	token      uint64
 	err        error
@@ -134,7 +133,6 @@ type Model struct {
 
 	// Table state
 	tableData           [][]string
-	tableDataOffset     int
 	tableRowHasMissing  []bool
 	tableCols           []string // column names in current projection
 	tableOffset         int      // row offset for pagination
@@ -251,7 +249,6 @@ func (m *Model) resetLoadedDataState() {
 	m.colCursor = 0
 	m.selectedColName = ""
 	m.tableData = nil
-	m.tableDataOffset = 0
 	m.tableRowHasMissing = nil
 	m.tableCols = nil
 	m.tableOffset = 0
@@ -890,7 +887,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
 		} else {
 			m.tableData = msg.rows
-			m.tableDataOffset = msg.offset
 			m.tableRowHasMissing = rowHasMissingFlags(msg.rows, m.missingMode)
 			m.tableCols = msg.colNames
 			m.reconcileSelectedColNameWithTableCols()
@@ -2608,7 +2604,6 @@ func (m Model) loadPreviewCmd(seq uint64) tea.Cmd {
 			colNames:   colNames,
 			totalRows:  totalRows,
 			filterRows: filterRows,
-			offset:     offset,
 			seq:        seq,
 			token:      m.dataToken,
 		}
