@@ -843,6 +843,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampTableOffset()
 		m.clampTableRowCursor()
 		if m.overlay == OverlayCellReader {
+			m.readerAbsRow = m.currentAbsoluteRow()
 			m.clampReaderOffsets()
 		}
 		if m.tableOffset != prevOffset {

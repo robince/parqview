@@ -311,6 +311,51 @@ func TestWindowSizeMsgClampsReaderOffsetsWhenReaderIsOpen(t *testing.T) {
 	}
 }
 
+func TestWindowSizeMsgKeepsReaderRowInSyncWhenResizeClampsCursor(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 16
+	m.tableCols = []string{"body"}
+	m.selectedColName = "body"
+	m.tableData = make([][]string, 20)
+	for i := range m.tableData {
+		m.tableData[i] = []string{fmt.Sprintf("row-%d", i+1)}
+	}
+
+	startRows := m.visibleTableRows()
+	if startRows < 2 {
+		t.Fatalf("expected at least two visible rows, got %d", startRows)
+	}
+	m.tableRowCursor = startRows - 1
+	m.openCellReader("body", m.tableData[m.tableRowCursor][0])
+
+	shrunkHeight := 0
+	for height := m.height - 1; height > 0; height-- {
+		candidate := m
+		candidate.height = height
+		if candidate.visibleTableRows() < startRows {
+			shrunkHeight = height
+			break
+		}
+	}
+	if shrunkHeight == 0 {
+		t.Fatal("expected to find a smaller height that reduces visible rows")
+	}
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: m.width, Height: shrunkHeight})
+	m = updated.(Model)
+
+	if m.tableRowCursor != m.visibleTableRows()-1 {
+		t.Fatalf("expected row cursor to clamp to last visible row, got %d with %d visible rows", m.tableRowCursor, m.visibleTableRows())
+	}
+	if m.readerAbsRow != m.currentAbsoluteRow() {
+		t.Fatalf("expected reader absolute row %d after resize, got %d", m.currentAbsoluteRow(), m.readerAbsRow)
+	}
+	if got, ok := m.readerCurrentValue(); !ok || got != m.tableData[m.tableRowCursor][0] {
+		t.Fatalf("expected reader to show clamped row %q, got %q ok=%v", m.tableData[m.tableRowCursor][0], got, ok)
+	}
+}
+
 func TestHandleTableKeyCtrlPagingLoadsOnlyWhenOffsetChanges(t *testing.T) {
 	base := newCmdTestModel()
 	base.width = 120
