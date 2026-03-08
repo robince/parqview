@@ -37,12 +37,12 @@ Tests use real DuckDB queries against fixture files in `testdata/`. Engine tests
 **Support packages:**
 - `internal/types/` — Domain models (`ColumnInfo`, `ColumnSummary`, `NumericStats`, `Histogram`)
 - `internal/selection/` — Ordered column selection set (preserves file order)
-- `internal/clipboard/` — Python list formatter + macOS `pbcopy`
+- `internal/clipboard/` — Python list formatter + system clipboard integration
 - `internal/util/` — Case-insensitive substring matching
 
 ## Key Conventions
 
 - DuckDB binding is `github.com/marcboeker/go-duckdb` (the `duckdb/duckdb-go` GitHub repo declares itself as marcboeker internally)
 - SQL identifiers quoted via `quoteIdent()` (double-quote escaping), string literals via `escapeSQLString()` (single-quote escaping)
-- Clipboard is macOS-only (`pbcopy`)
+- Clipboard uses `github.com/atotto/clipboard` for cross-platform copy support
 - Column profiling is lazy: basic summaries computed sequentially on startup, detail (top-3, stats, histogram) computed on-demand when opening column detail panel
