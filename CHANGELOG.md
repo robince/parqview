@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [1.1.1] - 2026-03-08
+
+### Added
+- Windows clipboard support
+
 ## [1.1.0] - 2026-03-06
 
 ### Added
