@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -260,6 +261,28 @@ func TestSupportedExtensions(t *testing.T) {
 	}
 	if IsSupportedDataFile("data.txt") {
 		t.Fatal("expected .txt to be unsupported")
+	}
+}
+
+func TestJSONReaderFunctionsAvailable(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	if err := ensureJSONSupport(db); err != nil {
+		t.Fatalf("ensureJSONSupport: %v", err)
+	}
+
+	for _, fn := range []string{"read_json_auto", "read_ndjson_auto"} {
+		ok, err := duckDBFunctionExists(db, fn)
+		if err != nil {
+			t.Fatalf("duckDBFunctionExists(%s): %v", fn, err)
+		}
+		if !ok {
+			t.Fatalf("expected DuckDB function %q to be available", fn)
+		}
 	}
 }
 

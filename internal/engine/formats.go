@@ -9,13 +9,14 @@ import (
 type dataSourceFormat struct {
 	extensions []string
 	readerExpr string
+	needsJSON  bool
 }
 
 var supportedDataSourceFormats = []dataSourceFormat{
 	{extensions: []string{".parquet"}, readerExpr: "read_parquet"},
 	{extensions: []string{".csv"}, readerExpr: "read_csv_auto"},
-	{extensions: []string{".json"}, readerExpr: "read_json_auto"},
-	{extensions: []string{".jsonl", ".ndjson"}, readerExpr: "read_ndjson_auto"},
+	{extensions: []string{".json"}, readerExpr: "read_json_auto", needsJSON: true},
+	{extensions: []string{".jsonl", ".ndjson"}, readerExpr: "read_ndjson_auto", needsJSON: true},
 }
 
 // SupportedExtensions returns the extensions recognized by the engine.
