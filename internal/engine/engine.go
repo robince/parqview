@@ -86,17 +86,17 @@ func ensureFormatSupport(db *sql.DB, path string) error {
 }
 
 func ensureJSONSupport(db *sql.DB) error {
-	if _, err := db.Exec("LOAD json"); err == nil {
+	_, err := db.Exec("LOAD json")
+	if err == nil {
 		return nil
-	} else {
-		for _, fn := range []string{"read_json_auto", "read_ndjson_auto"} {
-			ok, checkErr := duckDBFunctionExists(db, fn)
-			if checkErr != nil {
-				return fmt.Errorf("load json extension: %w", err)
-			}
-			if !ok {
-				return fmt.Errorf("load json extension: %w", err)
-			}
+	}
+	for _, fn := range []string{"read_json_auto", "read_ndjson_auto"} {
+		ok, checkErr := duckDBFunctionExists(db, fn)
+		if checkErr != nil {
+			return fmt.Errorf("load json extension: %w", checkErr)
+		}
+		if !ok {
+			return fmt.Errorf("load json extension: function %q not found", fn)
 		}
 	}
 	return nil
