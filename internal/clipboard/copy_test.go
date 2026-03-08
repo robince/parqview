@@ -56,12 +56,12 @@ func TestCopyIntegration(t *testing.T) {
 	}
 
 	if err := Copy(want); err != nil {
-		t.Skipf("clipboard unavailable: %v", err)
+		t.Fatalf("clipboard unavailable: %v", err)
 	}
 
 	got, err := systemclipboard.ReadAll()
 	if err != nil {
-		t.Skipf("clipboard unavailable for read: %v", err)
+		t.Fatalf("clipboard unavailable for read: %v", err)
 	}
 	if got != want {
 		t.Fatalf("clipboard text = %q, want %q", got, want)
