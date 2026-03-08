@@ -2104,7 +2104,10 @@ func (m *Model) closeCellReader() {
 	m.readerHorizOff = 0
 }
 
-func (m *Model) toggleActiveColumnFitWidth() {
+// handleActiveColumnWidthAction keeps lowercase `w` adaptive: it toggles fit-width
+// for ordinary values, but opens the expanded reader when the visible column sample
+// indicates that widening would be a poor fit for the table layout.
+func (m *Model) handleActiveColumnWidthAction() {
 	colName := m.selectedColName
 	if colName == "" {
 		m.statusMsg = "No active column"
@@ -2248,7 +2251,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		return m.pageTableOffset(-(m.pageSize / 2))
 	case "w":
-		m.toggleActiveColumnFitWidth()
+		m.handleActiveColumnWidthAction()
 	case "W":
 		colName := m.selectedColName
 		if colName == "" {
@@ -2923,7 +2926,7 @@ func (m Model) viewBottomBar() string {
 	case m.focus == FocusColumns:
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  m:missing-mode  /:search  v:sel-list  x:toggle  a/d/y:sel"
 	default:
-		hints = "Ctrl+O:open  hjkl:move  w:fit-col  W:reader  Ctrl+W:wide-cols  m:missing-mode  r/R:row missing ±  c/C:col missing ±  f:missing-filter  drag:divider  Ctrl+L:redraw"
+		hints = "Ctrl+O:open  hjkl:move  w:fit-col/reader  W:reader  Ctrl+W:wide-cols  m:missing-mode  r/R:row missing ±  c/C:col missing ±  f:missing-filter  drag:divider  Ctrl+L:redraw"
 	}
 	status := fmt.Sprintf("  Sel: %d/%d", selCount, len(m.columns))
 	if m.showSelected {
@@ -3510,7 +3513,7 @@ func (m Model) viewHelp() string {
 		{"←/→ or h/l", "Move column cursor"},
 		{"0 / $", "First / last column"},
 		{"[ / ]", "Page columns left / right"},
-		{"w", "Toggle fit width for active column"},
+		{"w", "Fit width or open expanded reader"},
 		{"W", "Open expanded reader for active cell"},
 		{"Ctrl+W", "Toggle global wide columns"},
 		{"g / G", "Top / Bottom of file"},
