@@ -1909,6 +1909,30 @@ func TestViewCellReaderWrapsWithinWidthAndShowsEdgeMarkers(t *testing.T) {
 	}
 }
 
+func TestViewCellReaderHeaderUsesReaderAbsoluteRowID(t *testing.T) {
+	m := newTestModel()
+	m.width = 80
+	m.height = 14
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+	m.tableDataOffset = 5
+	m.tableData = [][]string{
+		{"6", "row-six"},
+		{"7", "row-seven"},
+	}
+	m.tableRowIDs = []int64{100, 101}
+	m.tableRowCursor = 0
+	m.totalRows = 200
+	m.overlay = OverlayCellReader
+	m.readerCol = "body"
+	m.readerAbsRow = 6
+
+	out := m.viewCellReader(40, 8)
+	if !strings.Contains(out, "R101/200") {
+		t.Fatalf("expected reader header to use row id for readerAbsRow, got %q", out)
+	}
+}
+
 func TestViewTableEscapesMultilineCellsWithoutBreakingLayout(t *testing.T) {
 	m := newTestModel()
 	m.width = 80
@@ -1968,6 +1992,33 @@ func TestHandleTableKeyGPositionsCursorAtFinalRow(t *testing.T) {
 	}
 }
 
+func TestHandleTableKeyGGPositionsCursorAtTop(t *testing.T) {
+	m := newCmdTestModel()
+	m.width = 120
+	m.height = 10
+	m.tableOffset = 37
+	m.tableRowCursor = 2
+	m.tableCols = []string{"c0"}
+
+	updated, cmd := m.handleTableKey("g")
+	if cmd != nil {
+		t.Fatalf("expected no command for first g, got %v", cmd)
+	}
+	m = updated.(Model)
+	if !m.tablePendingG {
+		t.Fatal("expected first g to arm gg prefix")
+	}
+
+	updated, cmd = m.handleTableKey("g")
+	if cmd == nil {
+		t.Fatal("expected load command for gg")
+	}
+	m = updated.(Model)
+	if m.tableOffset != 0 || m.tableRowCursor != 0 {
+		t.Fatalf("expected gg to jump to top, got offset=%d cursor=%d", m.tableOffset, m.tableRowCursor)
+	}
+}
+
 func TestHandleTableKeyGWithZeroVisibleRowsStaysWithinBounds(t *testing.T) {
 	m := newCmdTestModel()
 	m.width = 120
@@ -1994,6 +2045,77 @@ func TestHandleTableKeyGWithZeroVisibleRowsStaysWithinBounds(t *testing.T) {
 	}
 	if m.tableRowCursor != 0 {
 		t.Fatalf("expected row cursor clamped to 0, got %d", m.tableRowCursor)
+	}
+}
+
+func TestJumpToRowFallsForwardInFilteredResult(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rows.csv")
+	data := "id,keep\n1,a\n2,\n3,b\n4,\n5,c\n"
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+
+	eng := openTestEngine(t, path)
+	m := NewModel(eng, filepath.Base(path), dir)
+	m.missingFilterActive = true
+	m.jumpReqID = 1
+
+	cmd := m.jumpToRowCmd(3, m.jumpReqID)
+	if cmd == nil {
+		t.Fatal("expected jump command")
+	}
+	raw := cmd()
+	msg, ok := raw.(jumpRowMsg)
+	if !ok {
+		t.Fatalf("expected jumpRowMsg, got %T", raw)
+	}
+	if msg.err != nil {
+		t.Fatalf("unexpected jump error: %v", msg.err)
+	}
+	if msg.rowID != 4 {
+		t.Fatalf("expected filtered jump to land on row 4, got %d", msg.rowID)
+	}
+	if msg.offset != 1 {
+		t.Fatalf("expected filtered jump offset 1, got %d", msg.offset)
+	}
+	if !msg.approximate {
+		t.Fatal("expected filtered jump to be marked approximate")
+	}
+}
+
+func TestJumpRowMsgIgnoresStaleRequestID(t *testing.T) {
+	m := newCmdTestModel()
+	m.jumpReqID = 2
+	m.tableOffset = 11
+	m.tableRowCursor = 1
+
+	updated := updateModel(t, m, jumpRowMsg{
+		requestedRowID: 40,
+		rowID:          40,
+		offset:         39,
+		token:          m.dataToken,
+		reqID:          1,
+	})
+	if updated.tableOffset != 11 || updated.tableRowCursor != 1 {
+		t.Fatalf("expected stale jump response to be ignored, got offset=%d cursor=%d", updated.tableOffset, updated.tableRowCursor)
+	}
+}
+
+func TestHandleTableKeyGRejectsOverflowJumpCount(t *testing.T) {
+	m := newCmdTestModel()
+	m.tableJumpCount = strings.Repeat("9", 32)
+
+	updated, cmd := m.handleTableKey("G")
+	if cmd != nil {
+		t.Fatalf("expected no command for invalid jump count, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.tableJumpCount != "" || m.tablePendingG {
+		t.Fatalf("expected jump state cleared after invalid count, got count=%q pendingG=%v", m.tableJumpCount, m.tablePendingG)
+	}
+	if !strings.Contains(m.statusMsg, "invalid row jump") {
+		t.Fatalf("expected invalid jump status, got %q", m.statusMsg)
 	}
 }
 
@@ -3048,6 +3170,20 @@ func TestViewTableFooterShowsCorrectRowAfterScrolling(t *testing.T) {
 	}
 }
 
+func TestViewTableFooterUsesImmutableRowIDWhenAvailable(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"x"}, {"y"}}
+	m.tableRowIDs = []int64{12, 20}
+	m.tableRowCursor = 1
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, `R20 "a": y`) {
+		t.Fatalf("expected footer to use immutable row id, got %q", footer)
+	}
+}
+
 func TestViewTableFooterSanitizesControlChars(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
@@ -3090,6 +3226,22 @@ func TestViewTableUsesMiddleTruncationForHeaderAndCell(t *testing.T) {
 	}
 	if !strings.Contains(out, "abcdef…klmnop") {
 		t.Fatalf("expected cell to use middle truncation, got %q", out)
+	}
+}
+
+func TestViewTableUsesImmutableRowIDsInGutter(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"x"}, {"y"}}
+	m.tableRowIDs = []int64{12, 20}
+	m.width = 80
+	m.height = 10
+
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
+	if !strings.Contains(out, "12") || !strings.Contains(out, "20") {
+		t.Fatalf("expected immutable row ids in gutter, got %q", out)
 	}
 }
 

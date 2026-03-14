@@ -31,6 +31,16 @@ func newCmdTestModel() Model {
 	return m
 }
 
+func openTestEngine(t *testing.T, path string) *engine.Engine {
+	t.Helper()
+	eng, err := engine.New(path)
+	if err != nil {
+		t.Fatalf("engine.New(%q): %v", path, err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	return eng
+}
+
 // updateModel sends a message through Model.Update and returns the updated model.
 func updateModel(t *testing.T, m Model, msg tea.Msg) Model {
 	t.Helper()

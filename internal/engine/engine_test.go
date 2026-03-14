@@ -207,7 +207,7 @@ func TestFirstNullRowStableAcrossQueries(t *testing.T) {
 	}
 
 	for i := 0; i < 50; i++ {
-		if _, err := eng.Preview(ctx, []string{"id", "score"}, filter, 5, i%4); err != nil {
+		if _, _, err := eng.Preview(ctx, []string{"id", "score"}, filter, 5, i%4); err != nil {
 			t.Fatalf("Preview iteration %d: %v", i, err)
 		}
 
