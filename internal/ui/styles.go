@@ -10,6 +10,7 @@ const (
 	selectedMarkGlyph   = "●"
 	unselectedMarkGlyph = "○"
 	nullDotChar         = "•"
+	predicateMarkerChar = "◇"
 
 	// Layout constants
 	tableSplitPct     = 65 // default percentage of width for table pane
@@ -94,6 +95,7 @@ var (
 	// Null indicator dots (pre-rendered strings, not reusable styles)
 	inlineNullDotW      = lipgloss.Width(" " + nullDotChar) // inline indicator is rendered as " " + dot
 	tableHeaderNullDotW = lipgloss.Width(nullDotChar)       // all mode dots share the same rune; lipgloss.Width strips ANSI
+	predicateMarkerW    = lipgloss.Width(" " + predicateMarkerChar)
 
 	// Column list
 	selectedMark   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(selectedMarkGlyph)
@@ -165,6 +167,14 @@ func inlineNullDotWidth() int {
 
 func tableHeaderNullDotWidth() int {
 	return tableHeaderNullDotW
+}
+
+func predicateMarkerWidth() int {
+	return predicateMarkerW
+}
+
+func predicateMarker() string {
+	return filterStyle.Render(predicateMarkerChar)
 }
 
 func missingAccentColor(mode missing.Mode) lipgloss.Color {

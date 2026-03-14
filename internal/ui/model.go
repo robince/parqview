@@ -1093,7 +1093,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "t":
 			m.detailTab = (m.detailTab + 1) % 3
 		case "n":
-			return m, m.jumpToFirstNull(m.detailCol, m.activeFilterCols())
+			return m, m.jumpToFirstNull(m.detailCol, m.activeRowFilter())
 		case "m":
 			return m, m.cycleMissingMode()
 		}
@@ -2396,7 +2396,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			m.statusMsg = "No data visible for filter"
 			return m, nil
 		}
-		pred, err := parseColumnPredicate(colName, m.columnType(colName), value)
+		pred, err := exactMatchPredicate(colName, m.columnType(colName), value)
 		if err != nil {
 			m.statusMsg = fmt.Sprintf("Filter error: %v", err)
 			return m, nil
@@ -2451,7 +2451,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		currentRow := int64(m.tableOffset + m.tableRowCursor)
-		return m, m.jumpToNextNullInColumn(colName, m.activeFilterCols(), currentRow, false)
+		return m, m.jumpToNextNullInColumn(colName, m.activeRowFilter(), currentRow, false)
 	case "C":
 		colName := m.selectedColName
 		if colName == "" {
@@ -2459,7 +2459,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		currentRow := int64(m.tableOffset + m.tableRowCursor)
-		return m, m.jumpToNextNullInColumn(colName, m.activeFilterCols(), currentRow, true)
+		return m, m.jumpToNextNullInColumn(colName, m.activeRowFilter(), currentRow, true)
 	}
 	return m, nil
 }
@@ -2865,7 +2865,7 @@ func (m Model) loadDetail(colName string, existing *types.ColumnSummary, colType
 	}
 }
 
-func (m Model) jumpToFirstNull(colName string, filterCols []string) tea.Cmd {
+func (m Model) jumpToFirstNull(colName, rowFilter string) tea.Cmd {
 	eng := m.engine
 	if eng == nil {
 		return nil
@@ -2873,16 +2873,16 @@ func (m Model) jumpToFirstNull(colName string, filterCols []string) tea.Cmd {
 	missingMode := m.missingMode
 	return func() tea.Msg {
 		ctx := context.Background()
-		rowID, err := eng.FirstNullRow(ctx, colName, filterCols, missingMode)
+		rowID, err := eng.FirstNullRowWithFilter(ctx, colName, rowFilter, missingMode)
 		if err != nil || rowID == 0 {
 			return firstNullMsg{rowID: rowID, token: m.dataToken, err: err}
 		}
-		offset, err := eng.OffsetForRowID(ctx, rowID, filterCols, missingMode)
+		offset, err := eng.OffsetForRowIDWithFilter(ctx, rowID, rowFilter)
 		return firstNullMsg{rowID: rowID, offset: offset, token: m.dataToken, err: err}
 	}
 }
 
-func (m Model) jumpToNextNullInColumn(colName string, filterCols []string, currentOffset int64, reverse bool) tea.Cmd {
+func (m Model) jumpToNextNullInColumn(colName, rowFilter string, currentOffset int64, reverse bool) tea.Cmd {
 	eng := m.engine
 	if eng == nil {
 		return nil
@@ -2890,16 +2890,16 @@ func (m Model) jumpToNextNullInColumn(colName string, filterCols []string, curre
 	missingMode := m.missingMode
 	return func() tea.Msg {
 		ctx := context.Background()
-		rowID, err := eng.RowIDForOffset(ctx, currentOffset, filterCols, missingMode)
+		rowID, err := eng.RowIDForOffsetWithFilter(ctx, currentOffset, rowFilter)
 		if err != nil {
 			return nextNullMsg{token: m.dataToken, colName: colName, reverse: reverse, err: err}
 		}
 		var nextRowID int64
 		var wrapped bool
 		if reverse {
-			nextRowID, wrapped, err = eng.PrevNullRow(ctx, colName, filterCols, missingMode, rowID)
+			nextRowID, wrapped, err = eng.PrevNullRowWithFilter(ctx, colName, rowFilter, missingMode, rowID)
 		} else {
-			nextRowID, wrapped, err = eng.NextNullRow(ctx, colName, filterCols, missingMode, rowID)
+			nextRowID, wrapped, err = eng.NextNullRowWithFilter(ctx, colName, rowFilter, missingMode, rowID)
 		}
 		if err != nil || nextRowID == 0 {
 			return nextNullMsg{
@@ -2912,7 +2912,7 @@ func (m Model) jumpToNextNullInColumn(colName string, filterCols []string, curre
 				err:      err,
 			}
 		}
-		offset, err := eng.OffsetForRowID(ctx, nextRowID, filterCols, missingMode)
+		offset, err := eng.OffsetForRowIDWithFilter(ctx, nextRowID, rowFilter)
 		return nextNullMsg{
 			rowID:    nextRowID,
 			offset:   offset,
@@ -3087,8 +3087,6 @@ func (m Model) viewBottomBar() string {
 	selCount := m.sel.Count()
 	var hints string
 	switch {
-	case m.overlay == OverlayPredicatePrompt:
-		hints = "Enter:apply  Ctrl+U:clear  Esc:close"
 	case m.overlay == OverlayCellReader:
 		hints = "w/Esc:close  ↑↓/jk:scroll  ←→/hl:pan  W:wrap  n/p:row  Space/C-f/C-b:page  C-d/u:half  g/G:top/bottom"
 	case m.focus == FocusColumns:
@@ -3251,11 +3249,14 @@ func (m Model) viewTable(w, h int) string {
 	header := " " + rowNumStyle.Render(fmt.Sprintf("%*s", tableRowNumW, "#"))
 	for i := startCol; i < endCol; i++ {
 		colW := m.columnWidth(m.tableCols[i], colAreaWidth)
-		name := truncateDisplayMiddle(m.tableCols[i], max(0, colW-2))
+		nameBudget := max(0, colW-2)
+		predicateGlyph := ""
 		if _, ok := m.predicates[m.tableCols[i]]; ok {
-			name = truncateDisplayMiddle(name+"*", max(0, colW-2))
+			nameBudget = max(0, nameBudget-predicateMarkerWidth())
+			predicateGlyph = " " + predicateMarkerChar
 		}
-		nameStr := " " + padDisplayRight(name, max(0, colW-2))
+		name := truncateDisplayMiddle(m.tableCols[i], nameBudget)
+		nameStr := " " + padDisplayRight(name+predicateGlyph, max(0, colW-2))
 		// Check if column has missing values from profiling.
 		hasMissing := false
 		if s, ok := m.summaries[m.tableCols[i]]; ok && s.Loaded && s.MissingCount > 0 {
@@ -3475,13 +3476,18 @@ func (m Model) viewColumns(w, h int) string {
 		if hasMissing {
 			nameWidth = max(0, nameWidth-inlineNullDotWidth())
 		}
+		hasPredicate := false
+		if _, ok := m.predicates[col.Name]; ok {
+			hasPredicate = true
+			nameWidth = max(0, nameWidth-predicateMarkerWidth())
+		}
 		name := truncate(col.Name, nameWidth)
 		namePart := name
 		if hasMissing && nameWidth > 0 {
 			namePart += " " + missingDot(m.missingMode)
 		}
-		if _, ok := m.predicates[col.Name]; ok {
-			namePart += " *"
+		if hasPredicate {
+			namePart += " " + predicateMarker()
 		}
 		typeStr := truncate(col.DuckType, 8)
 		statsStr := ""
@@ -3500,6 +3506,9 @@ func (m Model) viewColumns(w, h int) string {
 			plainNamePart := name
 			if hasMissing && nameWidth > 0 {
 				plainNamePart += " " + nullDotChar
+			}
+			if hasPredicate {
+				plainNamePart += " " + predicateMarkerChar
 			}
 			plain := fmt.Sprintf("%s %s %s%s", markChar, plainNamePart, typeStr, statsStr)
 			if m.focus == FocusColumns {

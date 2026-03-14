@@ -1,11 +1,14 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/robince/parqview/internal/engine"
 	"github.com/robince/parqview/internal/types"
 )
 
@@ -21,6 +24,8 @@ func TestParseColumnPredicate(t *testing.T) {
 	}{
 		{name: "string exact", colType: "VARCHAR", input: "abc123", wantOp: opEq, want: "abc123"},
 		{name: "string neq", colType: "VARCHAR", input: "!= abc123", wantOp: opNeq, want: "abc123"},
+		{name: "string exact preserves whitespace", colType: "VARCHAR", input: "  abc123  ", wantOp: opEq, want: "  abc123  "},
+		{name: "string neq preserves trailing whitespace", colType: "VARCHAR", input: "!= abc123  ", wantOp: opNeq, want: "abc123  "},
 		{name: "numeric gte", colType: "DOUBLE", input: ">= 10", wantOp: opGte, want: "10"},
 		{name: "numeric range", colType: "BIGINT", input: "10..20", wantOp: opRange, want: "10", want2: "20"},
 		{name: "string compare rejected", colType: "VARCHAR", input: "> 10", wantErr: "comparisons require a numeric column"},
@@ -124,14 +129,18 @@ func TestHandleTableKeyPCreatesExactMatchPredicate(t *testing.T) {
 	m.selectedColName = "user_id"
 	m.tableCols = []string{"user_id"}
 	m.columns = []types.ColumnInfo{{Name: "user_id", DuckType: "VARCHAR"}}
-	m.tableData = [][]string{{"abc123"}}
+	m.tableData = [][]string{{">=10"}}
 
 	updated, cmd := m.handleTableKey("p")
 	m = updated.(Model)
 	if cmd == nil {
 		t.Fatal("expected refresh command for pin")
 	}
-	if got := m.predicates["user_id"].Display; got != "abc123" {
+	pred := m.predicates["user_id"]
+	if pred.Op != opEq || pred.Value != ">=10" {
+		t.Fatalf("expected literal exact-match predicate, got %+v", pred)
+	}
+	if got := pred.Display; got != ">=10" {
 		t.Fatalf("unexpected predicate display %q", got)
 	}
 }
@@ -163,5 +172,52 @@ func TestHandleTableKeyUClearsAllPredicates(t *testing.T) {
 	}
 	if len(m.predicates) != 0 {
 		t.Fatalf("expected all predicates cleared, got %+v", m.predicates)
+	}
+}
+
+func TestViewColumnsShowsPredicateMarkerOnHighlightedRow(t *testing.T) {
+	m := newTestModel()
+	m.width = 80
+	m.height = 12
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{{Name: "user_id", DuckType: "VARCHAR"}}
+	m.filteredCols = m.columns
+	m.selectedColName = "user_id"
+	m.predicates["user_id"] = columnPredicate{Column: "user_id", Op: opEq, Value: "abc", Display: "abc"}
+
+	out := m.viewColumns(40, 8)
+	if !strings.Contains(out, predicateMarkerChar) {
+		t.Fatalf("expected predicate marker in highlighted row, got %q", out)
+	}
+}
+
+func TestJumpToFirstNullUsesActivePredicateFilter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jump.csv")
+	if err := os.WriteFile(path, []byte("id,score\n1,1\n6,\n12,\n13,7\n"), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+	eng, err := engine.New(path)
+	if err != nil {
+		t.Fatalf("engine.New(%q): %v", path, err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	m := NewModel(eng, filepath.Base(path), t.TempDir())
+	m.predicates["id"] = columnPredicate{Column: "id", Op: opEq, Value: "12", Display: "12", Numeric: true}
+
+	cmd := m.jumpToFirstNull("score", m.activeRowFilter())
+	if cmd == nil {
+		t.Fatal("expected jump command")
+	}
+	msg := cmd()
+	got, ok := msg.(firstNullMsg)
+	if !ok {
+		t.Fatalf("expected firstNullMsg, got %T", msg)
+	}
+	if got.err != nil {
+		t.Fatalf("unexpected error: %v", got.err)
+	}
+	if got.rowID != 3 || got.offset != 0 {
+		t.Fatalf("expected filtered jump to internal row 3 at offset 0, got rowID=%d offset=%d", got.rowID, got.offset)
 	}
 }

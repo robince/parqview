@@ -31,12 +31,12 @@ type columnPredicate struct {
 }
 
 func parseColumnPredicate(colName, colType, raw string) (columnPredicate, error) {
-	text := strings.TrimSpace(raw)
-	if text == "" {
+	if strings.TrimSpace(raw) == "" {
 		return columnPredicate{}, nil
 	}
 
 	isNumeric := util.IsNumericDuckType(colType)
+	text := strings.TrimSpace(raw)
 
 	if isNumeric {
 		if pred, ok, err := parseRangePredicate(colName, text); ok || err != nil {
@@ -54,10 +54,14 @@ func parseColumnPredicate(colName, colType, raw string) (columnPredicate, error)
 		{prefix: ">", op: opGt},
 		{prefix: "<", op: opLt},
 	} {
-		if !strings.HasPrefix(text, candidate.prefix) {
+		trimmedLeft := strings.TrimLeft(raw, " \t")
+		if !strings.HasPrefix(trimmedLeft, candidate.prefix) {
 			continue
 		}
-		value := strings.TrimSpace(strings.TrimPrefix(text, candidate.prefix))
+		value := strings.TrimPrefix(trimmedLeft, candidate.prefix)
+		if len(value) > 0 && value[0] == ' ' {
+			value = value[1:]
+		}
 		if value == "" {
 			return columnPredicate{}, fmt.Errorf("missing value")
 		}
@@ -90,8 +94,8 @@ func parseColumnPredicate(colName, colType, raw string) (columnPredicate, error)
 	return columnPredicate{
 		Column:  colName,
 		Op:      opEq,
-		Value:   text,
-		Display: text,
+		Value:   raw,
+		Display: raw,
 		Numeric: isNumeric,
 	}, nil
 }
@@ -162,6 +166,25 @@ func predicateValueSQL(pred columnPredicate) string {
 		return pred.Value
 	}
 	return sqlLiteral(pred.Value)
+}
+
+func exactMatchPredicate(colName, colType, value string) (columnPredicate, error) {
+	pred := columnPredicate{
+		Column:  colName,
+		Op:      opEq,
+		Value:   value,
+		Display: value,
+		Numeric: util.IsNumericDuckType(colType),
+	}
+	if pred.Numeric {
+		normalized, err := normalizeNumericLiteral(value)
+		if err != nil {
+			return columnPredicate{}, err
+		}
+		pred.Value = normalized
+		pred.Display = normalized
+	}
+	return pred, nil
 }
 
 func buildPredicateFilter(predicates map[string]columnPredicate) string {
