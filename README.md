@@ -10,9 +10,11 @@ Key features:
 
 - select a set of columns and toggle visibility
 - copy the selected columns as Python list literal
+- copy the active cell value from the data pane
 - search column names
 - summaries of column data
 - fast vim-inspired keyboard navigation and scrolling
+- predicate filtering 
 - visual indication of missing data in rows and columns, jump to next missing value
 - missing definition can toggle between NULL+NaN, NULL, NaN 
 - adaptive column width controls with an expanded reader for long text columns
@@ -76,11 +78,19 @@ Open a file directly:
 ./parqview <file.parquet|file.csv|file.json|file.jsonl|file.ndjson>
 ```
 
+Start with a specific row displayed:
+
+```bash
+./parqview +250 <file.parquet|file.csv|file.json|file.jsonl|file.ndjson>
+```
+
 Or run from source:
 
 ```bash
 go run ./cmd/parqview <file.parquet|file.csv|file.json|file.jsonl|file.ndjson>
 ```
+
+The `+row` argument can appear before or after the file path. Row numbers are 1-based and refer to the file's displayed row numbers, even when filters are active.
 
 If the app starts without a file, press `Ctrl+O` to open the file picker.
 
@@ -152,12 +162,14 @@ Use this pane to inspect row values, navigate missingness, and filter the curren
 | `]` | Page table columns right |
 | `w` | Toggle fit-width for ordinary values, or open the expanded reader when the visible column sample is too wide/multiline |
 | `Ctrl+W` | Toggle global wide-columns mode |
-| `g` | Jump to top row |
+| `gg` | Jump to top row |
 | `G` | Jump to bottom row |
+| `[count]gg`, `[count]G` | Jump to row number `count` |
 | `Space`, `Ctrl+F` | Page down |
 | `Ctrl+B` | Page up |
 | `Ctrl+D` | Half-page down |
 | `Ctrl+U` | Half-page up |
+| `y` | Copy active cell value |
 | `=` | Open predicate prompt for selected column |
 | `p` | Pin current cell value as an exact-match predicate |
 | `-` | Clear predicate for selected column |
@@ -174,7 +186,14 @@ Predicate prompt examples:
 - string columns: `abc123`, `!= abc123`
 - numeric columns: `42`, `!= 42`, `> 10`, `>= 10`, `< 10`, `<= 10`, `10..20`
 
-Multiple column predicates combine with `AND`. Reapplying a predicate on a column replaces the previous predicate for that column.
+Predicate notes:
+
+- `=` opens the prompt prefilled with the current predicate for that column, or the active cell value when no predicate exists yet.
+- `p` applies an exact-match predicate from the active cell without opening the prompt.
+- Comparisons (`>`, `>=`, `<`, `<=`, `a..b`) require a numeric column.
+- Multiple column predicates combine with `AND`.
+- Reapplying a predicate on a column replaces the previous predicate for that column.
+- Row jumps still use overall displayed row numbers; if that exact row is filtered out, parqview jumps to the next visible row and tells you which row it landed on.
 
 ### Column Search Input (in Columns Pane)
 

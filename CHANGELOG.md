@@ -8,10 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Copy active cell value to clipboard with `y` when in data pane
+- Add jump to row command and CLI argument (all displayed row numbers now refer to overall file)
+- Add predicate filtering rules on columns (`p`, `=` etc. )
 
 ### Changed
 
 ### Fixed
+- Filter to missing row updates when selected columns change
 
 ## [1.2.0] - 2026-03-08
 
