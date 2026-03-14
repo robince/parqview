@@ -102,6 +102,8 @@ type filePickerItem struct {
 
 type statusMsg string
 
+var copyToClipboard = clipboard.Copy
+
 // Model is the root Bubble Tea model.
 type Model struct {
 	engine    *engine.Engine
@@ -1966,13 +1968,14 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		selected := m.sel.Selected()
 		if len(selected) > 0 {
 			text := clipboard.FormatPythonList(selected)
-			if err := clipboard.Copy(text); err != nil {
-				m.statusMsg = fmt.Sprintf("Clipboard error: %v", err)
-			} else {
-				m.statusMsg = fmt.Sprintf("Copied %d columns to clipboard", len(selected))
-			}
+			m.copyTextToClipboard(text, fmt.Sprintf("Copied %d columns to clipboard", len(selected)))
 		} else {
-			m.statusMsg = "No columns selected"
+			colName := m.columnsActiveColName()
+			if colName == "" {
+				m.statusMsg = "No active column"
+				break
+			}
+			m.copyTextToClipboard(colName, fmt.Sprintf("Copied column name %q to clipboard", colName))
 		}
 	}
 	return m, nil
@@ -2099,6 +2102,28 @@ func (m Model) valueForAbsoluteCell(absRow int, colName string) (string, bool) {
 
 func (m Model) valueForVisibleCell(colName string) (string, bool) {
 	return m.valueForAbsoluteCell(m.currentAbsoluteRow(), colName)
+}
+
+func (m *Model) copyTextToClipboard(text, successMsg string) {
+	if err := copyToClipboard(text); err != nil {
+		m.statusMsg = fmt.Sprintf("Clipboard error: %v", err)
+		return
+	}
+	m.statusMsg = successMsg
+}
+
+func (m *Model) copyActiveCellValue() {
+	colName := m.selectedColName
+	if colName == "" {
+		m.statusMsg = "No active column"
+		return
+	}
+	value, ok := m.valueForVisibleCell(colName)
+	if !ok {
+		m.statusMsg = "No data visible for active cell"
+		return
+	}
+	m.copyTextToClipboard(value, fmt.Sprintf("Copied cell value from %q", colName))
 }
 
 func (m Model) shouldOpenReaderForActiveColumn() bool {
@@ -2350,6 +2375,8 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		}
 		currentRow := int64(m.tableOffset + m.tableRowCursor)
 		return m, m.jumpToNextNullInColumn(colName, m.activeFilterCols(), currentRow, true)
+	case "y":
+		m.copyActiveCellValue()
 	}
 	return m, nil
 }
@@ -2971,7 +2998,7 @@ func (m Model) viewBottomBar() string {
 	case m.focus == FocusColumns:
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  m:missing-mode  /:search  v:sel-list  x:toggle  a/d/y:sel"
 	default:
-		hints = "Ctrl+O:open  hjkl:move  w:fit-col/reader  W:reader  Ctrl+W:wide-cols  m:missing-mode  r/R:row missing ±  c/C:col missing ±  f:missing-filter  drag:divider  Ctrl+L:redraw"
+		hints = "Ctrl+O:open  hjkl:move  y:copy-cell  w:fit-col/reader  W:reader  Ctrl+W:wide-cols  m:missing-mode  r/R:row missing ±  c/C:col missing ±  f:missing-filter  drag:divider  Ctrl+L:redraw"
 	}
 	status := fmt.Sprintf("  Sel: %d/%d", selCount, len(m.columns))
 	if m.showSelected {
@@ -3550,7 +3577,7 @@ func (m Model) viewHelp() string {
 		{"d", "Remove all filtered from selection"},
 		{"A", "Select ALL columns"},
 		{"X", "Clear all selections"},
-		{"y", "Copy selected as Python list"},
+		{"y", "Copy selected columns, or active column name if none selected"},
 		{"", ""},
 		{"── Table Pane ──", ""},
 		{"↑/↓ or j/k", "Move row cursor"},
@@ -3560,6 +3587,7 @@ func (m Model) viewHelp() string {
 		{"w", "Fit width or open expanded reader"},
 		{"W", "Open expanded reader for active cell"},
 		{"Ctrl+W", "Toggle global wide columns"},
+		{"y", "Copy active cell value"},
 		{"g / G", "Top / Bottom of file"},
 		{"Ctrl+F / Space", "Page down"},
 		{"Ctrl+B", "Page up"},

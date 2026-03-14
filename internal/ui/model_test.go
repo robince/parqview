@@ -709,6 +709,37 @@ func TestColumnsSingleDeselectAutoDisablesColsSelectedOnly(t *testing.T) {
 	}
 }
 
+func TestHandleColumnsKeyYCopiesActiveColumnNameWhenSelectionEmpty(t *testing.T) {
+	m := newTestModel()
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
+	m.selectedColName = "beta"
+	m.updateFilteredCols()
+
+	var got string
+	prevCopy := copyToClipboard
+	copyToClipboard = func(text string) error {
+		got = text
+		return nil
+	}
+	t.Cleanup(func() {
+		copyToClipboard = prevCopy
+	})
+
+	updated, cmd := m.handleColumnsKey("y")
+	if cmd != nil {
+		t.Fatalf("expected no command for y, got %v", cmd)
+	}
+	m = updated.(Model)
+
+	if got != "beta" {
+		t.Fatalf("expected clipboard text %q, got %q", "beta", got)
+	}
+	if m.statusMsg != `Copied column name "beta" to clipboard` {
+		t.Fatalf("unexpected status message: %q", m.statusMsg)
+	}
+}
+
 func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	t.Run("table focus uses selected column", func(t *testing.T) {
 		m := newCmdTestModel()
@@ -759,6 +790,42 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 			t.Fatalf("expected stats tab (1) for DOUBLE column, got %d", m.detailTab)
 		}
 	})
+}
+
+func TestHandleTableKeyYCopiesActiveCellValue(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 10
+	m.tableCols = []string{"alpha", "beta"}
+	m.selectedColName = "beta"
+	m.tableData = [][]string{
+		{"1", "two"},
+		{"3", "four"},
+	}
+	m.tableRowCursor = 1
+
+	var got string
+	prevCopy := copyToClipboard
+	copyToClipboard = func(text string) error {
+		got = text
+		return nil
+	}
+	t.Cleanup(func() {
+		copyToClipboard = prevCopy
+	})
+
+	updated, cmd := m.handleTableKey("y")
+	if cmd != nil {
+		t.Fatalf("expected no command for y, got %v", cmd)
+	}
+	m = updated.(Model)
+
+	if got != "four" {
+		t.Fatalf("expected clipboard text %q, got %q", "four", got)
+	}
+	if m.statusMsg != `Copied cell value from "beta"` {
+		t.Fatalf("unexpected status message: %q", m.statusMsg)
+	}
 }
 
 func TestDefaultDetailTab(t *testing.T) {
@@ -3995,6 +4062,9 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 	}
 	if !strings.Contains(bottom, "m:missing-mode") {
 		t.Fatalf("expected bottom bar to include missing mode hint, got %q", bottom)
+	}
+	if !strings.Contains(bottom, "y:copy-cell") {
+		t.Fatalf("expected bottom bar to include copy-cell hint, got %q", bottom)
 	}
 
 	m.focus = FocusColumns
