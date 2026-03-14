@@ -114,6 +114,8 @@ type filePickerItem struct {
 
 type statusMsg string
 
+var copyToClipboard = clipboard.Copy
+
 // Model is the root Bubble Tea model.
 type Model struct {
 	engine    *engine.Engine
@@ -159,7 +161,6 @@ type Model struct {
 	showSelectedInCols  bool           // show only selected columns in columns pane
 	missingMode         missing.Mode
 	missingFilterActive bool
-	missingFilterCols   []string
 	totalRows           int64
 	filterRows          int64 // -1 means filtered row count is unavailable (inactive or not fetched yet)
 
@@ -292,7 +293,6 @@ func (m *Model) resetLoadedDataState() {
 	m.showSelectedInCols = false
 	m.missingMode = missing.ModeNullAndNaN
 	m.missingFilterActive = false
-	m.missingFilterCols = nil
 	m.totalRows = 0
 	m.filterRows = -1
 	m.summaries = make(map[string]*types.ColumnSummary)
@@ -338,10 +338,42 @@ func (m *Model) applyEngine(eng *engine.Engine, fileName string) {
 // activeFilterCols returns the filter columns when the filter is active, or nil
 // when inactive.
 func (m Model) activeFilterCols() []string {
-	if !m.missingFilterActive || len(m.missingFilterCols) == 0 {
+	if !m.missingFilterActive {
 		return nil
 	}
-	return m.missingFilterCols
+	cols := m.computeMissingFilterCols()
+	if len(cols) == 0 {
+		return nil
+	}
+	return cols
+}
+
+func (m Model) computeMissingFilterCols() []string {
+	if m.showSelected || m.showSelectedInCols {
+		selected := m.sel.Selected()
+		if len(selected) > 0 {
+			return selected
+		}
+	}
+	names := make([]string, len(m.columns))
+	for i, c := range m.columns {
+		names[i] = c.Name
+	}
+	return names
+}
+
+func (m *Model) syncActiveMissingFilter(before []string) bool {
+	if !m.missingFilterActive {
+		return false
+	}
+	after := m.activeFilterCols()
+	if slices.Equal(before, after) {
+		return false
+	}
+	m.filterRows = -1
+	m.tableOffset = 0
+	m.tableRowCursor = 0
+	return true
 }
 
 func (m Model) activeRowFilter() string {
@@ -392,24 +424,12 @@ func (m *Model) cycleMissingMode() tea.Cmd {
 func (m *Model) toggleMissingRowFilter() {
 	if m.missingFilterActive {
 		m.missingFilterActive = false
-		m.missingFilterCols = nil
 		m.filterRows = -1 // symmetric with activation path below
 		return
 	}
 
-	// Snapshot the current column set. If the user later changes column
-	// selection or showSelected, the active filter keeps its original columns.
-	selected := m.sel.Selected()
-	if len(selected) > 0 {
-		m.missingFilterCols = append([]string(nil), selected...)
-	} else {
-		names := make([]string, len(m.filteredCols))
-		for i, c := range m.filteredCols {
-			names[i] = c.Name
-		}
-		m.missingFilterCols = names
-	}
-	m.missingFilterActive = len(m.missingFilterCols) > 0
+	cols := m.computeMissingFilterCols()
+	m.missingFilterActive = len(cols) > 0
 	m.filterRows = -1
 }
 
@@ -1168,17 +1188,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "s", "S":
 		m.clearTableJumpState()
+		filterColsBefore := m.activeFilterCols()
 		m.showSelected = !m.showSelected
 		m.tableColOffHint = -1
-		m.tableRowCursor = 0
+		if !m.syncActiveMissingFilter(filterColsBefore) {
+			m.tableRowCursor = 0
+		}
 		return m, m.nextPreviewCmd()
 	case "v", "V":
 		m.clearTableJumpState()
 		if m.focus != FocusColumns {
 			return m, nil
 		}
+		filterColsBefore := m.activeFilterCols()
 		m.showSelectedInCols = !m.showSelectedInCols
 		m.updateFilteredCols()
+		if m.syncActiveMissingFilter(filterColsBefore) {
+			return m, m.nextPreviewCmd()
+		}
 		return m, nil
 	case "enter":
 		m.clearTableJumpState()
@@ -1882,6 +1909,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 	case "x":
 		targetCol := m.columnsActiveColName()
 		if targetCol != "" {
+			filterColsBefore := m.activeFilterCols()
 			dataShowSelectedWasOn := m.showSelected
 			colsShowSelectedWasOn := m.showSelectedInCols
 			m.sel.Toggle(targetCol)
@@ -1907,6 +1935,10 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				if len(parts) > 0 {
 					m.statusMsg = strings.Join(parts, "; ")
 				}
+				m.syncActiveMissingFilter(filterColsBefore)
+				return m, m.nextPreviewCmd()
+			}
+			if m.syncActiveMissingFilter(filterColsBefore) {
 				return m, m.nextPreviewCmd()
 			}
 			if colsAutoOff {
@@ -1914,15 +1946,21 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "a":
+		filterColsBefore := m.activeFilterCols()
 		names := make([]string, len(m.filteredCols))
 		for i, c := range m.filteredCols {
 			names[i] = c.Name
 		}
 		m.sel.AddAll(names)
 		if m.showSelected {
+			m.syncActiveMissingFilter(filterColsBefore)
+			return m, m.nextPreviewCmd()
+		}
+		if m.syncActiveMissingFilter(filterColsBefore) {
 			return m, m.nextPreviewCmd()
 		}
 	case "d":
+		filterColsBefore := m.activeFilterCols()
 		colsShowSelectedWasOn := m.showSelectedInCols
 		names := make([]string, len(m.filteredCols))
 		for i, c := range m.filteredCols {
@@ -1947,20 +1985,30 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				parts = append(parts, "show-selected off (no columns selected)")
 				m.statusMsg = strings.Join(parts, "; ")
 			}
+			m.syncActiveMissingFilter(filterColsBefore)
+			return m, m.nextPreviewCmd()
+		}
+		if m.syncActiveMissingFilter(filterColsBefore) {
 			return m, m.nextPreviewCmd()
 		}
 		if colsAutoOff {
 			m.statusMsg = "cols selected-list off (no columns selected)"
 		}
 	case "A":
+		filterColsBefore := m.activeFilterCols()
 		m.sel.SelectAll()
 		if m.showSelectedInCols {
 			m.updateFilteredCols()
 		}
 		if m.showSelected {
+			m.syncActiveMissingFilter(filterColsBefore)
+			return m, m.nextPreviewCmd()
+		}
+		if m.syncActiveMissingFilter(filterColsBefore) {
 			return m, m.nextPreviewCmd()
 		}
 	case "X":
+		filterColsBefore := m.activeFilterCols()
 		colsShowSelectedWasOn := m.showSelectedInCols
 		m.sel.Clear()
 		colsAutoOff := colsShowSelectedWasOn
@@ -1978,6 +2026,10 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			if len(parts) > 0 {
 				m.statusMsg = strings.Join(parts, "; ")
 			}
+			m.syncActiveMissingFilter(filterColsBefore)
+			return m, m.nextPreviewCmd()
+		}
+		if m.syncActiveMissingFilter(filterColsBefore) {
 			return m, m.nextPreviewCmd()
 		}
 		if colsAutoOff {
@@ -1987,13 +2039,14 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		selected := m.sel.Selected()
 		if len(selected) > 0 {
 			text := clipboard.FormatPythonList(selected)
-			if err := clipboard.Copy(text); err != nil {
-				m.statusMsg = fmt.Sprintf("Clipboard error: %v", err)
-			} else {
-				m.statusMsg = fmt.Sprintf("Copied %d columns to clipboard", len(selected))
-			}
+			m.copyTextToClipboard(text, fmt.Sprintf("Copied %d columns to clipboard", len(selected)))
 		} else {
-			m.statusMsg = "No columns selected"
+			colName := m.columnsActiveColName()
+			if colName == "" {
+				m.statusMsg = "No active column"
+				break
+			}
+			m.copyTextToClipboard(colName, fmt.Sprintf("Copied column name %q to clipboard", colName))
 		}
 	}
 	return m, nil
@@ -2199,6 +2252,28 @@ func (m Model) valueForAbsoluteCell(absRow int, colName string) (string, bool) {
 
 func (m Model) valueForVisibleCell(colName string) (string, bool) {
 	return m.valueForAbsoluteCell(m.currentAbsoluteRow(), colName)
+}
+
+func (m *Model) copyTextToClipboard(text, successMsg string) {
+	if err := copyToClipboard(text); err != nil {
+		m.statusMsg = fmt.Sprintf("Clipboard error: %v", err)
+		return
+	}
+	m.statusMsg = successMsg
+}
+
+func (m *Model) copyActiveCellValue() {
+	colName := m.selectedColName
+	if colName == "" {
+		m.statusMsg = "No active column"
+		return
+	}
+	value, ok := m.valueForVisibleCell(colName)
+	if !ok {
+		m.statusMsg = "No data visible for active cell"
+		return
+	}
+	m.copyTextToClipboard(value, fmt.Sprintf("Copied cell value from %q", colName))
 }
 
 func (m Model) shouldOpenReaderForActiveColumn() bool {
@@ -2484,6 +2559,8 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		}
 		currentRow := int64(m.tableOffset + m.tableRowCursor)
 		return m, m.jumpToNextNullInColumn(colName, m.activeFilterCols(), currentRow, true)
+	case "y":
+		m.copyActiveCellValue()
 	}
 	return m, nil
 }
@@ -3149,7 +3226,7 @@ func (m Model) viewBottomBar() string {
 	case m.focus == FocusColumns:
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  m:missing-mode  /:search  v:sel-list  x:toggle  a/d/y:sel"
 	default:
-		hints = "Ctrl+O:open  hjkl:move  gg/G/[count]G:row  drag:divider  Ctrl+L:redraw  m:missing-mode  w/W:reader  f:filter  r/R:row±  c/C:col±"
+		hints = "Ctrl+O:open  hjkl:move  y:copy-cell  gg/G/[count]G:row  drag:divider  Ctrl+L:redraw  m:missing-mode  w/W:reader  f:filter  r/R:row±  c/C:col±"
 	}
 	status := fmt.Sprintf("  Sel: %d/%d", selCount, len(m.columns))
 	if m.showSelected {
@@ -3737,7 +3814,7 @@ func (m Model) viewHelp() string {
 		{"d", "Remove all filtered from selection"},
 		{"A", "Select ALL columns"},
 		{"X", "Clear all selections"},
-		{"y", "Copy selected as Python list"},
+		{"y", "Copy selected columns, or active column name if none selected"},
 		{"", ""},
 		{"── Table Pane ──", ""},
 		{"↑/↓ or j/k", "Move row cursor"},
@@ -3747,6 +3824,7 @@ func (m Model) viewHelp() string {
 		{"w", "Fit width or open expanded reader"},
 		{"W", "Open expanded reader for active cell"},
 		{"Ctrl+W", "Toggle global wide columns"},
+		{"y", "Copy active cell value"},
 		{"gg / G", "Top / bottom of current result"},
 		{"[count]G / [count]gg", "Jump to immutable file row"},
 		{"Ctrl+F / Space", "Page down"},
