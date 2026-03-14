@@ -328,24 +328,12 @@ func (m Model) computeMissingFilterCols() []string {
 	return names
 }
 
-func sameColumnNames(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func (m *Model) syncActiveMissingFilter(before []string) bool {
 	if !m.missingFilterActive {
 		return false
 	}
 	after := m.activeFilterCols()
-	if sameColumnNames(before, after) {
+	if slices.Equal(before, after) {
 		return false
 	}
 	m.filterRows = -1
