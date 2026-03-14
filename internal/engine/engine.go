@@ -101,21 +101,20 @@ func (e *Engine) TotalRows() int64 {
 	return e.totalRows
 }
 
-// Preview fetches rows for the table view.
-func (e *Engine) Preview(ctx context.Context, colNames []string, rowFilter string, limit, offset int) ([][]string, error) {
+// Preview fetches rows for the table view along with their immutable row ids.
+func (e *Engine) Preview(ctx context.Context, colNames []string, rowFilter string, limit, offset int) ([]int64, [][]string, error) {
 	var (
 		q     string
 		nCols int
 	)
 	if len(colNames) == 0 {
-		q = fmt.Sprintf("SELECT * EXCLUDE (%s) FROM t_base", quoteIdent(e.internalRowIDCol))
+		q = fmt.Sprintf("SELECT %s, * EXCLUDE (%s) FROM t_base", quoteIdent(e.internalRowIDCol), quoteIdent(e.internalRowIDCol))
 		nCols = len(e.columns)
 	} else {
 		var proj strings.Builder
-		for i, c := range colNames {
-			if i > 0 {
-				proj.WriteString(", ")
-			}
+		proj.WriteString(quoteIdent(e.internalRowIDCol))
+		for _, c := range colNames {
+			proj.WriteString(", ")
 			proj.WriteString(quoteIdent(c))
 		}
 		q = fmt.Sprintf("SELECT %s FROM t_base", proj.String())
@@ -128,20 +127,24 @@ func (e *Engine) Preview(ctx context.Context, colNames []string, rowFilter strin
 
 	rows, err := e.db.QueryContext(ctx, q)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() { _ = rows.Close() }()
 
+	var rowIDs []int64
 	var result [][]string
 	for rows.Next() {
+		var rowID int64
 		vals := make([]interface{}, nCols)
-		ptrs := make([]interface{}, nCols)
+		ptrs := make([]interface{}, nCols+1)
+		ptrs[0] = &rowID
 		for i := range vals {
-			ptrs[i] = &vals[i]
+			ptrs[i+1] = &vals[i]
 		}
 		if err := rows.Scan(ptrs...); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		rowIDs = append(rowIDs, rowID)
 		row := make([]string, nCols)
 		for i, v := range vals {
 			if v == nil {
@@ -152,7 +155,7 @@ func (e *Engine) Preview(ctx context.Context, colNames []string, rowFilter strin
 		}
 		result = append(result, row)
 	}
-	return result, rows.Err()
+	return rowIDs, result, rows.Err()
 }
 
 // FilteredRowCount returns the count of rows matching the filter.
