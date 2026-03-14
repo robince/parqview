@@ -146,7 +146,6 @@ type Model struct {
 	showSelectedInCols  bool           // show only selected columns in columns pane
 	missingMode         missing.Mode
 	missingFilterActive bool
-	missingFilterCols   []string
 	totalRows           int64
 	filterRows          int64 // -1 means filtered row count is unavailable (inactive or not fetched yet)
 
@@ -267,7 +266,6 @@ func (m *Model) resetLoadedDataState() {
 	m.showSelectedInCols = false
 	m.missingMode = missing.ModeNullAndNaN
 	m.missingFilterActive = false
-	m.missingFilterCols = nil
 	m.totalRows = 0
 	m.filterRows = -1
 	m.summaries = make(map[string]*types.ColumnSummary)
@@ -306,10 +304,54 @@ func (m *Model) applyEngine(eng *engine.Engine, fileName string) {
 // activeFilterCols returns the filter columns when the filter is active, or nil
 // when inactive.
 func (m Model) activeFilterCols() []string {
-	if !m.missingFilterActive || len(m.missingFilterCols) == 0 {
+	if !m.missingFilterActive {
 		return nil
 	}
-	return m.missingFilterCols
+	cols := m.computeMissingFilterCols()
+	if len(cols) == 0 {
+		return nil
+	}
+	return cols
+}
+
+func (m Model) computeMissingFilterCols() []string {
+	if m.showSelected || m.showSelectedInCols {
+		selected := m.sel.Selected()
+		if len(selected) > 0 {
+			return selected
+		}
+	}
+	names := make([]string, len(m.columns))
+	for i, c := range m.columns {
+		names[i] = c.Name
+	}
+	return names
+}
+
+func sameColumnNames(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (m *Model) syncActiveMissingFilter(before []string) bool {
+	if !m.missingFilterActive {
+		return false
+	}
+	after := m.activeFilterCols()
+	if sameColumnNames(before, after) {
+		return false
+	}
+	m.filterRows = -1
+	m.tableOffset = 0
+	m.tableRowCursor = 0
+	return true
 }
 
 func (m Model) activeRowFilter() string {
@@ -360,24 +402,12 @@ func (m *Model) cycleMissingMode() tea.Cmd {
 func (m *Model) toggleMissingRowFilter() {
 	if m.missingFilterActive {
 		m.missingFilterActive = false
-		m.missingFilterCols = nil
 		m.filterRows = -1 // symmetric with activation path below
 		return
 	}
 
-	// Snapshot the current column set. If the user later changes column
-	// selection or showSelected, the active filter keeps its original columns.
-	selected := m.sel.Selected()
-	if len(selected) > 0 {
-		m.missingFilterCols = append([]string(nil), selected...)
-	} else {
-		names := make([]string, len(m.filteredCols))
-		for i, c := range m.filteredCols {
-			names[i] = c.Name
-		}
-		m.missingFilterCols = names
-	}
-	m.missingFilterActive = len(m.missingFilterCols) > 0
+	cols := m.computeMissingFilterCols()
+	m.missingFilterActive = len(cols) > 0
 	m.filterRows = -1
 }
 
@@ -1101,16 +1131,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "s", "S":
+		filterColsBefore := m.activeFilterCols()
 		m.showSelected = !m.showSelected
 		m.tableColOffHint = -1
-		m.tableRowCursor = 0
+		if !m.syncActiveMissingFilter(filterColsBefore) {
+			m.tableRowCursor = 0
+		}
 		return m, m.nextPreviewCmd()
 	case "v", "V":
 		if m.focus != FocusColumns {
 			return m, nil
 		}
+		filterColsBefore := m.activeFilterCols()
 		m.showSelectedInCols = !m.showSelectedInCols
 		m.updateFilteredCols()
+		if m.syncActiveMissingFilter(filterColsBefore) {
+			return m, m.nextPreviewCmd()
+		}
 		return m, nil
 	case "enter":
 		targetCol := m.selectedColName
@@ -1811,6 +1848,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 	case "x":
 		targetCol := m.columnsActiveColName()
 		if targetCol != "" {
+			filterColsBefore := m.activeFilterCols()
 			dataShowSelectedWasOn := m.showSelected
 			colsShowSelectedWasOn := m.showSelectedInCols
 			m.sel.Toggle(targetCol)
@@ -1836,6 +1874,10 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				if len(parts) > 0 {
 					m.statusMsg = strings.Join(parts, "; ")
 				}
+				m.syncActiveMissingFilter(filterColsBefore)
+				return m, m.nextPreviewCmd()
+			}
+			if m.syncActiveMissingFilter(filterColsBefore) {
 				return m, m.nextPreviewCmd()
 			}
 			if colsAutoOff {
@@ -1843,15 +1885,21 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "a":
+		filterColsBefore := m.activeFilterCols()
 		names := make([]string, len(m.filteredCols))
 		for i, c := range m.filteredCols {
 			names[i] = c.Name
 		}
 		m.sel.AddAll(names)
 		if m.showSelected {
+			m.syncActiveMissingFilter(filterColsBefore)
+			return m, m.nextPreviewCmd()
+		}
+		if m.syncActiveMissingFilter(filterColsBefore) {
 			return m, m.nextPreviewCmd()
 		}
 	case "d":
+		filterColsBefore := m.activeFilterCols()
 		colsShowSelectedWasOn := m.showSelectedInCols
 		names := make([]string, len(m.filteredCols))
 		for i, c := range m.filteredCols {
@@ -1876,20 +1924,30 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				parts = append(parts, "show-selected off (no columns selected)")
 				m.statusMsg = strings.Join(parts, "; ")
 			}
+			m.syncActiveMissingFilter(filterColsBefore)
+			return m, m.nextPreviewCmd()
+		}
+		if m.syncActiveMissingFilter(filterColsBefore) {
 			return m, m.nextPreviewCmd()
 		}
 		if colsAutoOff {
 			m.statusMsg = "cols selected-list off (no columns selected)"
 		}
 	case "A":
+		filterColsBefore := m.activeFilterCols()
 		m.sel.SelectAll()
 		if m.showSelectedInCols {
 			m.updateFilteredCols()
 		}
 		if m.showSelected {
+			m.syncActiveMissingFilter(filterColsBefore)
+			return m, m.nextPreviewCmd()
+		}
+		if m.syncActiveMissingFilter(filterColsBefore) {
 			return m, m.nextPreviewCmd()
 		}
 	case "X":
+		filterColsBefore := m.activeFilterCols()
 		colsShowSelectedWasOn := m.showSelectedInCols
 		m.sel.Clear()
 		colsAutoOff := colsShowSelectedWasOn
@@ -1907,6 +1965,10 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			if len(parts) > 0 {
 				m.statusMsg = strings.Join(parts, "; ")
 			}
+			m.syncActiveMissingFilter(filterColsBefore)
+			return m, m.nextPreviewCmd()
+		}
+		if m.syncActiveMissingFilter(filterColsBefore) {
 			return m, m.nextPreviewCmd()
 		}
 		if colsAutoOff {
