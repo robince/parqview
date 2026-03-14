@@ -84,20 +84,7 @@ func parseColumnPredicate(colName, colType, raw string) (columnPredicate, error)
 		}, nil
 	}
 
-	if isNumeric {
-		normalized, err := normalizeNumericLiteral(text)
-		if err != nil {
-			return columnPredicate{}, err
-		}
-		text = normalized
-	}
-	return columnPredicate{
-		Column:  colName,
-		Op:      opEq,
-		Value:   raw,
-		Display: raw,
-		Numeric: isNumeric,
-	}, nil
+	return exactMatchPredicate(colName, colType, raw)
 }
 
 func parseRangePredicate(colName, text string) (columnPredicate, bool, error) {
