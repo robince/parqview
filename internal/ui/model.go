@@ -41,6 +41,7 @@ const (
 	OverlayDetail
 	OverlayFilePicker
 	OverlayCellReader
+	OverlayPredicatePrompt
 )
 
 // Messages
@@ -138,6 +139,12 @@ type Model struct {
 	pickerCursor int
 	pickerQuery  string
 
+	// Predicate prompt
+	predicateInput  textinput.Model
+	predicateCol    string
+	predicatePrompt string
+	predicates      map[string]columnPredicate
+
 	// Column list state
 	filteredCols []types.ColumnInfo // columns matching search
 	colCursor    int                // cursor in filteredCols
@@ -212,6 +219,10 @@ func NewModelAtRow(eng *engine.Engine, fileName, launchDir string, startRowID in
 	pickerTI.CharLimit = 256
 	pickerTI.Focus()
 
+	predicateTI := textinput.New()
+	predicateTI.Prompt = ""
+	predicateTI.CharLimit = 256
+
 	m := Model{
 		engine:           nil,
 		fileName:         "",
@@ -219,6 +230,8 @@ func NewModelAtRow(eng *engine.Engine, fileName, launchDir string, startRowID in
 		sel:              selection.New(nil),
 		searchInput:      ti,
 		pickerInput:      pickerTI,
+		predicateInput:   predicateTI,
+		predicates:       make(map[string]columnPredicate),
 		summaries:        make(map[string]*types.ColumnSummary),
 		filterRows:       -1,
 		tableColOffHint:  -1,
@@ -293,6 +306,10 @@ func (m *Model) resetLoadedDataState() {
 	m.showSelectedInCols = false
 	m.missingMode = missing.ModeNullAndNaN
 	m.missingFilterActive = false
+	m.predicates = make(map[string]columnPredicate)
+	m.predicateCol = ""
+	m.predicatePrompt = ""
+	m.predicateInput.SetValue("")
 	m.totalRows = 0
 	m.filterRows = -1
 	m.summaries = make(map[string]*types.ColumnSummary)
@@ -376,12 +393,23 @@ func (m *Model) syncActiveMissingFilter(before []string) bool {
 	return true
 }
 
+func (m Model) activePredicateFilter() string {
+	return buildPredicateFilter(m.predicates)
+}
+
 func (m Model) activeRowFilter() string {
-	cols := m.activeFilterCols()
-	if len(cols) == 0 {
-		return ""
+	var parts []string
+	if predicateFilter := m.activePredicateFilter(); predicateFilter != "" {
+		parts = append(parts, predicateFilter)
 	}
-	return engine.BuildMissingFilter(cols, m.missingMode)
+	if cols := m.activeFilterCols(); len(cols) > 0 {
+		parts = append(parts, engine.BuildMissingFilter(cols, m.missingMode))
+	}
+	return strings.Join(parts, " AND ")
+}
+
+func (m Model) rowFilterActive() bool {
+	return m.activeRowFilter() != ""
 }
 
 func (m *Model) missingModeChangedCmd() tea.Cmd {
@@ -1097,6 +1125,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleFilePickerKey(msg)
 	}
 
+	if m.overlay == OverlayPredicatePrompt {
+		return m.handlePredicatePromptKey(msg)
+	}
+
 	// Search input captures keys when focused
 	if m.searchFocused {
 		switch key {
@@ -1142,7 +1174,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "t":
 			m.detailTab = (m.detailTab + 1) % 3
 		case "n":
-			return m, m.jumpToFirstNull(m.detailCol, m.activeFilterCols())
+			return m, m.jumpToFirstNull(m.detailCol, m.activeRowFilter())
 		case "m":
 			return m, m.cycleMissingMode()
 		}
@@ -1291,6 +1323,78 @@ func (m *Model) openFilePicker() tea.Cmd {
 	m.pickerCursor = 0
 	m.refreshPickerItems()
 	return focusCmd
+}
+
+func (m *Model) openPredicatePrompt(colName string) tea.Cmd {
+	if colName == "" {
+		return nil
+	}
+	m.searchFocused = false
+	m.overlay = OverlayPredicatePrompt
+	m.predicateCol = colName
+	if pred, ok := m.predicates[colName]; ok {
+		m.predicatePrompt = pred.Display
+	} else if value, ok := m.valueForVisibleCell(colName); ok {
+		m.predicatePrompt = value
+	} else {
+		m.predicatePrompt = ""
+	}
+	m.predicateInput.SetValue(m.predicatePrompt)
+	return m.predicateInput.Focus()
+}
+
+func (m *Model) applyPredicatePrompt() tea.Cmd {
+	colName := m.predicateCol
+	if colName == "" {
+		m.overlay = OverlayNone
+		return nil
+	}
+
+	raw := m.predicateInput.Value()
+	pred, err := parseColumnPredicate(colName, m.columnType(colName), raw)
+	if err != nil {
+		m.statusMsg = fmt.Sprintf("Filter error: %v", err)
+		return nil
+	}
+
+	if pred.Display == "" {
+		delete(m.predicates, colName)
+		m.statusMsg = fmt.Sprintf("Cleared filter for %q", colName)
+	} else {
+		m.predicates[colName] = pred
+		m.statusMsg = fmt.Sprintf("Filter %q: %s", colName, pred.Display)
+	}
+
+	m.overlay = OverlayNone
+	m.predicateCol = ""
+	m.predicatePrompt = ""
+	m.filterRows = -1
+	m.tableOffset = 0
+	m.tableRowCursor = 0
+	return m.nextPreviewCmd()
+}
+
+func (m Model) handlePredicatePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.overlay = OverlayNone
+		m.predicateCol = ""
+		m.predicatePrompt = ""
+		return m, nil
+	case "ctrl+u":
+		m.predicateInput.SetValue("")
+		m.predicatePrompt = ""
+		return m, nil
+	case "enter":
+		return m, m.applyPredicatePrompt()
+	}
+
+	var cmd tea.Cmd
+	m.predicateInput, cmd = m.predicateInput.Update(msg)
+	m.predicatePrompt = m.predicateInput.Value()
+	return m, cmd
 }
 
 func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -2533,6 +2637,62 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		m.tableOffset = 0
 		m.tableRowCursor = 0
 		return m, m.nextPreviewCmd()
+	case "=":
+		colName := m.selectedColName
+		if colName == "" {
+			m.statusMsg = "No active column"
+			return m, nil
+		}
+		return m, m.openPredicatePrompt(colName)
+	case "p":
+		colName := m.selectedColName
+		if colName == "" {
+			m.statusMsg = "No active column"
+			return m, nil
+		}
+		value, ok := m.valueForVisibleCell(colName)
+		if !ok {
+			m.statusMsg = "No data visible for filter"
+			return m, nil
+		}
+		pred, err := exactMatchPredicate(colName, m.columnType(colName), value)
+		if err != nil {
+			m.statusMsg = fmt.Sprintf("Filter error: %v", err)
+			return m, nil
+		}
+		m.predicates[colName] = pred
+		m.filterRows = -1
+		m.tableOffset = 0
+		m.tableRowCursor = 0
+		m.statusMsg = fmt.Sprintf("Filter %q: %s", colName, pred.Display)
+		return m, m.nextPreviewCmd()
+	case "-":
+		colName := m.selectedColName
+		if colName == "" {
+			m.statusMsg = "No active column"
+			return m, nil
+		}
+		if _, ok := m.predicates[colName]; !ok {
+			m.statusMsg = fmt.Sprintf("No filter for %q", colName)
+			return m, nil
+		}
+		delete(m.predicates, colName)
+		m.filterRows = -1
+		m.tableOffset = 0
+		m.tableRowCursor = 0
+		m.statusMsg = fmt.Sprintf("Cleared filter for %q", colName)
+		return m, m.nextPreviewCmd()
+	case "U":
+		if len(m.predicates) == 0 {
+			m.statusMsg = "No filters to clear"
+			return m, nil
+		}
+		m.predicates = make(map[string]columnPredicate)
+		m.filterRows = -1
+		m.tableOffset = 0
+		m.tableRowCursor = 0
+		m.statusMsg = "Cleared all filters"
+		return m, m.nextPreviewCmd()
 	case "r":
 		if m.jumpToNextMissingInRow(false) {
 			return m, nil
@@ -2550,7 +2710,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		currentRow := int64(m.tableOffset + m.tableRowCursor)
-		return m, m.jumpToNextNullInColumn(colName, m.activeFilterCols(), currentRow, false)
+		return m, m.jumpToNextNullInColumn(colName, m.activeRowFilter(), currentRow, false)
 	case "C":
 		colName := m.selectedColName
 		if colName == "" {
@@ -2558,7 +2718,7 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		currentRow := int64(m.tableOffset + m.tableRowCursor)
-		return m, m.jumpToNextNullInColumn(colName, m.activeFilterCols(), currentRow, true)
+		return m, m.jumpToNextNullInColumn(colName, m.activeRowFilter(), currentRow, true)
 	case "y":
 		m.copyActiveCellValue()
 	}
@@ -3006,7 +3166,7 @@ func (m Model) loadDetail(colName string, existing *types.ColumnSummary, colType
 	}
 }
 
-func (m Model) jumpToFirstNull(colName string, filterCols []string) tea.Cmd {
+func (m Model) jumpToFirstNull(colName, rowFilter string) tea.Cmd {
 	eng := m.engine
 	if eng == nil {
 		return nil
@@ -3014,16 +3174,16 @@ func (m Model) jumpToFirstNull(colName string, filterCols []string) tea.Cmd {
 	missingMode := m.missingMode
 	return func() tea.Msg {
 		ctx := context.Background()
-		rowID, err := eng.FirstNullRow(ctx, colName, filterCols, missingMode)
+		rowID, err := eng.FirstNullRowWithFilter(ctx, colName, rowFilter, missingMode)
 		if err != nil || rowID == 0 {
 			return firstNullMsg{rowID: rowID, token: m.dataToken, err: err}
 		}
-		offset, err := eng.OffsetForRowID(ctx, rowID, filterCols, missingMode)
+		offset, err := eng.OffsetForRowIDWithFilter(ctx, rowID, rowFilter)
 		return firstNullMsg{rowID: rowID, offset: offset, token: m.dataToken, err: err}
 	}
 }
 
-func (m Model) jumpToNextNullInColumn(colName string, filterCols []string, currentOffset int64, reverse bool) tea.Cmd {
+func (m Model) jumpToNextNullInColumn(colName, rowFilter string, currentOffset int64, reverse bool) tea.Cmd {
 	eng := m.engine
 	if eng == nil {
 		return nil
@@ -3031,16 +3191,16 @@ func (m Model) jumpToNextNullInColumn(colName string, filterCols []string, curre
 	missingMode := m.missingMode
 	return func() tea.Msg {
 		ctx := context.Background()
-		rowID, err := eng.RowIDForOffset(ctx, currentOffset, filterCols, missingMode)
+		rowID, err := eng.RowIDForOffsetWithFilter(ctx, currentOffset, rowFilter)
 		if err != nil {
 			return nextNullMsg{token: m.dataToken, colName: colName, reverse: reverse, err: err}
 		}
 		var nextRowID int64
 		var wrapped bool
 		if reverse {
-			nextRowID, wrapped, err = eng.PrevNullRow(ctx, colName, filterCols, missingMode, rowID)
+			nextRowID, wrapped, err = eng.PrevNullRowWithFilter(ctx, colName, rowFilter, missingMode, rowID)
 		} else {
-			nextRowID, wrapped, err = eng.NextNullRow(ctx, colName, filterCols, missingMode, rowID)
+			nextRowID, wrapped, err = eng.NextNullRowWithFilter(ctx, colName, rowFilter, missingMode, rowID)
 		}
 		if err != nil || nextRowID == 0 {
 			return nextNullMsg{
@@ -3053,7 +3213,7 @@ func (m Model) jumpToNextNullInColumn(colName string, filterCols []string, curre
 				err:      err,
 			}
 		}
-		offset, err := eng.OffsetForRowID(ctx, nextRowID, filterCols, missingMode)
+		offset, err := eng.OffsetForRowIDWithFilter(ctx, nextRowID, rowFilter)
 		return nextNullMsg{
 			rowID:    nextRowID,
 			offset:   offset,
@@ -3120,6 +3280,10 @@ func (m Model) View() string {
 		return m.viewFilePicker()
 	}
 
+	if m.overlay == OverlayPredicatePrompt {
+		return m.viewPredicatePrompt()
+	}
+
 	if m.overlay == OverlayHelp {
 		return m.viewHelp()
 	}
@@ -3183,8 +3347,15 @@ func (m Model) viewTopBar() string {
 		badge = ""
 	}
 	filterInfo := ""
-	if m.missingFilterActive {
-		filterInfo = "Filter: rows with missing values"
+	if m.rowFilterActive() {
+		var parts []string
+		if summary := predicateSummary(m.predicates); summary != "" {
+			parts = append(parts, summary)
+		}
+		if m.missingFilterActive {
+			parts = append(parts, "missing")
+		}
+		filterInfo = "Filters: " + strings.Join(parts, " ")
 		if m.filterRows >= 0 {
 			filterInfo += fmt.Sprintf(" (%d rows)", m.filterRows)
 		}
@@ -3226,7 +3397,7 @@ func (m Model) viewBottomBar() string {
 	case m.focus == FocusColumns:
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  m:missing-mode  /:search  v:sel-list  x:toggle  a/d/y:sel"
 	default:
-		hints = "Ctrl+O:open  hjkl:move  y:copy-cell  gg/G/[count]G:row  drag:divider  Ctrl+L:redraw  m:missing-mode  w/W:reader  f:filter  r/R:row±  c/C:col±"
+		hints = "Ctrl+O:open  hjkl:move  y:copy-cell  =:filter  p:pin  -/U:clear  gg/G/[count]G:row  m:missing-mode  w/W:reader  f:filter  r/R:row±  c/C:col±  drag:divider  Ctrl+L:redraw"
 	}
 	status := fmt.Sprintf("  Sel: %d/%d", selCount, len(m.columns))
 	if m.showSelected {
@@ -3324,6 +3495,36 @@ func (m Model) viewCellReader(w, h int) string {
 	return strings.Join(append([]string{header, topEdge}, append(bodyLines, bottomEdge, footer)...), "\n")
 }
 
+func (m Model) viewPredicatePrompt() string {
+	panelW := max(36, min(80, m.width-6))
+	panelH := 9
+	colName := m.predicateCol
+	colType := m.columnType(colName)
+
+	var lines []string
+	lines = append(lines, detailTitleStyle.Render("Filter rows"))
+	lines = append(lines, detailLabelStyle.Render("Column: ")+detailValueStyle.Render(colName))
+	if colType != "" {
+		lines = append(lines, detailLabelStyle.Render("Type: ")+detailValueStyle.Render(colType))
+	}
+	lines = append(lines, searchPromptStyle.Render("expr> ")+m.predicateInput.View())
+	if util.IsNumericDuckType(colType) {
+		lines = append(lines, detailLabelStyle.Render("Examples: 42, != 42, > 10, <= 5, 10..20"))
+	} else {
+		lines = append(lines, detailLabelStyle.Render("Examples: abc123, != abc123"))
+	}
+	lines = append(lines, detailLabelStyle.Render("Enter: apply  Ctrl+U: clear input  Esc: cancel"))
+
+	content := strings.Join(lines, "\n")
+	style := lipgloss.NewStyle().
+		Width(panelW).
+		Height(panelH).
+		Padding(1, 2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62"))
+	return style.Render(content)
+}
+
 func (m Model) viewTable(w, h int) string {
 	if len(m.tableCols) == 0 {
 		if m.engine == nil {
@@ -3356,8 +3557,14 @@ func (m Model) viewTable(w, h int) string {
 	header := " " + rowNumStyle.Render(fmt.Sprintf("%*s", tableRowNumW, "#"))
 	for i := startCol; i < endCol; i++ {
 		colW := m.columnWidth(m.tableCols[i], colAreaWidth)
-		name := truncateDisplayMiddle(m.tableCols[i], max(0, colW-2))
-		nameStr := " " + padDisplayRight(name, max(0, colW-2))
+		nameBudget := max(0, colW-2)
+		predicateGlyph := ""
+		if _, ok := m.predicates[m.tableCols[i]]; ok {
+			nameBudget = max(0, nameBudget-predicateMarkerWidth())
+			predicateGlyph = " " + predicateMarkerChar
+		}
+		name := truncateDisplayMiddle(m.tableCols[i], nameBudget)
+		nameStr := " " + padDisplayRight(name+predicateGlyph, max(0, colW-2))
 		// Check if column has missing values from profiling.
 		hasMissing := false
 		if s, ok := m.summaries[m.tableCols[i]]; ok && s.Loaded && s.MissingCount > 0 {
@@ -3583,10 +3790,18 @@ func (m Model) viewColumns(w, h int) string {
 		if hasMissing {
 			nameWidth = max(0, nameWidth-inlineNullDotWidth())
 		}
+		hasPredicate := false
+		if _, ok := m.predicates[col.Name]; ok {
+			hasPredicate = true
+			nameWidth = max(0, nameWidth-predicateMarkerWidth())
+		}
 		name := truncate(col.Name, nameWidth)
 		namePart := name
 		if hasMissing && nameWidth > 0 {
 			namePart += " " + missingDot(m.missingMode)
+		}
+		if hasPredicate {
+			namePart += " " + predicateMarker()
 		}
 		typeStr := truncate(col.DuckType, 8)
 		statsStr := ""
@@ -3605,6 +3820,9 @@ func (m Model) viewColumns(w, h int) string {
 			plainNamePart := name
 			if hasMissing && nameWidth > 0 {
 				plainNamePart += " " + nullDotChar
+			}
+			if hasPredicate {
+				plainNamePart += " " + predicateMarkerChar
 			}
 			plain := fmt.Sprintf("%s %s %s%s", markChar, plainNamePart, typeStr, statsStr)
 			if m.focus == FocusColumns {
@@ -3830,6 +4048,10 @@ func (m Model) viewHelp() string {
 		{"Ctrl+F / Space", "Page down"},
 		{"Ctrl+B", "Page up"},
 		{"Ctrl+D / Ctrl+U", "Half page down / up"},
+		{"=", "Edit predicate for active column"},
+		{"p", "Pin active cell as exact-match filter"},
+		{"-", "Clear predicate for active column"},
+		{"U", "Clear all predicates"},
 		{"f", "Toggle missing-row filter"},
 		{"r", "Next missing in current row"},
 		{"R", "Previous missing in current row"},
@@ -3847,6 +4069,11 @@ func (m Model) viewHelp() string {
 		{"t", "Cycle tabs (Top Values / Stats / Histogram)"},
 		{"n", "Jump to first missing"},
 		{"Esc", "Close"},
+		{"", ""},
+		{"── Filter Prompt ──", ""},
+		{"Enter", "Apply predicate"},
+		{"Ctrl+U", "Clear prompt input"},
+		{"Esc", "Cancel"},
 		{"", ""},
 		{"── Expanded Reader ──", ""},
 		{"↑/↓ or j/k", "Scroll content"},
@@ -4225,7 +4452,7 @@ func defaultDetailTab(colType string) int {
 }
 
 func (m Model) activeRowCount() int64 {
-	if m.missingFilterActive && m.filterRows >= 0 {
+	if m.rowFilterActive() && m.filterRows >= 0 {
 		return m.filterRows
 	}
 	return m.totalRows

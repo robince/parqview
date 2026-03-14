@@ -351,10 +351,18 @@ func numericProfileExpr(quotedCol string, mode missing.Mode) string {
 
 // FirstNullRow returns the internal row id of the first missing-like value in a column, or 0 if none.
 func (e *Engine) FirstNullRow(ctx context.Context, colName string, filterCols []string, mode missing.Mode) (int64, error) {
+	rowFilter := ""
+	if len(filterCols) > 0 {
+		rowFilter = "(" + buildMissingFilter(filterCols, mode) + ")"
+	}
+	return e.FirstNullRowWithFilter(ctx, colName, rowFilter, mode)
+}
+
+func (e *Engine) FirstNullRowWithFilter(ctx context.Context, colName, rowFilter string, mode missing.Mode) (int64, error) {
 	col := quoteIdent(colName)
 	q := fmt.Sprintf("SELECT min(%s) FROM t_base WHERE %s", quoteIdent(e.internalRowIDCol), mode.SQLPredicate(col))
-	if len(filterCols) > 0 {
-		q += " AND (" + buildMissingFilter(filterCols, mode) + ")"
+	if rowFilter != "" {
+		q += " AND (" + rowFilter + ")"
 	}
 	var rn sql.NullInt64
 	if err := e.db.QueryRowContext(ctx, q).Scan(&rn); err != nil {
@@ -368,13 +376,21 @@ func (e *Engine) FirstNullRow(ctx context.Context, colName string, filterCols []
 
 // OffsetForRowID returns the row offset of rowID in the active (optionally filtered) view.
 func (e *Engine) OffsetForRowID(ctx context.Context, rowID int64, filterCols []string, mode missing.Mode) (int64, error) {
+	rowFilter := ""
+	if len(filterCols) > 0 {
+		rowFilter = "(" + buildMissingFilter(filterCols, mode) + ")"
+	}
+	return e.OffsetForRowIDWithFilter(ctx, rowID, rowFilter)
+}
+
+func (e *Engine) OffsetForRowIDWithFilter(ctx context.Context, rowID int64, rowFilter string) (int64, error) {
 	if rowID <= 1 {
 		return 0, nil
 	}
 
 	q := fmt.Sprintf("SELECT count(*) FROM t_base WHERE %s < ?", quoteIdent(e.internalRowIDCol))
-	if len(filterCols) > 0 {
-		q += " AND (" + buildMissingFilter(filterCols, mode) + ")"
+	if rowFilter != "" {
+		q += " AND (" + rowFilter + ")"
 	}
 
 	var offset int64
@@ -386,13 +402,21 @@ func (e *Engine) OffsetForRowID(ctx context.Context, rowID int64, filterCols []s
 
 // RowIDForOffset returns the internal row id at a filtered-view offset.
 func (e *Engine) RowIDForOffset(ctx context.Context, offset int64, filterCols []string, mode missing.Mode) (int64, error) {
+	rowFilter := ""
+	if len(filterCols) > 0 {
+		rowFilter = "(" + buildMissingFilter(filterCols, mode) + ")"
+	}
+	return e.RowIDForOffsetWithFilter(ctx, offset, rowFilter)
+}
+
+func (e *Engine) RowIDForOffsetWithFilter(ctx context.Context, offset int64, rowFilter string) (int64, error) {
 	if offset < 0 {
 		return 0, nil
 	}
 
 	q := fmt.Sprintf("SELECT %s FROM t_base", quoteIdent(e.internalRowIDCol))
-	if len(filterCols) > 0 {
-		q += " WHERE (" + buildMissingFilter(filterCols, mode) + ")"
+	if rowFilter != "" {
+		q += " WHERE (" + rowFilter + ")"
 	}
 	q += fmt.Sprintf(" ORDER BY %s LIMIT 1 OFFSET %d", quoteIdent(e.internalRowIDCol), offset)
 
@@ -410,10 +434,18 @@ func (e *Engine) RowIDForOffset(ctx context.Context, offset int64, filterCols []
 // NextNullRow returns the next missing-like row id in a column after rowID in the active
 // (optionally filtered) view. When no later row exists, it wraps and returns the first one.
 func (e *Engine) NextNullRow(ctx context.Context, colName string, filterCols []string, mode missing.Mode, rowID int64) (nextRowID int64, wrapped bool, err error) {
+	rowFilter := ""
+	if len(filterCols) > 0 {
+		rowFilter = "(" + buildMissingFilter(filterCols, mode) + ")"
+	}
+	return e.NextNullRowWithFilter(ctx, colName, rowFilter, mode, rowID)
+}
+
+func (e *Engine) NextNullRowWithFilter(ctx context.Context, colName, rowFilter string, mode missing.Mode, rowID int64) (nextRowID int64, wrapped bool, err error) {
 	col := quoteIdent(colName)
 	conds := []string{mode.SQLPredicate(col)}
-	if len(filterCols) > 0 {
-		conds = append(conds, "("+buildMissingFilter(filterCols, mode)+")")
+	if rowFilter != "" {
+		conds = append(conds, "("+rowFilter+")")
 	}
 
 	baseWhere := strings.Join(conds, " AND ")
@@ -447,10 +479,18 @@ func (e *Engine) NextNullRow(ctx context.Context, colName string, filterCols []s
 // PrevNullRow returns the previous missing-like row id in a column before rowID in the active
 // (optionally filtered) view. When no earlier row exists, it wraps and returns the last one.
 func (e *Engine) PrevNullRow(ctx context.Context, colName string, filterCols []string, mode missing.Mode, rowID int64) (prevRowID int64, wrapped bool, err error) {
+	rowFilter := ""
+	if len(filterCols) > 0 {
+		rowFilter = "(" + buildMissingFilter(filterCols, mode) + ")"
+	}
+	return e.PrevNullRowWithFilter(ctx, colName, rowFilter, mode, rowID)
+}
+
+func (e *Engine) PrevNullRowWithFilter(ctx context.Context, colName, rowFilter string, mode missing.Mode, rowID int64) (prevRowID int64, wrapped bool, err error) {
 	col := quoteIdent(colName)
 	conds := []string{mode.SQLPredicate(col)}
-	if len(filterCols) > 0 {
-		conds = append(conds, "("+buildMissingFilter(filterCols, mode)+")")
+	if rowFilter != "" {
+		conds = append(conds, "("+rowFilter+")")
 	}
 
 	baseWhere := strings.Join(conds, " AND ")
