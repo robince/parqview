@@ -49,7 +49,7 @@ Download the archive for your platform from
 macOS arm64 example:
 
 ```bash
-VERSION="1.1.0"
+VERSION="1.3.0"
 curl -fL -o parqview.tar.gz "https://github.com/robince/parqview/releases/download/v${VERSION}/parqview_${VERSION}_darwin_arm64.tar.gz"
 tar -xzf parqview.tar.gz
 ./parqview --version
@@ -58,7 +58,7 @@ tar -xzf parqview.tar.gz
 Linux amd64 example:
 
 ```bash
-VERSION="1.1.0"
+VERSION="1.3.0"
 curl -fL -o parqview.tar.gz "https://github.com/robince/parqview/releases/download/v${VERSION}/parqview_${VERSION}_linux_amd64.tar.gz"
 tar -xzf parqview.tar.gz
 ./parqview --version
@@ -143,7 +143,7 @@ Use this pane to search, triage, and build a selection set of columns.
 | `d` | Remove all filtered columns from selection |
 | `A` | Select all columns |
 | `X` | Clear all selected columns |
-| `y` | Copy selected columns as a Python list |
+| `y` | Copy selected columns as a Python list, or active column name if none selected |
 | `Enter` | Open detail panel for active column |
 
 ### Table Pane

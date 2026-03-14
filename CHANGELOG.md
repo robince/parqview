@@ -7,15 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-03-14
+
 ### Added
-- Copy active cell value to clipboard with `y` when in data pane
-- Add jump to row command and CLI argument (all displayed row numbers now refer to overall file)
-- Add predicate filtering rules on columns (`p`, `=` etc. )
+- Copy active cell value to clipboard with `y` in data pane
+- Jump to row by number: `[count]gg` / `[count]G` in data pane; 
+- `+row` CLI argument to open at a specific row
+- Predicate filtering on columns: `=` to open predicate prompt, `p` to pin current cell as exact-match, `-` to clear column predicate, `U` to clear all predicates
 
 ### Changed
-
+- `y` in columns pane now copies active column name when no columns are selected (previously showed "No columns selected")
+ 
 ### Fixed
-- Filter to missing row updates when selected columns change
+- Missing-row filter now updates correctly when selected-column set changes
 
 ## [1.2.0] - 2026-03-08
 

@@ -44,6 +44,7 @@ func parseColumnPredicate(colName, colType, raw string) (columnPredicate, error)
 		}
 	}
 
+	trimmedLeft := strings.TrimLeft(raw, " \t")
 	for _, candidate := range []struct {
 		prefix string
 		op     predicateOp
@@ -54,7 +55,6 @@ func parseColumnPredicate(colName, colType, raw string) (columnPredicate, error)
 		{prefix: ">", op: opGt},
 		{prefix: "<", op: opLt},
 	} {
-		trimmedLeft := strings.TrimLeft(raw, " \t")
 		if !strings.HasPrefix(trimmedLeft, candidate.prefix) {
 			continue
 		}
