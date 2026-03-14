@@ -138,7 +138,7 @@ Use this pane to search, triage, and build a selection set of columns.
 
 ### Table Pane
 
-Use this pane to inspect row values, navigate missingness, and check distribution shifts.
+Use this pane to inspect row values, navigate missingness, and filter the current result set.
 
 | Key | Action |
 | --- | --- |
@@ -158,12 +158,23 @@ Use this pane to inspect row values, navigate missingness, and check distributio
 | `Ctrl+B` | Page up |
 | `Ctrl+D` | Half-page down |
 | `Ctrl+U` | Half-page up |
+| `=` | Open predicate prompt for selected column |
+| `p` | Pin current cell value as an exact-match predicate |
+| `-` | Clear predicate for selected column |
+| `U` | Clear all predicates |
 | `r` | Jump to next missing value in current row |
 | `R` | Jump to previous missing value in current row |
 | `c` | Jump to next row with missing value in selected column |
 | `C` | Jump to previous row with missing value in selected column |
 | `f` | Toggle missing-row filter |
 | `Enter` | Open detail panel for selected column |
+
+Predicate prompt examples:
+
+- string columns: `abc123`, `!= abc123`
+- numeric columns: `42`, `!= 42`, `> 10`, `>= 10`, `< 10`, `<= 10`, `10..20`
+
+Multiple column predicates combine with `AND`. Reapplying a predicate on a column replaces the previous predicate for that column.
 
 ### Column Search Input (in Columns Pane)
 
@@ -210,6 +221,14 @@ Use this overlay for long text cells, JSON payloads, and other values that do no
 | `Backspace` | Go to parent folder (when query is empty) |
 | `Ctrl+U` | Clear picker query |
 | `Esc` | Close file picker |
+
+### Predicate Prompt Overlay
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Apply predicate |
+| `Ctrl+U` | Clear prompt input |
+| `Esc` | Cancel |
 
 ### Help Overlay
 

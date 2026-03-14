@@ -3,6 +3,7 @@ package ui
 import (
 	"testing"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/robince/parqview/internal/engine"
@@ -13,10 +14,19 @@ import (
 
 // newTestModel creates a minimal Model suitable for unit tests.
 func newTestModel() Model {
+	search := textinput.New()
+	search.Prompt = "/ "
+	search.PromptStyle = searchPromptStyle
+
+	predicate := textinput.New()
+
 	return Model{
 		engine:          nil,
 		missingMode:     missing.ModeNullAndNaN,
 		sel:             selection.New(nil),
+		searchInput:     search,
+		predicateInput:  predicate,
+		predicates:      make(map[string]columnPredicate),
 		summaries:       make(map[string]*types.ColumnSummary),
 		tableColWidths:  make(map[string]int),
 		tableColOffHint: -1,
