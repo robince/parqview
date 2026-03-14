@@ -65,7 +65,7 @@ func TestActiveRowFilterCombinesPredicateAndMissing(t *testing.T) {
 	m := newTestModel()
 	m.predicates["user_id"] = columnPredicate{Column: "user_id", Op: opEq, Value: "abc", Display: "abc"}
 	m.missingFilterActive = true
-	m.missingFilterCols = []string{"score"}
+	m.columns = []types.ColumnInfo{{Name: "score", DuckType: "DOUBLE"}}
 
 	got := m.activeRowFilter()
 	if !strings.Contains(got, `"user_id" = 'abc'`) {

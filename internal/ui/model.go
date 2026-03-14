@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -59,6 +60,7 @@ type profileDetailDoneMsg struct {
 }
 
 type previewDoneMsg struct {
+	rowIDs     []int64
 	rows       [][]string
 	colNames   []string
 	totalRows  int64
@@ -87,6 +89,16 @@ type nextNullMsg struct {
 	err      error
 }
 
+type jumpRowMsg struct {
+	requestedRowID int64
+	rowID          int64
+	offset         int64
+	approximate    bool
+	token          uint64
+	reqID          uint64
+	err            error
+}
+
 type openFileDoneMsg struct {
 	path  string
 	eng   *engine.Engine
@@ -102,6 +114,8 @@ type filePickerItem struct {
 }
 
 type statusMsg string
+
+var copyToClipboard = clipboard.Copy
 
 // Model is the root Bubble Tea model.
 type Model struct {
@@ -141,6 +155,7 @@ type Model struct {
 
 	// Table state
 	tableData           [][]string
+	tableRowIDs         []int64
 	tableDataOffset     int
 	tableRowHasMissing  []bool
 	tableCols           []string // column names in current projection
@@ -153,7 +168,6 @@ type Model struct {
 	showSelectedInCols  bool           // show only selected columns in columns pane
 	missingMode         missing.Mode
 	missingFilterActive bool
-	missingFilterCols   []string
 	totalRows           int64
 	filterRows          int64 // -1 means filtered row count is unavailable (inactive or not fetched yet)
 
@@ -181,10 +195,20 @@ type Model struct {
 	latestPreviewSeq uint64
 	dataToken        uint64
 	openReqID        uint64
+	jumpReqID        uint64
+	startRowID       int64
+	pendingStartRow  int64
+	tableJumpCount   string
+	tablePendingG    bool
 }
 
 // NewModel creates the initial model.
 func NewModel(eng *engine.Engine, fileName, launchDir string) Model {
+	return NewModelAtRow(eng, fileName, launchDir, 0)
+}
+
+// NewModelAtRow creates the initial model with an optional immutable start row.
+func NewModelAtRow(eng *engine.Engine, fileName, launchDir string, startRowID int64) Model {
 	ti := textinput.New()
 	ti.Prompt = "/ "
 	ti.PromptStyle = searchPromptStyle
@@ -218,6 +242,7 @@ func NewModel(eng *engine.Engine, fileName, launchDir string) Model {
 		selectedColName:  "",
 		tableSplitPct:    tableSplitPct,
 		latestPreviewSeq: 1,
+		startRowID:       startRowID,
 	}
 	m.setPickerRoot(launchDir)
 	if eng != nil {
@@ -268,6 +293,7 @@ func (m *Model) resetLoadedDataState() {
 	m.colCursor = 0
 	m.selectedColName = ""
 	m.tableData = nil
+	m.tableRowIDs = nil
 	m.tableDataOffset = 0
 	m.tableRowHasMissing = nil
 	m.tableCols = nil
@@ -280,7 +306,6 @@ func (m *Model) resetLoadedDataState() {
 	m.showSelectedInCols = false
 	m.missingMode = missing.ModeNullAndNaN
 	m.missingFilterActive = false
-	m.missingFilterCols = nil
 	m.predicates = make(map[string]columnPredicate)
 	m.predicateCol = ""
 	m.predicatePrompt = ""
@@ -295,6 +320,9 @@ func (m *Model) resetLoadedDataState() {
 	m.readerWrap = false
 	m.readerVertOff = 0
 	m.readerHorizOff = 0
+	m.pendingStartRow = 0
+	m.tableJumpCount = ""
+	m.tablePendingG = false
 	m.updateFilteredCols()
 }
 
@@ -316,6 +344,10 @@ func (m *Model) applyEngine(eng *engine.Engine, fileName string) {
 	if len(cols) > 0 {
 		m.selectedColName = cols[0].Name
 	}
+	if m.startRowID > 0 {
+		m.pendingStartRow = m.startRowID
+		m.startRowID = 0
+	}
 	m.updateFilteredCols()
 	m.statusMsg = fmt.Sprintf("Opened %s", fileName)
 }
@@ -323,10 +355,42 @@ func (m *Model) applyEngine(eng *engine.Engine, fileName string) {
 // activeFilterCols returns the filter columns when the filter is active, or nil
 // when inactive.
 func (m Model) activeFilterCols() []string {
-	if !m.missingFilterActive || len(m.missingFilterCols) == 0 {
+	if !m.missingFilterActive {
 		return nil
 	}
-	return m.missingFilterCols
+	cols := m.computeMissingFilterCols()
+	if len(cols) == 0 {
+		return nil
+	}
+	return cols
+}
+
+func (m Model) computeMissingFilterCols() []string {
+	if m.showSelected || m.showSelectedInCols {
+		selected := m.sel.Selected()
+		if len(selected) > 0 {
+			return selected
+		}
+	}
+	names := make([]string, len(m.columns))
+	for i, c := range m.columns {
+		names[i] = c.Name
+	}
+	return names
+}
+
+func (m *Model) syncActiveMissingFilter(before []string) bool {
+	if !m.missingFilterActive {
+		return false
+	}
+	after := m.activeFilterCols()
+	if slices.Equal(before, after) {
+		return false
+	}
+	m.filterRows = -1
+	m.tableOffset = 0
+	m.tableRowCursor = 0
+	return true
 }
 
 func (m Model) activePredicateFilter() string {
@@ -388,24 +452,12 @@ func (m *Model) cycleMissingMode() tea.Cmd {
 func (m *Model) toggleMissingRowFilter() {
 	if m.missingFilterActive {
 		m.missingFilterActive = false
-		m.missingFilterCols = nil
 		m.filterRows = -1 // symmetric with activation path below
 		return
 	}
 
-	// Snapshot the current column set. If the user later changes column
-	// selection or showSelected, the active filter keeps its original columns.
-	selected := m.sel.Selected()
-	if len(selected) > 0 {
-		m.missingFilterCols = append([]string(nil), selected...)
-	} else {
-		names := make([]string, len(m.filteredCols))
-		for i, c := range m.filteredCols {
-			names[i] = c.Name
-		}
-		m.missingFilterCols = names
-	}
-	m.missingFilterActive = len(m.missingFilterCols) > 0
+	cols := m.computeMissingFilterCols()
+	m.missingFilterActive = len(cols) > 0
 	m.filterRows = -1
 }
 
@@ -881,6 +933,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tableOffset != prevOffset {
 			return m, m.nextPreviewCmd()
 		}
+		if m.pendingStartRow > 0 && m.engine != nil {
+			rowID := m.pendingStartRow
+			m.pendingStartRow = 0
+			return m, m.issueJumpToRow(rowID)
+		}
 		if m.needsMorePreviewRows() {
 			return m, m.nextPreviewCmd()
 		}
@@ -925,6 +982,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
 		} else {
+			m.tableRowIDs = msg.rowIDs
 			m.tableData = msg.rows
 			m.tableDataOffset = msg.offset
 			m.tableRowHasMissing = rowHasMissingFlags(msg.rows, m.missingMode)
@@ -983,9 +1041,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = "No missing values found"
 		default:
 			// Jump to the row
-			m.tableOffset = max(0, int(msg.offset))
-			m.clampTableOffset()
-			m.tableRowCursor = 0
+			m.setTablePositionForOffset(max(0, int(msg.offset)))
 			m.overlay = OverlayNone
 			m.statusMsg = fmt.Sprintf("Jumped to row %d", msg.rowID)
 			return m, m.nextPreviewCmd()
@@ -1004,9 +1060,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("No missing values in column %q", msg.colName)
 			return m, nil
 		default:
-			m.tableOffset = max(0, int(msg.offset))
-			m.clampTableOffset()
-			m.tableRowCursor = 0
+			m.setTablePositionForOffset(max(0, int(msg.offset)))
 			var dir, dirTitle string
 			if msg.reverse {
 				dir = "previous"
@@ -1018,10 +1072,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.wrapped {
 				m.statusMsg = fmt.Sprintf("Wrapped to %s missing in %q", dir, msg.colName)
 			} else {
-				m.statusMsg = fmt.Sprintf("%s missing in %q at row %d", dirTitle, msg.colName, msg.offset+1)
+				m.statusMsg = fmt.Sprintf("%s missing in %q at row %d", dirTitle, msg.colName, msg.rowID)
 			}
 			return m, m.nextPreviewCmd()
 		}
+
+	case jumpRowMsg:
+		if msg.token != m.dataToken {
+			return m, nil
+		}
+		if msg.reqID != m.jumpReqID {
+			return m, nil
+		}
+		m.clearTableJumpState()
+		switch {
+		case msg.err != nil:
+			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
+		case msg.rowID == 0:
+			m.statusMsg = fmt.Sprintf("Row %d is not visible in current result", msg.requestedRowID)
+		default:
+			m.setTablePositionForOffset(max(0, int(msg.offset)))
+			if msg.approximate {
+				m.statusMsg = fmt.Sprintf("Row %d not visible in current result; jumped to row %d", msg.requestedRowID, msg.rowID)
+			} else {
+				m.statusMsg = fmt.Sprintf("Jumped to row %d", msg.rowID)
+			}
+			return m, m.nextPreviewCmd()
+		}
+		return m, nil
 
 	case statusMsg:
 		m.statusMsg = string(msg)
@@ -1035,6 +1113,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	if key == "ctrl+o" {
+		m.clearTableJumpState()
 		if m.overlay == OverlayFilePicker {
 			m.overlay = OverlayNone
 			return m, nil
@@ -1080,6 +1159,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Help overlay
 	if m.overlay == OverlayHelp {
 		if key == "esc" || key == "?" || key == "q" {
+			m.clearTableJumpState()
 			m.overlay = OverlayNone
 		}
 		return m, nil
@@ -1089,6 +1169,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.overlay == OverlayDetail {
 		switch key {
 		case "esc", "q":
+			m.clearTableJumpState()
 			m.overlay = OverlayNone
 		case "t":
 			m.detailTab = (m.detailTab + 1) % 3
@@ -1111,8 +1192,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Global keys
 	switch key {
 	case "q":
+		m.clearTableJumpState()
 		return m, tea.Quit
 	case "ctrl+l":
+		m.clearTableJumpState()
 		m.clampSplitPct()
 		m.clampTableOffset()
 		m.clampTableRowCursor()
@@ -1121,11 +1204,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.ClearScreen
 	case "?":
+		m.clearTableJumpState()
 		m.overlay = OverlayHelp
 		return m, nil
 	case "m":
+		m.clearTableJumpState()
 		return m, m.cycleMissingMode()
 	case "tab":
+		m.clearTableJumpState()
 		if m.focus == FocusTable {
 			m.focus = FocusColumns
 		} else {
@@ -1133,18 +1219,28 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "s", "S":
+		m.clearTableJumpState()
+		filterColsBefore := m.activeFilterCols()
 		m.showSelected = !m.showSelected
 		m.tableColOffHint = -1
-		m.tableRowCursor = 0
+		if !m.syncActiveMissingFilter(filterColsBefore) {
+			m.tableRowCursor = 0
+		}
 		return m, m.nextPreviewCmd()
 	case "v", "V":
+		m.clearTableJumpState()
 		if m.focus != FocusColumns {
 			return m, nil
 		}
+		filterColsBefore := m.activeFilterCols()
 		m.showSelectedInCols = !m.showSelectedInCols
 		m.updateFilteredCols()
+		if m.syncActiveMissingFilter(filterColsBefore) {
+			return m, m.nextPreviewCmd()
+		}
 		return m, nil
 	case "enter":
+		m.clearTableJumpState()
 		targetCol := m.selectedColName
 		if m.focus == FocusColumns {
 			targetCol = m.columnsActiveColName()
@@ -1164,6 +1260,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case " ":
+		m.clearTableJumpState()
 		if m.focus == FocusColumns {
 			return m.handleColumnsPaging()
 		}
@@ -1171,6 +1268,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.focus == FocusColumns {
+		m.clearTableJumpState()
 		return m.handleColumnsKey(key)
 	}
 	return m.handleTableKey(key)
@@ -1915,6 +2013,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 	case "x":
 		targetCol := m.columnsActiveColName()
 		if targetCol != "" {
+			filterColsBefore := m.activeFilterCols()
 			dataShowSelectedWasOn := m.showSelected
 			colsShowSelectedWasOn := m.showSelectedInCols
 			m.sel.Toggle(targetCol)
@@ -1940,6 +2039,10 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				if len(parts) > 0 {
 					m.statusMsg = strings.Join(parts, "; ")
 				}
+				m.syncActiveMissingFilter(filterColsBefore)
+				return m, m.nextPreviewCmd()
+			}
+			if m.syncActiveMissingFilter(filterColsBefore) {
 				return m, m.nextPreviewCmd()
 			}
 			if colsAutoOff {
@@ -1947,15 +2050,21 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "a":
+		filterColsBefore := m.activeFilterCols()
 		names := make([]string, len(m.filteredCols))
 		for i, c := range m.filteredCols {
 			names[i] = c.Name
 		}
 		m.sel.AddAll(names)
 		if m.showSelected {
+			m.syncActiveMissingFilter(filterColsBefore)
+			return m, m.nextPreviewCmd()
+		}
+		if m.syncActiveMissingFilter(filterColsBefore) {
 			return m, m.nextPreviewCmd()
 		}
 	case "d":
+		filterColsBefore := m.activeFilterCols()
 		colsShowSelectedWasOn := m.showSelectedInCols
 		names := make([]string, len(m.filteredCols))
 		for i, c := range m.filteredCols {
@@ -1980,20 +2089,30 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				parts = append(parts, "show-selected off (no columns selected)")
 				m.statusMsg = strings.Join(parts, "; ")
 			}
+			m.syncActiveMissingFilter(filterColsBefore)
+			return m, m.nextPreviewCmd()
+		}
+		if m.syncActiveMissingFilter(filterColsBefore) {
 			return m, m.nextPreviewCmd()
 		}
 		if colsAutoOff {
 			m.statusMsg = "cols selected-list off (no columns selected)"
 		}
 	case "A":
+		filterColsBefore := m.activeFilterCols()
 		m.sel.SelectAll()
 		if m.showSelectedInCols {
 			m.updateFilteredCols()
 		}
 		if m.showSelected {
+			m.syncActiveMissingFilter(filterColsBefore)
+			return m, m.nextPreviewCmd()
+		}
+		if m.syncActiveMissingFilter(filterColsBefore) {
 			return m, m.nextPreviewCmd()
 		}
 	case "X":
+		filterColsBefore := m.activeFilterCols()
 		colsShowSelectedWasOn := m.showSelectedInCols
 		m.sel.Clear()
 		colsAutoOff := colsShowSelectedWasOn
@@ -2011,6 +2130,10 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			if len(parts) > 0 {
 				m.statusMsg = strings.Join(parts, "; ")
 			}
+			m.syncActiveMissingFilter(filterColsBefore)
+			return m, m.nextPreviewCmd()
+		}
+		if m.syncActiveMissingFilter(filterColsBefore) {
 			return m, m.nextPreviewCmd()
 		}
 		if colsAutoOff {
@@ -2020,13 +2143,14 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		selected := m.sel.Selected()
 		if len(selected) > 0 {
 			text := clipboard.FormatPythonList(selected)
-			if err := clipboard.Copy(text); err != nil {
-				m.statusMsg = fmt.Sprintf("Clipboard error: %v", err)
-			} else {
-				m.statusMsg = fmt.Sprintf("Copied %d columns to clipboard", len(selected))
-			}
+			m.copyTextToClipboard(text, fmt.Sprintf("Copied %d columns to clipboard", len(selected)))
 		} else {
-			m.statusMsg = "No columns selected"
+			colName := m.columnsActiveColName()
+			if colName == "" {
+				m.statusMsg = "No active column"
+				break
+			}
+			m.copyTextToClipboard(colName, fmt.Sprintf("Copied column name %q to clipboard", colName))
 		}
 	}
 	return m, nil
@@ -2136,6 +2260,85 @@ func (m Model) currentAbsoluteRow() int {
 	return m.tableOffset + m.tableRowCursor
 }
 
+func (m Model) visibleRowIDAt(rowIdx int) int64 {
+	if rowIdx < 0 || rowIdx >= len(m.tableRowIDs) {
+		return 0
+	}
+	return m.tableRowIDs[rowIdx]
+}
+
+func (m Model) currentRowID() int64 {
+	return m.visibleRowIDAt(m.tableRowCursor)
+}
+
+func (m Model) rowIDForAbsoluteRow(absRow int) int64 {
+	rowIdx := absRow - m.tableDataOffset
+	if rowIdx >= 0 && rowIdx < len(m.tableRowIDs) {
+		return m.tableRowIDs[rowIdx]
+	}
+	return 0
+}
+
+func (m *Model) clearTableJumpState() {
+	m.tableJumpCount = ""
+	m.tablePendingG = false
+}
+
+func (m *Model) appendTableJumpDigit(key string) bool {
+	if key == "0" && m.tableJumpCount == "" {
+		return false
+	}
+	if len(key) != 1 || key[0] < '0' || key[0] > '9' {
+		return false
+	}
+	m.tableJumpCount += key
+	return true
+}
+
+func (m Model) tableJumpTargetRowID() (int64, bool, error) {
+	if m.tableJumpCount == "" {
+		return 0, false, nil
+	}
+	rowID, err := strconv.ParseInt(m.tableJumpCount, 10, 64)
+	if err != nil || rowID <= 0 {
+		return 0, false, fmt.Errorf("invalid row jump %q", m.tableJumpCount)
+	}
+	return rowID, true, nil
+}
+
+func (m Model) tableJumpIndicator() string {
+	if m.tableJumpCount == "" && !m.tablePendingG {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("[jump:")
+	if m.tableJumpCount != "" {
+		b.WriteByte(' ')
+		b.WriteString(m.tableJumpCount)
+	}
+	if m.tablePendingG {
+		b.WriteByte(' ')
+		b.WriteByte('g')
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
+func (m *Model) setTablePositionForOffset(targetOffset int) {
+	if targetOffset < 0 {
+		targetOffset = 0
+	}
+	m.tableOffset = targetOffset
+	m.clampTableOffset()
+	m.tableRowCursor = targetOffset - m.tableOffset
+	m.clampTableRowCursor()
+}
+
+func (m *Model) issueJumpToRow(rowID int64) tea.Cmd {
+	m.jumpReqID++
+	return m.jumpToRowCmd(rowID, m.jumpReqID)
+}
+
 func (m Model) valueForAbsoluteCell(absRow int, colName string) (string, bool) {
 	rowIdx := absRow - m.tableDataOffset
 	if rowIdx < 0 || rowIdx >= len(m.tableData) {
@@ -2153,6 +2356,28 @@ func (m Model) valueForAbsoluteCell(absRow int, colName string) (string, bool) {
 
 func (m Model) valueForVisibleCell(colName string) (string, bool) {
 	return m.valueForAbsoluteCell(m.currentAbsoluteRow(), colName)
+}
+
+func (m *Model) copyTextToClipboard(text, successMsg string) {
+	if err := copyToClipboard(text); err != nil {
+		m.statusMsg = fmt.Sprintf("Clipboard error: %v", err)
+		return
+	}
+	m.statusMsg = successMsg
+}
+
+func (m *Model) copyActiveCellValue() {
+	colName := m.selectedColName
+	if colName == "" {
+		m.statusMsg = "No active column"
+		return
+	}
+	value, ok := m.valueForVisibleCell(colName)
+	if !ok {
+		m.statusMsg = "No data visible for active cell"
+		return
+	}
+	m.copyTextToClipboard(value, fmt.Sprintf("Copied cell value from %q", colName))
 }
 
 func (m Model) shouldOpenReaderForActiveColumn() bool {
@@ -2240,6 +2465,31 @@ func (m *Model) handleActiveColumnWidthAction() {
 func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 	// Clamp on the local copy (value receiver); the returned m carries the clamped value.
 	m.clampTableRowCursor()
+	if m.appendTableJumpDigit(key) {
+		return m, nil
+	}
+	if m.tablePendingG {
+		if key == "g" {
+			rowID, hasCount, err := m.tableJumpTargetRowID()
+			if err != nil {
+				m.clearTableJumpState()
+				m.statusMsg = err.Error()
+				return m, nil
+			}
+			if hasCount {
+				m.clearTableJumpState()
+				return m, m.issueJumpToRow(rowID)
+			}
+			m.clearTableJumpState()
+			m.tableOffset = 0
+			m.tableRowCursor = 0
+			return m, m.nextPreviewCmd()
+		}
+		m.clearTableJumpState()
+	}
+	if m.tableJumpCount != "" && key != "g" && key != "G" {
+		m.clearTableJumpState()
+	}
 	if (key == "up" || key == "k" || key == "down" || key == "j") && m.visibleTableRows() == 0 {
 		return m, nil
 	}
@@ -2334,10 +2584,19 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 	case "]":
 		return m.pageColumnsHorizontal(1)
 	case "g":
-		m.tableOffset = 0
-		m.tableRowCursor = 0
-		return m, m.nextPreviewCmd()
+		m.tablePendingG = true
+		return m, nil
 	case "G":
+		rowID, ok, err := m.tableJumpTargetRowID()
+		if err != nil {
+			m.clearTableJumpState()
+			m.statusMsg = err.Error()
+			return m, nil
+		}
+		if ok {
+			m.clearTableJumpState()
+			return m, m.issueJumpToRow(rowID)
+		}
 		m.tableOffset = m.maxTableOffset()
 		m.tableRowCursor = max(0, m.visibleTableRows()-1)
 		return m, m.nextPreviewCmd()
@@ -2460,6 +2719,8 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		}
 		currentRow := int64(m.tableOffset + m.tableRowCursor)
 		return m, m.jumpToNextNullInColumn(colName, m.activeRowFilter(), currentRow, true)
+	case "y":
+		m.copyActiveCellValue()
 	}
 	return m, nil
 }
@@ -2770,7 +3031,7 @@ func (m Model) loadPreviewCmd(seq uint64) tea.Cmd {
 
 	return func() tea.Msg {
 		ctx := context.Background()
-		rows, err := eng.Preview(ctx, colNames, rowFilter, limit, offset)
+		rowIDs, rows, err := eng.Preview(ctx, colNames, rowFilter, limit, offset)
 		if err != nil {
 			return previewDoneMsg{seq: seq, token: m.dataToken, err: err}
 		}
@@ -2780,6 +3041,7 @@ func (m Model) loadPreviewCmd(seq uint64) tea.Cmd {
 			filterRows, _ = eng.FilteredRowCount(ctx, rowFilter)
 		}
 		return previewDoneMsg{
+			rowIDs:     rowIDs,
 			rows:       rows,
 			colNames:   colNames,
 			totalRows:  totalRows,
@@ -2787,6 +3049,45 @@ func (m Model) loadPreviewCmd(seq uint64) tea.Cmd {
 			offset:     offset,
 			seq:        seq,
 			token:      m.dataToken,
+		}
+	}
+}
+
+func (m Model) jumpToRowCmd(rowID int64, reqID uint64) tea.Cmd {
+	eng := m.engine
+	if eng == nil {
+		return nil
+	}
+	filterCols := m.activeFilterCols()
+	missingMode := m.missingMode
+	return func() tea.Msg {
+		ctx := context.Background()
+		offset, err := eng.OffsetForRowID(ctx, rowID, filterCols, missingMode)
+		if err != nil {
+			return jumpRowMsg{requestedRowID: rowID, token: m.dataToken, reqID: reqID, err: err}
+		}
+
+		landedRowID, err := eng.RowIDForOffset(ctx, offset, filterCols, missingMode)
+		if err != nil {
+			return jumpRowMsg{requestedRowID: rowID, token: m.dataToken, reqID: reqID, err: err}
+		}
+		landedOffset := offset
+		approximate := landedRowID != 0 && landedRowID != rowID
+		if landedRowID == 0 && offset > 0 {
+			landedOffset = offset - 1
+			landedRowID, err = eng.RowIDForOffset(ctx, landedOffset, filterCols, missingMode)
+			if err != nil {
+				return jumpRowMsg{requestedRowID: rowID, token: m.dataToken, reqID: reqID, err: err}
+			}
+			approximate = landedRowID != 0 && landedRowID != rowID
+		}
+		return jumpRowMsg{
+			requestedRowID: rowID,
+			rowID:          landedRowID,
+			offset:         landedOffset,
+			approximate:    approximate,
+			token:          m.dataToken,
+			reqID:          reqID,
 		}
 	}
 }
@@ -2952,10 +3253,14 @@ func (m *Model) jumpToNextMissingInRow(reverse bool) bool {
 			if idx < len(m.tableCols) {
 				m.selectedColName = m.tableCols[idx]
 				m.syncCursorFromSelectedColName()
+				rowID := m.currentRowID()
+				if rowID == 0 {
+					rowID = int64(m.tableOffset + m.tableRowCursor + 1)
+				}
 				if reverse {
-					m.statusMsg = fmt.Sprintf("Row %d: previous missing at column %q", m.tableOffset+m.tableRowCursor+1, m.selectedColName)
+					m.statusMsg = fmt.Sprintf("Row %d: previous missing at column %q", rowID, m.selectedColName)
 				} else {
-					m.statusMsg = fmt.Sprintf("Row %d: next missing at column %q", m.tableOffset+m.tableRowCursor+1, m.selectedColName)
+					m.statusMsg = fmt.Sprintf("Row %d: next missing at column %q", rowID, m.selectedColName)
 				}
 				return true
 			}
@@ -3092,7 +3397,7 @@ func (m Model) viewBottomBar() string {
 	case m.focus == FocusColumns:
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  m:missing-mode  /:search  v:sel-list  x:toggle  a/d/y:sel"
 	default:
-		hints = "Ctrl+O:open  hjkl:move  =:filter  p:pin  -/U:clear  w:fit-col/reader  W:reader  m:missing-mode  r/R:row missing ±  c/C:col missing ±  f:missing-filter  drag:divider  Ctrl+L:redraw"
+		hints = "Ctrl+O:open  hjkl:move  y:copy-cell  =:filter  p:pin  -/U:clear  gg/G/[count]G:row  m:missing-mode  w/W:reader  f:filter  r/R:row±  c/C:col±  drag:divider  Ctrl+L:redraw"
 	}
 	status := fmt.Sprintf("  Sel: %d/%d", selCount, len(m.columns))
 	if m.showSelected {
@@ -3104,6 +3409,9 @@ func (m Model) viewBottomBar() string {
 		} else {
 			status += "  [cols:sel]"
 		}
+	}
+	if indicator := m.tableJumpIndicator(); indicator != "" {
+		status += "  " + indicator
 	}
 	if m.statusMsg != "" {
 		status += "  " + m.statusMsg
@@ -3135,10 +3443,10 @@ func (m Model) viewCellReader(w, h int) string {
 	if !ok {
 		value = ""
 	}
-	rowCount := m.activeRowCount()
-	rowLabel := m.readerAbsRow + 1
+	rowCount := m.totalRows
+	rowLabel := m.rowIDForAbsoluteRow(m.readerAbsRow)
 	if rowLabel < 1 {
-		rowLabel = 1
+		rowLabel = int64(m.readerAbsRow + 1)
 	}
 	header := fmt.Sprintf(" R%d/%d  %s", rowLabel, rowCount, colName)
 	if colType != "" {
@@ -3287,7 +3595,10 @@ func (m Model) viewTable(w, h int) string {
 	}
 	for r := 0; r < maxRows && r < len(m.tableData); r++ {
 		isSelectedRow := r == renderCursor
-		rowNum := m.tableOffset + r + 1
+		rowNum := m.visibleRowIDAt(r)
+		if rowNum == 0 {
+			rowNum = int64(m.tableOffset + r + 1)
+		}
 
 		rowHasMissing := m.rowHasMissingAt(r)
 		rowDot := " "
@@ -3408,7 +3719,10 @@ func (m Model) viewTableFooter() string {
 		}
 		row := m.tableData[rowCursor]
 
-		absRow := m.tableOffset + rowCursor + 1
+		rowID := m.visibleRowIDAt(rowCursor)
+		if rowID == 0 {
+			rowID = int64(m.tableOffset + rowCursor + 1)
+		}
 		colIdx := m.tableColCursor()
 		if m.selectedColName != "" && colIdx >= 0 && colIdx < len(row) {
 			colName := truncateDisplayMiddle(m.selectedColName, 20)
@@ -3418,15 +3732,15 @@ func (m Model) viewTableFooter() string {
 
 			if s, ok := m.summaries[m.selectedColName]; ok && s.Loaded {
 				parts = append(parts, fmt.Sprintf("R%d %s: %s (%d missing, %.1f%%)",
-					absRow, colNameQ, value, s.MissingCount, s.MissingPct))
+					rowID, colNameQ, value, s.MissingCount, s.MissingPct))
 			} else if ok {
 				// Summary entry exists but profiling still in progress.
-				parts = append(parts, fmt.Sprintf("R%d %s: %s …", absRow, colNameQ, value))
+				parts = append(parts, fmt.Sprintf("R%d %s: %s …", rowID, colNameQ, value))
 			} else {
-				parts = append(parts, fmt.Sprintf("R%d %s: %s", absRow, colNameQ, value))
+				parts = append(parts, fmt.Sprintf("R%d %s: %s", rowID, colNameQ, value))
 			}
 		} else {
-			parts = append(parts, fmt.Sprintf("R%d", absRow))
+			parts = append(parts, fmt.Sprintf("R%d", rowID))
 		}
 	}
 	return strings.Join(parts, "    ")
@@ -3718,7 +4032,7 @@ func (m Model) viewHelp() string {
 		{"d", "Remove all filtered from selection"},
 		{"A", "Select ALL columns"},
 		{"X", "Clear all selections"},
-		{"y", "Copy selected as Python list"},
+		{"y", "Copy selected columns, or active column name if none selected"},
 		{"", ""},
 		{"── Table Pane ──", ""},
 		{"↑/↓ or j/k", "Move row cursor"},
@@ -3728,7 +4042,9 @@ func (m Model) viewHelp() string {
 		{"w", "Fit width or open expanded reader"},
 		{"W", "Open expanded reader for active cell"},
 		{"Ctrl+W", "Toggle global wide columns"},
-		{"g / G", "Top / Bottom of file"},
+		{"y", "Copy active cell value"},
+		{"gg / G", "Top / bottom of current result"},
+		{"[count]G / [count]gg", "Jump to immutable file row"},
 		{"Ctrl+F / Space", "Page down"},
 		{"Ctrl+B", "Page up"},
 		{"Ctrl+D / Ctrl+U", "Half page down / up"},

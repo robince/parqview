@@ -709,6 +709,37 @@ func TestColumnsSingleDeselectAutoDisablesColsSelectedOnly(t *testing.T) {
 	}
 }
 
+func TestHandleColumnsKeyYCopiesActiveColumnNameWhenSelectionEmpty(t *testing.T) {
+	m := newTestModel()
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
+	m.selectedColName = "beta"
+	m.updateFilteredCols()
+
+	var got string
+	prevCopy := copyToClipboard
+	copyToClipboard = func(text string) error {
+		got = text
+		return nil
+	}
+	t.Cleanup(func() {
+		copyToClipboard = prevCopy
+	})
+
+	updated, cmd := m.handleColumnsKey("y")
+	if cmd != nil {
+		t.Fatalf("expected no command for y, got %v", cmd)
+	}
+	m = updated.(Model)
+
+	if got != "beta" {
+		t.Fatalf("expected clipboard text %q, got %q", "beta", got)
+	}
+	if m.statusMsg != `Copied column name "beta" to clipboard` {
+		t.Fatalf("unexpected status message: %q", m.statusMsg)
+	}
+}
+
 func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 	t.Run("table focus uses selected column", func(t *testing.T) {
 		m := newCmdTestModel()
@@ -759,6 +790,42 @@ func TestHandleKeyEnterOpensDetailFromTableAndColumnsFocus(t *testing.T) {
 			t.Fatalf("expected stats tab (1) for DOUBLE column, got %d", m.detailTab)
 		}
 	})
+}
+
+func TestHandleTableKeyYCopiesActiveCellValue(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 10
+	m.tableCols = []string{"alpha", "beta"}
+	m.selectedColName = "beta"
+	m.tableData = [][]string{
+		{"1", "two"},
+		{"3", "four"},
+	}
+	m.tableRowCursor = 1
+
+	var got string
+	prevCopy := copyToClipboard
+	copyToClipboard = func(text string) error {
+		got = text
+		return nil
+	}
+	t.Cleanup(func() {
+		copyToClipboard = prevCopy
+	})
+
+	updated, cmd := m.handleTableKey("y")
+	if cmd != nil {
+		t.Fatalf("expected no command for y, got %v", cmd)
+	}
+	m = updated.(Model)
+
+	if got != "four" {
+		t.Fatalf("expected clipboard text %q, got %q", "four", got)
+	}
+	if m.statusMsg != `Copied cell value from "beta"` {
+		t.Fatalf("unexpected status message: %q", m.statusMsg)
+	}
 }
 
 func TestDefaultDetailTab(t *testing.T) {
@@ -1842,6 +1909,30 @@ func TestViewCellReaderWrapsWithinWidthAndShowsEdgeMarkers(t *testing.T) {
 	}
 }
 
+func TestViewCellReaderHeaderUsesReaderAbsoluteRowID(t *testing.T) {
+	m := newTestModel()
+	m.width = 80
+	m.height = 14
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+	m.tableDataOffset = 5
+	m.tableData = [][]string{
+		{"6", "row-six"},
+		{"7", "row-seven"},
+	}
+	m.tableRowIDs = []int64{100, 101}
+	m.tableRowCursor = 0
+	m.totalRows = 200
+	m.overlay = OverlayCellReader
+	m.readerCol = "body"
+	m.readerAbsRow = 6
+
+	out := m.viewCellReader(40, 8)
+	if !strings.Contains(out, "R101/200") {
+		t.Fatalf("expected reader header to use row id for readerAbsRow, got %q", out)
+	}
+}
+
 func TestViewTableEscapesMultilineCellsWithoutBreakingLayout(t *testing.T) {
 	m := newTestModel()
 	m.width = 80
@@ -1901,6 +1992,33 @@ func TestHandleTableKeyGPositionsCursorAtFinalRow(t *testing.T) {
 	}
 }
 
+func TestHandleTableKeyGGPositionsCursorAtTop(t *testing.T) {
+	m := newCmdTestModel()
+	m.width = 120
+	m.height = 10
+	m.tableOffset = 37
+	m.tableRowCursor = 2
+	m.tableCols = []string{"c0"}
+
+	updated, cmd := m.handleTableKey("g")
+	if cmd != nil {
+		t.Fatalf("expected no command for first g, got %v", cmd)
+	}
+	m = updated.(Model)
+	if !m.tablePendingG {
+		t.Fatal("expected first g to arm gg prefix")
+	}
+
+	updated, cmd = m.handleTableKey("g")
+	if cmd == nil {
+		t.Fatal("expected load command for gg")
+	}
+	m = updated.(Model)
+	if m.tableOffset != 0 || m.tableRowCursor != 0 {
+		t.Fatalf("expected gg to jump to top, got offset=%d cursor=%d", m.tableOffset, m.tableRowCursor)
+	}
+}
+
 func TestHandleTableKeyGWithZeroVisibleRowsStaysWithinBounds(t *testing.T) {
 	m := newCmdTestModel()
 	m.width = 120
@@ -1927,6 +2045,77 @@ func TestHandleTableKeyGWithZeroVisibleRowsStaysWithinBounds(t *testing.T) {
 	}
 	if m.tableRowCursor != 0 {
 		t.Fatalf("expected row cursor clamped to 0, got %d", m.tableRowCursor)
+	}
+}
+
+func TestJumpToRowFallsForwardInFilteredResult(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rows.csv")
+	data := "id,keep\n1,a\n2,\n3,b\n4,\n5,c\n"
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+
+	eng := openTestEngine(t, path)
+	m := NewModel(eng, filepath.Base(path), dir)
+	m.missingFilterActive = true
+	m.jumpReqID = 1
+
+	cmd := m.jumpToRowCmd(3, m.jumpReqID)
+	if cmd == nil {
+		t.Fatal("expected jump command")
+	}
+	raw := cmd()
+	msg, ok := raw.(jumpRowMsg)
+	if !ok {
+		t.Fatalf("expected jumpRowMsg, got %T", raw)
+	}
+	if msg.err != nil {
+		t.Fatalf("unexpected jump error: %v", msg.err)
+	}
+	if msg.rowID != 4 {
+		t.Fatalf("expected filtered jump to land on row 4, got %d", msg.rowID)
+	}
+	if msg.offset != 1 {
+		t.Fatalf("expected filtered jump offset 1, got %d", msg.offset)
+	}
+	if !msg.approximate {
+		t.Fatal("expected filtered jump to be marked approximate")
+	}
+}
+
+func TestJumpRowMsgIgnoresStaleRequestID(t *testing.T) {
+	m := newCmdTestModel()
+	m.jumpReqID = 2
+	m.tableOffset = 11
+	m.tableRowCursor = 1
+
+	updated := updateModel(t, m, jumpRowMsg{
+		requestedRowID: 40,
+		rowID:          40,
+		offset:         39,
+		token:          m.dataToken,
+		reqID:          1,
+	})
+	if updated.tableOffset != 11 || updated.tableRowCursor != 1 {
+		t.Fatalf("expected stale jump response to be ignored, got offset=%d cursor=%d", updated.tableOffset, updated.tableRowCursor)
+	}
+}
+
+func TestHandleTableKeyGRejectsOverflowJumpCount(t *testing.T) {
+	m := newCmdTestModel()
+	m.tableJumpCount = strings.Repeat("9", 32)
+
+	updated, cmd := m.handleTableKey("G")
+	if cmd != nil {
+		t.Fatalf("expected no command for invalid jump count, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.tableJumpCount != "" || m.tablePendingG {
+		t.Fatalf("expected jump state cleared after invalid count, got count=%q pendingG=%v", m.tableJumpCount, m.tablePendingG)
+	}
+	if !strings.Contains(m.statusMsg, "invalid row jump") {
+		t.Fatalf("expected invalid jump status, got %q", m.statusMsg)
 	}
 }
 
@@ -2610,7 +2799,6 @@ func TestViewTopBarKeepsMissingModeBadgeVisible(t *testing.T) {
 	m.columns = []types.ColumnInfo{{Name: "a"}}
 	m.missingMode = missing.ModeNaNOnly
 	m.missingFilterActive = true
-	m.missingFilterCols = []string{"a"}
 	m.filterRows = 4
 
 	out := m.viewTopBar()
@@ -2982,6 +3170,20 @@ func TestViewTableFooterShowsCorrectRowAfterScrolling(t *testing.T) {
 	}
 }
 
+func TestViewTableFooterUsesImmutableRowIDWhenAvailable(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"x"}, {"y"}}
+	m.tableRowIDs = []int64{12, 20}
+	m.tableRowCursor = 1
+
+	footer := m.viewTableFooter()
+	if !strings.Contains(footer, `R20 "a": y`) {
+		t.Fatalf("expected footer to use immutable row id, got %q", footer)
+	}
+}
+
 func TestViewTableFooterSanitizesControlChars(t *testing.T) {
 	m := newTestModel()
 	m.tableCols = []string{"a"}
@@ -3024,6 +3226,22 @@ func TestViewTableUsesMiddleTruncationForHeaderAndCell(t *testing.T) {
 	}
 	if !strings.Contains(out, "abcdef…klmnop") {
 		t.Fatalf("expected cell to use middle truncation, got %q", out)
+	}
+}
+
+func TestViewTableUsesImmutableRowIDsInGutter(t *testing.T) {
+	m := newTestModel()
+	m.tableCols = []string{"a"}
+	m.selectedColName = "a"
+	m.tableData = [][]string{{"x"}, {"y"}}
+	m.tableRowIDs = []int64{12, 20}
+	m.width = 80
+	m.height = 10
+
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
+	if !strings.Contains(out, "12") || !strings.Contains(out, "20") {
+		t.Fatalf("expected immutable row ids in gutter, got %q", out)
 	}
 }
 
@@ -3083,7 +3301,6 @@ func TestViewTableRendersFooterForZeroRows(t *testing.T) {
 func TestViewTableFooterZeroRowsIncludesFilterContext(t *testing.T) {
 	m := newTestModel()
 	m.missingFilterActive = true
-	m.missingFilterCols = []string{"a"}
 	m.filterRows = 0
 
 	footer := m.viewTableFooter()
@@ -3101,7 +3318,6 @@ func TestViewTableFooterNonEmptyOmitsFilterContext(t *testing.T) {
 	m.selectedColName = "a"
 	m.tableData = [][]string{{"x"}}
 	m.missingFilterActive = true
-	m.missingFilterCols = []string{"a"}
 	m.filterRows = 1
 
 	footer := m.viewTableFooter()
@@ -3119,7 +3335,6 @@ func TestViewTableFooterNoColumnWithFilterShowsRowMarker(t *testing.T) {
 	m.tableCols = []string{"a"}
 	m.tableData = [][]string{{"x"}}
 	m.missingFilterActive = true
-	m.missingFilterCols = []string{"a"}
 	m.filterRows = 1
 
 	footer := m.viewTableFooter()
@@ -3130,8 +3345,8 @@ func TestViewTableFooterNoColumnWithFilterShowsRowMarker(t *testing.T) {
 
 func TestCycleMissingModeRebuildsActiveFilter(t *testing.T) {
 	m := newCmdTestModel()
+	m.columns = []types.ColumnInfo{{Name: "score"}}
 	m.missingFilterActive = true
-	m.missingFilterCols = []string{"score"}
 	m.filterRows = 42
 
 	before := m.activeRowFilter()
@@ -3184,16 +3399,12 @@ func TestToggleMissingRowFilterDeactivationViaFKey(t *testing.T) {
 	m := newCmdTestModel()
 	m.focus = FocusTable
 	m.missingFilterActive = true
-	m.missingFilterCols = []string{"score"}
 	m.filterRows = 10
 
 	updated, _ := m.handleTableKey("f")
 	m = updated.(Model)
 	if m.missingFilterActive {
 		t.Fatal("expected filter to be deactivated after second f key press")
-	}
-	if m.missingFilterCols != nil {
-		t.Fatalf("expected missingFilterCols to be nil after deactivation, got %v", m.missingFilterCols)
 	}
 	if m.filterRows != -1 {
 		t.Fatalf("expected filterRows reset to -1 after deactivation, got %d", m.filterRows)
@@ -3203,8 +3414,7 @@ func TestToggleMissingRowFilterDeactivationViaFKey(t *testing.T) {
 func TestToggleMissingRowFilterActivationResetsCachedCount(t *testing.T) {
 	m := newCmdTestModel()
 	m.focus = FocusTable
-	m.filteredCols = []types.ColumnInfo{{Name: "score"}}
-	m.sel = selection.New([]string{"score"})
+	m.columns = []types.ColumnInfo{{Name: "score"}}
 	m.filterRows = 10
 
 	updated, _ := m.handleTableKey("f")
@@ -3214,6 +3424,106 @@ func TestToggleMissingRowFilterActivationResetsCachedCount(t *testing.T) {
 	}
 	if m.filterRows != -1 {
 		t.Fatalf("expected filterRows reset to -1 after activation, got %d", m.filterRows)
+	}
+}
+
+func TestActiveFilterColsIgnoreSearchWithoutSelectedOnlyModes(t *testing.T) {
+	m := newTestModel()
+	m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}, {Name: "gamma"}}
+	m.sel = selection.New([]string{"alpha", "beta", "gamma"})
+	m.sel.Add("alpha")
+	m.searchQuery = "beta"
+	m.updateFilteredCols()
+	m.missingFilterActive = true
+
+	got := m.activeFilterCols()
+	want := []string{"alpha", "beta", "gamma"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("expected active filter cols %v, got %v", want, got)
+	}
+}
+
+func TestActiveFilterColsUseSelectedColumnsWhenColsSelectedModeIsOn(t *testing.T) {
+	m := newTestModel()
+	m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}, {Name: "gamma"}}
+	m.sel = selection.New([]string{"alpha", "beta", "gamma"})
+	m.sel.Add("alpha")
+	m.sel.Add("gamma")
+	m.showSelectedInCols = true
+	m.searchQuery = "beta"
+	m.updateFilteredCols()
+	m.missingFilterActive = true
+
+	got := m.activeFilterCols()
+	want := []string{"alpha", "gamma"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("expected active filter cols %v, got %v", want, got)
+	}
+}
+
+func TestHandleColumnsSelectionRefreshesActiveMissingFilter(t *testing.T) {
+	m := newCmdTestModel()
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
+	m.sel = selection.New([]string{"alpha", "beta"})
+	m.sel.Add("alpha")
+	m.showSelectedInCols = true
+	m.missingFilterActive = true
+	m.filterRows = 10
+	m.tableOffset = 7
+	m.tableRowCursor = 3
+	m.selectedColName = "alpha"
+	m.updateFilteredCols()
+
+	updated, cmd := m.handleColumnsKey("x")
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected preview refresh when active missing filter scope changes")
+	}
+	if m.showSelectedInCols {
+		t.Fatal("expected selected-only columns view to auto-disable when deselecting last column")
+	}
+	if m.filterRows != -1 {
+		t.Fatalf("expected filterRows reset after active filter scope change, got %d", m.filterRows)
+	}
+	if m.tableOffset != 0 || m.tableRowCursor != 0 {
+		t.Fatalf("expected table position reset after active filter scope change, got offset=%d cursor=%d", m.tableOffset, m.tableRowCursor)
+	}
+	want := []string{"alpha", "beta"}
+	if got := m.activeFilterCols(); !slices.Equal(got, want) {
+		t.Fatalf("expected active filter cols %v after deselecting last column, got %v", want, got)
+	}
+}
+
+func TestToggleColsSelectedViewRefreshesActiveMissingFilter(t *testing.T) {
+	m := newCmdTestModel()
+	m.focus = FocusColumns
+	m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
+	m.sel = selection.New([]string{"alpha", "beta"})
+	m.sel.Add("alpha")
+	m.missingFilterActive = true
+	m.filterRows = 12
+	m.tableOffset = 5
+	m.tableRowCursor = 2
+	m.updateFilteredCols()
+
+	updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected preview refresh when toggling selected-only columns view with active filter")
+	}
+	if !m.showSelectedInCols {
+		t.Fatal("expected showSelectedInCols enabled after v")
+	}
+	if m.filterRows != -1 {
+		t.Fatalf("expected filterRows reset after toggling selected-only columns view, got %d", m.filterRows)
+	}
+	if m.tableOffset != 0 || m.tableRowCursor != 0 {
+		t.Fatalf("expected table position reset after toggling selected-only columns view, got offset=%d cursor=%d", m.tableOffset, m.tableRowCursor)
+	}
+	want := []string{"alpha"}
+	if got := m.activeFilterCols(); !slices.Equal(got, want) {
+		t.Fatalf("expected active filter cols %v after enabling selected-only columns view, got %v", want, got)
 	}
 }
 
@@ -3904,6 +4214,9 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 	}
 	if !strings.Contains(bottom, "m:missing-mode") {
 		t.Fatalf("expected bottom bar to include missing mode hint, got %q", bottom)
+	}
+	if !strings.Contains(bottom, "y:copy-cell") {
+		t.Fatalf("expected bottom bar to include copy-cell hint, got %q", bottom)
 	}
 
 	m.focus = FocusColumns

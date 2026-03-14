@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,15 +16,17 @@ import (
 )
 
 func main() {
-	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Println(version.String())
-		return
-	}
-
-	if len(os.Args) > 2 {
-		fmt.Fprintf(os.Stderr, "Usage: parqview [%s]\n", supportedFileArgPattern())
+	parsed, err := parseArgs(os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Usage: parqview [+row] [%s]\n", supportedFileArgPattern())
 		fmt.Fprintf(os.Stderr, "       parqview --version\n")
 		os.Exit(1)
+	}
+
+	if parsed.showVersion {
+		fmt.Println(version.String())
+		return
 	}
 
 	cwd, err := os.Getwd()
@@ -36,8 +39,8 @@ func main() {
 		fileName string
 	)
 
-	if len(os.Args) == 2 {
-		path := os.Args[1]
+	if parsed.path != "" {
+		path := parsed.path
 		absPath, err := filepath.Abs(path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error resolving path: %v\n", err)
@@ -57,10 +60,72 @@ func main() {
 		fileName = filepath.Base(absPath)
 	}
 
-	if err := runApp(eng, fileName, cwd); err != nil {
+	if err := runApp(eng, fileName, cwd, parsed.startRowID); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+type cliArgs struct {
+	showVersion bool
+	path        string
+	startRowID  int64
+}
+
+func parseArgs(args []string) (cliArgs, error) {
+	switch len(args) {
+	case 0:
+		return cliArgs{}, nil
+	case 1:
+		switch args[0] {
+		case "--version", "-v":
+			return cliArgs{showVersion: true}, nil
+		default:
+			_, isStartRow, err := parseStartRowArg(args[0])
+			if err != nil {
+				return cliArgs{}, err
+			}
+			if isStartRow {
+				return cliArgs{}, fmt.Errorf("missing file path for %s", args[0])
+			}
+			return cliArgs{path: args[0]}, nil
+		}
+	case 2:
+		rowID, isStartRow, err := parseStartRowArg(args[0])
+		if err != nil {
+			return cliArgs{}, err
+		}
+		if isStartRow {
+			return cliArgs{path: args[1], startRowID: rowID}, nil
+		}
+		rowID, isStartRow, err = parseStartRowArg(args[1])
+		if err != nil {
+			return cliArgs{}, err
+		}
+		if isStartRow {
+			return cliArgs{path: args[0], startRowID: rowID}, nil
+		}
+	}
+	return cliArgs{}, fmt.Errorf("invalid arguments")
+}
+
+func parseStartRowArg(arg string) (int64, bool, error) {
+	if !strings.HasPrefix(arg, "+") {
+		return 0, false, nil
+	}
+	if len(arg) < 2 {
+		return 0, false, nil
+	}
+	for _, r := range arg[1:] {
+		if r < '0' || r > '9' {
+			return 0, false, nil
+		}
+	}
+	rowID, err := strconv.ParseInt(arg[1:], 10, 64)
+	if err != nil || rowID <= 0 {
+		return 0, false, fmt.Errorf("invalid start row %q", arg)
+	}
+	return rowID, true, nil
 }
 
 func supportedFileArgPattern() string {
@@ -72,8 +137,8 @@ func supportedFileArgPattern() string {
 	return strings.Join(parts, "|")
 }
 
-func runApp(eng *engine.Engine, fileName, cwd string) error {
-	model := ui.NewModel(eng, fileName, cwd)
+func runApp(eng *engine.Engine, fileName, cwd string, startRowID int64) error {
+	model := ui.NewModelAtRow(eng, fileName, cwd, startRowID)
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	finalModel, err := p.Run()
 	if m, ok := finalModel.(ui.Model); ok {
