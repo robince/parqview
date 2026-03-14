@@ -20,6 +20,7 @@ func TestParseArgs(t *testing.T) {
 		{name: "version long", args: []string{"--version"}, want: cliArgs{showVersion: true}},
 		{name: "version short", args: []string{"-v"}, want: cliArgs{showVersion: true}},
 		{name: "file only", args: []string{"sample.parquet"}, want: cliArgs{path: "sample.parquet"}},
+		{name: "plus prefixed filename", args: []string{"+sample.parquet"}, want: cliArgs{path: "+sample.parquet"}},
 		{name: "start row before file", args: []string{"+123", "sample.parquet"}, want: cliArgs{path: "sample.parquet", startRowID: 123}},
 		{name: "start row after file", args: []string{"sample.parquet", "+123"}, want: cliArgs{path: "sample.parquet", startRowID: 123}},
 		{name: "invalid start row zero", args: []string{"+0", "sample.parquet"}, wantErr: true},

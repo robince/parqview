@@ -114,7 +114,12 @@ func parseStartRowArg(arg string) (int64, bool, error) {
 		return 0, false, nil
 	}
 	if len(arg) < 2 {
-		return 0, false, fmt.Errorf("invalid start row %q", arg)
+		return 0, false, nil
+	}
+	for _, r := range arg[1:] {
+		if r < '0' || r > '9' {
+			return 0, false, nil
+		}
 	}
 	rowID, err := strconv.ParseInt(arg[1:], 10, 64)
 	if err != nil || rowID <= 0 {

@@ -1842,6 +1842,30 @@ func TestViewCellReaderWrapsWithinWidthAndShowsEdgeMarkers(t *testing.T) {
 	}
 }
 
+func TestViewCellReaderHeaderUsesReaderAbsoluteRowID(t *testing.T) {
+	m := newTestModel()
+	m.width = 80
+	m.height = 14
+	m.tableCols = []string{"id", "body"}
+	m.selectedColName = "body"
+	m.tableDataOffset = 5
+	m.tableData = [][]string{
+		{"6", "row-six"},
+		{"7", "row-seven"},
+	}
+	m.tableRowIDs = []int64{100, 101}
+	m.tableRowCursor = 0
+	m.totalRows = 200
+	m.overlay = OverlayCellReader
+	m.readerCol = "body"
+	m.readerAbsRow = 6
+
+	out := m.viewCellReader(40, 8)
+	if !strings.Contains(out, "R101/200") {
+		t.Fatalf("expected reader header to use row id for readerAbsRow, got %q", out)
+	}
+}
+
 func TestViewTableEscapesMultilineCellsWithoutBreakingLayout(t *testing.T) {
 	m := newTestModel()
 	m.width = 80
@@ -1969,8 +1993,9 @@ func TestJumpToRowFallsForwardInFilteredResult(t *testing.T) {
 	m := NewModel(eng, filepath.Base(path), dir)
 	m.missingFilterActive = true
 	m.missingFilterCols = []string{"keep"}
+	m.jumpReqID = 1
 
-	cmd := m.jumpToRow(3)
+	cmd := m.jumpToRowCmd(3, m.jumpReqID)
 	if cmd == nil {
 		t.Fatal("expected jump command")
 	}
@@ -1990,6 +2015,41 @@ func TestJumpToRowFallsForwardInFilteredResult(t *testing.T) {
 	}
 	if !msg.approximate {
 		t.Fatal("expected filtered jump to be marked approximate")
+	}
+}
+
+func TestJumpRowMsgIgnoresStaleRequestID(t *testing.T) {
+	m := newCmdTestModel()
+	m.jumpReqID = 2
+	m.tableOffset = 11
+	m.tableRowCursor = 1
+
+	updated := updateModel(t, m, jumpRowMsg{
+		requestedRowID: 40,
+		rowID:          40,
+		offset:         39,
+		token:          m.dataToken,
+		reqID:          1,
+	})
+	if updated.tableOffset != 11 || updated.tableRowCursor != 1 {
+		t.Fatalf("expected stale jump response to be ignored, got offset=%d cursor=%d", updated.tableOffset, updated.tableRowCursor)
+	}
+}
+
+func TestHandleTableKeyGRejectsOverflowJumpCount(t *testing.T) {
+	m := newCmdTestModel()
+	m.tableJumpCount = strings.Repeat("9", 32)
+
+	updated, cmd := m.handleTableKey("G")
+	if cmd != nil {
+		t.Fatalf("expected no command for invalid jump count, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.tableJumpCount != "" || m.tablePendingG {
+		t.Fatalf("expected jump state cleared after invalid count, got count=%q pendingG=%v", m.tableJumpCount, m.tablePendingG)
+	}
+	if !strings.Contains(m.statusMsg, "invalid row jump") {
+		t.Fatalf("expected invalid jump status, got %q", m.statusMsg)
 	}
 }
 

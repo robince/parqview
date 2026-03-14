@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -93,6 +94,7 @@ type jumpRowMsg struct {
 	offset         int64
 	approximate    bool
 	token          uint64
+	reqID          uint64
 	err            error
 }
 
@@ -185,6 +187,7 @@ type Model struct {
 	latestPreviewSeq uint64
 	dataToken        uint64
 	openReqID        uint64
+	jumpReqID        uint64
 	startRowID       int64
 	pendingStartRow  int64
 	tableJumpCount   string
@@ -885,7 +888,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pendingStartRow > 0 && m.engine != nil {
 			rowID := m.pendingStartRow
 			m.pendingStartRow = 0
-			return m, m.jumpToRow(rowID)
+			return m, m.issueJumpToRow(rowID)
 		}
 		if m.needsMorePreviewRows() {
 			return m, m.nextPreviewCmd()
@@ -1028,6 +1031,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case jumpRowMsg:
 		if msg.token != m.dataToken {
+			return m, nil
+		}
+		if msg.reqID != m.jumpReqID {
 			return m, nil
 		}
 		m.clearTableJumpState()
@@ -2108,6 +2114,14 @@ func (m Model) currentRowID() int64 {
 	return m.visibleRowIDAt(m.tableRowCursor)
 }
 
+func (m Model) rowIDForAbsoluteRow(absRow int) int64 {
+	rowIdx := absRow - m.tableDataOffset
+	if rowIdx >= 0 && rowIdx < len(m.tableRowIDs) {
+		return m.tableRowIDs[rowIdx]
+	}
+	return 0
+}
+
 func (m *Model) clearTableJumpState() {
 	m.tableJumpCount = ""
 	m.tablePendingG = false
@@ -2124,15 +2138,15 @@ func (m *Model) appendTableJumpDigit(key string) bool {
 	return true
 }
 
-func (m Model) tableJumpTargetRowID() (int64, bool) {
+func (m Model) tableJumpTargetRowID() (int64, bool, error) {
 	if m.tableJumpCount == "" {
-		return 0, false
+		return 0, false, nil
 	}
-	rowID := int64(0)
-	for _, r := range m.tableJumpCount {
-		rowID = rowID*10 + int64(r-'0')
+	rowID, err := strconv.ParseInt(m.tableJumpCount, 10, 64)
+	if err != nil || rowID <= 0 {
+		return 0, false, fmt.Errorf("invalid row jump %q", m.tableJumpCount)
 	}
-	return rowID, true
+	return rowID, true, nil
 }
 
 func (m Model) tableJumpIndicator() string {
@@ -2161,6 +2175,11 @@ func (m *Model) setTablePositionForOffset(targetOffset int) {
 	m.clampTableOffset()
 	m.tableRowCursor = targetOffset - m.tableOffset
 	m.clampTableRowCursor()
+}
+
+func (m *Model) issueJumpToRow(rowID int64) tea.Cmd {
+	m.jumpReqID++
+	return m.jumpToRowCmd(rowID, m.jumpReqID)
 }
 
 func (m Model) valueForAbsoluteCell(absRow int, colName string) (string, bool) {
@@ -2272,11 +2291,17 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 	}
 	if m.tablePendingG {
 		if key == "g" {
-			rowID, hasCount := m.tableJumpTargetRowID()
-			m.clearTableJumpState()
-			if hasCount {
-				return m, m.jumpToRow(rowID)
+			rowID, hasCount, err := m.tableJumpTargetRowID()
+			if err != nil {
+				m.clearTableJumpState()
+				m.statusMsg = err.Error()
+				return m, nil
 			}
+			if hasCount {
+				m.clearTableJumpState()
+				return m, m.issueJumpToRow(rowID)
+			}
+			m.clearTableJumpState()
 			m.tableOffset = 0
 			m.tableRowCursor = 0
 			return m, m.nextPreviewCmd()
@@ -2383,9 +2408,15 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		m.tablePendingG = true
 		return m, nil
 	case "G":
-		if rowID, ok := m.tableJumpTargetRowID(); ok {
+		rowID, ok, err := m.tableJumpTargetRowID()
+		if err != nil {
 			m.clearTableJumpState()
-			return m, m.jumpToRow(rowID)
+			m.statusMsg = err.Error()
+			return m, nil
+		}
+		if ok {
+			m.clearTableJumpState()
+			return m, m.issueJumpToRow(rowID)
 		}
 		m.tableOffset = m.maxTableOffset()
 		m.tableRowCursor = max(0, m.visibleTableRows()-1)
@@ -2785,7 +2816,7 @@ func (m Model) loadPreviewCmd(seq uint64) tea.Cmd {
 	}
 }
 
-func (m Model) jumpToRow(rowID int64) tea.Cmd {
+func (m Model) jumpToRowCmd(rowID int64, reqID uint64) tea.Cmd {
 	eng := m.engine
 	if eng == nil {
 		return nil
@@ -2796,12 +2827,12 @@ func (m Model) jumpToRow(rowID int64) tea.Cmd {
 		ctx := context.Background()
 		offset, err := eng.OffsetForRowID(ctx, rowID, filterCols, missingMode)
 		if err != nil {
-			return jumpRowMsg{requestedRowID: rowID, token: m.dataToken, err: err}
+			return jumpRowMsg{requestedRowID: rowID, token: m.dataToken, reqID: reqID, err: err}
 		}
 
 		landedRowID, err := eng.RowIDForOffset(ctx, offset, filterCols, missingMode)
 		if err != nil {
-			return jumpRowMsg{requestedRowID: rowID, token: m.dataToken, err: err}
+			return jumpRowMsg{requestedRowID: rowID, token: m.dataToken, reqID: reqID, err: err}
 		}
 		landedOffset := offset
 		approximate := landedRowID != 0 && landedRowID != rowID
@@ -2809,7 +2840,7 @@ func (m Model) jumpToRow(rowID int64) tea.Cmd {
 			landedOffset = offset - 1
 			landedRowID, err = eng.RowIDForOffset(ctx, landedOffset, filterCols, missingMode)
 			if err != nil {
-				return jumpRowMsg{requestedRowID: rowID, token: m.dataToken, err: err}
+				return jumpRowMsg{requestedRowID: rowID, token: m.dataToken, reqID: reqID, err: err}
 			}
 			approximate = landedRowID != 0 && landedRowID != rowID
 		}
@@ -2819,6 +2850,7 @@ func (m Model) jumpToRow(rowID int64) tea.Cmd {
 			offset:         landedOffset,
 			approximate:    approximate,
 			token:          m.dataToken,
+			reqID:          reqID,
 		}
 	}
 }
@@ -3164,7 +3196,7 @@ func (m Model) viewCellReader(w, h int) string {
 		value = ""
 	}
 	rowCount := m.totalRows
-	rowLabel := m.currentRowID()
+	rowLabel := m.rowIDForAbsoluteRow(m.readerAbsRow)
 	if rowLabel < 1 {
 		rowLabel = int64(m.readerAbsRow + 1)
 	}
