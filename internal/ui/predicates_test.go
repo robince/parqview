@@ -14,37 +14,50 @@ import (
 
 func TestParseColumnPredicate(t *testing.T) {
 	tests := []struct {
-		name    string
-		colType string
-		input   string
-		wantOp  predicateOp
-		want    string
-		want2   string
-		wantErr string
+		name      string
+		colType   string
+		input     string
+		wantOp    predicateOp
+		want      string
+		want2     string
+		wantCase  bool
+		wantError string
 	}{
 		{name: "string exact", colType: "VARCHAR", input: "abc123", wantOp: opEq, want: "abc123"},
 		{name: "string neq", colType: "VARCHAR", input: "!= abc123", wantOp: opNeq, want: "abc123"},
 		{name: "string exact preserves whitespace", colType: "VARCHAR", input: "  abc123  ", wantOp: opEq, want: "  abc123  "},
 		{name: "string neq preserves trailing whitespace", colType: "VARCHAR", input: "!= abc123  ", wantOp: opNeq, want: "abc123  "},
+		{name: "string escaped percent stays exact", colType: "VARCHAR", input: `foo\%bar`, wantOp: opEq, want: "foo%bar"},
+		{name: "string underscore and escaped underscore are equivalent", colType: "VARCHAR", input: `foo\_bar`, wantOp: opEq, want: "foo_bar"},
+		{name: "string contains pattern uses ilike", colType: "VARCHAR", input: "%foo%", wantOp: opLike, want: "%foo%", wantCase: false},
+		{name: "string prefix pattern uses ilike", colType: "VARCHAR", input: "foo%", wantOp: opLike, want: "foo%", wantCase: false},
+		{name: "string suffix pattern uses ilike", colType: "VARCHAR", input: "%foo", wantOp: opLike, want: "%foo", wantCase: false},
+		{name: "string middle pattern uses ilike", colType: "VARCHAR", input: "foo%bar", wantOp: opLike, want: "foo%bar", wantCase: false},
+		{name: "string uppercase pattern uses like", colType: "VARCHAR", input: "%Foo%", wantOp: opLike, want: "%Foo%", wantCase: true},
+		{name: "string negated pattern uses not like op", colType: "VARCHAR", input: "!= %Foo%", wantOp: opNLike, want: "%Foo%", wantCase: true},
+		{name: "pattern keeps underscore literal", colType: "VARCHAR", input: "foo_bar%", wantOp: opLike, want: `foo\_bar%`, wantCase: false},
+		{name: "pattern escaped underscore matches literal underscore", colType: "VARCHAR", input: `foo\_bar%`, wantOp: opLike, want: `foo\_bar%`, wantCase: false},
+		{name: "pattern escaped percent matches literal percent", colType: "VARCHAR", input: `foo\%%`, wantOp: opLike, want: `foo\%%`, wantCase: false},
+		{name: "pattern escaped backslash matches literal backslash", colType: "VARCHAR", input: `foo\\%`, wantOp: opLike, want: `foo\\%`, wantCase: false},
 		{name: "numeric gte", colType: "DOUBLE", input: ">= 10", wantOp: opGte, want: "10"},
 		{name: "numeric range", colType: "BIGINT", input: "10..20", wantOp: opRange, want: "10", want2: "20"},
-		{name: "string compare rejected", colType: "VARCHAR", input: "> 10", wantErr: "comparisons require a numeric column"},
-		{name: "bad numeric rejected", colType: "DOUBLE", input: "abc", wantErr: `invalid numeric value "abc"`},
+		{name: "string compare rejected", colType: "VARCHAR", input: "> 10", wantError: "comparisons require a numeric column"},
+		{name: "bad numeric rejected", colType: "DOUBLE", input: "abc", wantError: `invalid numeric value "abc"`},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := parseColumnPredicate("score", tc.colType, tc.input)
-			if tc.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-					t.Fatalf("expected error containing %q, got %v", tc.wantErr, err)
+			if tc.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+					t.Fatalf("expected error containing %q, got %v", tc.wantError, err)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if got.Op != tc.wantOp || got.Value != tc.want || got.Value2 != tc.want2 {
+			if got.Op != tc.wantOp || got.Value != tc.want || got.Value2 != tc.want2 || got.CaseSensitive != tc.wantCase {
 				t.Fatalf("unexpected predicate: %+v", got)
 			}
 		})
@@ -57,6 +70,16 @@ func TestBuildPredicateFilterSortsAndCombines(t *testing.T) {
 		"score":   {Column: "score", Op: opGt, Value: "10", Display: ">10", Numeric: true},
 	})
 	if want := `("score" > 10 AND "user_id" = 'abc')`; filter != want {
+		t.Fatalf("unexpected filter %q want %q", filter, want)
+	}
+}
+
+func TestBuildPredicateFilterStringPatterns(t *testing.T) {
+	filter := buildPredicateFilter(map[string]columnPredicate{
+		"user_id": {Column: "user_id", Op: opLike, Value: `%foo\_bar%`, Display: `%foo_bar%`},
+		"email":   {Column: "email", Op: opNLike, Value: `%Foo%`, Display: `!= %Foo%`, CaseSensitive: true},
+	})
+	if want := `("email" NOT LIKE '%Foo%' ESCAPE '\' AND "user_id" ILIKE '%foo\_bar%' ESCAPE '\')`; filter != want {
 		t.Fatalf("unexpected filter %q want %q", filter, want)
 	}
 }
@@ -99,6 +122,20 @@ func TestHandleTableKeyEqualsOpensPredicatePrompt(t *testing.T) {
 	}
 }
 
+func TestHandleTableKeyEqualsEscapesVisibleStringCellForExactMatch(t *testing.T) {
+	m := newTestModel()
+	m.selectedColName = "user_id"
+	m.tableCols = []string{"user_id"}
+	m.columns = []types.ColumnInfo{{Name: "user_id", DuckType: "VARCHAR"}}
+	m.tableData = [][]string{{`foo%_bar\baz`}}
+
+	updated, _ := m.handleTableKey("=")
+	m = updated.(Model)
+	if got := m.predicateInput.Value(); got != `foo\%\_bar\\baz` {
+		t.Fatalf("expected escaped prompt prefill, got %q", got)
+	}
+}
+
 func TestHandlePredicatePromptEnterAppliesPredicate(t *testing.T) {
 	m := newCmdTestModel()
 	m.selectedColName = "score"
@@ -124,6 +161,28 @@ func TestHandlePredicatePromptEnterAppliesPredicate(t *testing.T) {
 	}
 }
 
+func TestHandlePredicatePromptEnterAppliesStringPatternPredicate(t *testing.T) {
+	m := newCmdTestModel()
+	m.selectedColName = "user_id"
+	m.columns = []types.ColumnInfo{{Name: "user_id", DuckType: "VARCHAR"}}
+	m.overlay = OverlayPredicatePrompt
+	m.predicateCol = "user_id"
+	m.predicateInput.SetValue("%Foo%")
+
+	updated, cmd := m.handlePredicatePromptKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected refresh command after applying predicate")
+	}
+	pred, ok := m.predicates["user_id"]
+	if !ok {
+		t.Fatal("expected predicate to be stored")
+	}
+	if pred.Op != opLike || pred.Value != "%Foo%" || !pred.CaseSensitive {
+		t.Fatalf("unexpected predicate: %+v", pred)
+	}
+}
+
 func TestHandleTableKeyPCreatesExactMatchPredicate(t *testing.T) {
 	m := newCmdTestModel()
 	m.selectedColName = "user_id"
@@ -142,6 +201,18 @@ func TestHandleTableKeyPCreatesExactMatchPredicate(t *testing.T) {
 	}
 	if got := pred.Display; got != ">=10" {
 		t.Fatalf("unexpected predicate display %q", got)
+	}
+}
+
+func TestOpenPredicatePromptUsesEscapedExactPredicateValue(t *testing.T) {
+	m := newTestModel()
+	m.selectedColName = "user_id"
+	m.columns = []types.ColumnInfo{{Name: "user_id", DuckType: "VARCHAR"}}
+	m.predicates["user_id"] = columnPredicate{Column: "user_id", Op: opEq, Value: `foo%_bar\baz`, Display: `foo%_bar\baz`}
+
+	m.openPredicatePrompt("user_id")
+	if got := m.predicateInput.Value(); got != `foo\%\_bar\\baz` {
+		t.Fatalf("expected escaped exact predicate prompt, got %q", got)
 	}
 }
 

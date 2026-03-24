@@ -1333,9 +1333,13 @@ func (m *Model) openPredicatePrompt(colName string) tea.Cmd {
 	m.overlay = OverlayPredicatePrompt
 	m.predicateCol = colName
 	if pred, ok := m.predicates[colName]; ok {
-		m.predicatePrompt = pred.Display
+		m.predicatePrompt = predicatePromptValue(pred)
 	} else if value, ok := m.valueForVisibleCell(colName); ok {
-		m.predicatePrompt = value
+		if util.IsNumericDuckType(m.columnType(colName)) {
+			m.predicatePrompt = value
+		} else {
+			m.predicatePrompt = escapePredicatePromptLiteral(value)
+		}
 	} else {
 		m.predicatePrompt = ""
 	}
@@ -3511,7 +3515,8 @@ func (m Model) viewPredicatePrompt() string {
 	if util.IsNumericDuckType(colType) {
 		lines = append(lines, detailLabelStyle.Render("Examples: 42, != 42, > 10, <= 5, 10..20"))
 	} else {
-		lines = append(lines, detailLabelStyle.Render("Examples: abc123, != abc123"))
+		lines = append(lines, detailLabelStyle.Render("Examples: abc123, %foo%, foo%, %foo, != %foo%"))
+		lines = append(lines, detailLabelStyle.Render("Lowercase patterns use ILIKE; uppercase switches to LIKE."))
 	}
 	lines = append(lines, detailLabelStyle.Render("Enter: apply  Ctrl+U: clear input  Esc: cancel"))
 

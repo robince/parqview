@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/robince/parqview/internal/util"
 )
@@ -19,15 +20,18 @@ const (
 	opLt    predicateOp = "lt"
 	opLte   predicateOp = "lte"
 	opRange predicateOp = "range"
+	opLike  predicateOp = "like"
+	opNLike predicateOp = "nlike"
 )
 
 type columnPredicate struct {
-	Column  string
-	Op      predicateOp
-	Value   string
-	Value2  string
-	Display string
-	Numeric bool
+	Column        string
+	Op            predicateOp
+	Value         string
+	Value2        string
+	Display       string
+	Numeric       bool
+	CaseSensitive bool
 }
 
 func parseColumnPredicate(colName, colType, raw string) (columnPredicate, error) {
@@ -65,23 +69,27 @@ func parseColumnPredicate(colName, colType, raw string) (columnPredicate, error)
 		if value == "" {
 			return columnPredicate{}, fmt.Errorf("missing value")
 		}
-		if candidate.op != opNeq && !isNumeric {
-			return columnPredicate{}, fmt.Errorf("comparisons require a numeric column")
-		}
-		if isNumeric {
-			normalized, err := normalizeNumericLiteral(value)
-			if err != nil {
-				return columnPredicate{}, err
+		if !isNumeric {
+			if candidate.op != opNeq {
+				return columnPredicate{}, fmt.Errorf("comparisons require a numeric column")
 			}
-			value = normalized
+			return parseStringPredicate(colName, candidate.op, value)
+		}
+		normalized, err := normalizeNumericLiteral(value)
+		if err != nil {
+			return columnPredicate{}, err
 		}
 		return columnPredicate{
 			Column:  colName,
 			Op:      candidate.op,
-			Value:   value,
-			Display: strings.ReplaceAll(candidate.prefix, " ", "") + value,
-			Numeric: isNumeric,
+			Value:   normalized,
+			Display: strings.ReplaceAll(candidate.prefix, " ", "") + normalized,
+			Numeric: true,
 		}, nil
+	}
+
+	if !isNumeric {
+		return parseStringPredicate(colName, opEq, raw)
 	}
 
 	return exactMatchPredicate(colName, colType, raw)
@@ -126,6 +134,37 @@ func normalizeNumericLiteral(value string) (string, error) {
 	return trimmed, nil
 }
 
+func parseStringPredicate(colName string, op predicateOp, value string) (columnPredicate, error) {
+	if hasUnescapedPercent(value) {
+		pattern := normalizePredicatePattern(value)
+		display := value
+		predOp := opLike
+		if op == opNeq {
+			predOp = opNLike
+			display = "!= " + value
+		}
+		return columnPredicate{
+			Column:        colName,
+			Op:            predOp,
+			Value:         pattern,
+			Display:       display,
+			CaseSensitive: containsUpper(value),
+		}, nil
+	}
+
+	decoded := decodePredicateStringLiteral(value)
+	display := decoded
+	if op == opNeq {
+		display = "!= " + decoded
+	}
+	return columnPredicate{
+		Column:  colName,
+		Op:      op,
+		Value:   decoded,
+		Display: display,
+	}, nil
+}
+
 func predicateSQL(pred columnPredicate) string {
 	col := quoteIdentSQL(pred.Column)
 	switch pred.Op {
@@ -143,6 +182,10 @@ func predicateSQL(pred columnPredicate) string {
 		return col + " <= " + pred.Value
 	case opRange:
 		return fmt.Sprintf("(%s >= %s AND %s <= %s)", col, pred.Value, col, pred.Value2)
+	case opLike:
+		return fmt.Sprintf(`%s %s %s ESCAPE '\'`, col, predicateLikeOp(pred.CaseSensitive, false), sqlLiteral(pred.Value))
+	case opNLike:
+		return fmt.Sprintf(`%s %s %s ESCAPE '\'`, col, predicateLikeOp(pred.CaseSensitive, true), sqlLiteral(pred.Value))
 	default:
 		return ""
 	}
@@ -227,4 +270,131 @@ func quoteIdentSQL(name string) string {
 
 func sqlLiteral(value string) string {
 	return `'` + strings.ReplaceAll(value, `'`, `''`) + `'`
+}
+
+func decodePredicateStringLiteral(value string) string {
+	var b strings.Builder
+	escaped := false
+	for _, r := range value {
+		if escaped {
+			switch r {
+			case '%', '_', '\\':
+				b.WriteRune(r)
+			default:
+				b.WriteRune('\\')
+				b.WriteRune(r)
+			}
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		b.WriteRune(r)
+	}
+	if escaped {
+		b.WriteRune('\\')
+	}
+	return b.String()
+}
+
+func normalizePredicatePattern(value string) string {
+	var b strings.Builder
+	escaped := false
+	for _, r := range value {
+		if escaped {
+			switch r {
+			case '%':
+				b.WriteString(`\%`)
+			case '_':
+				b.WriteString(`\_`)
+			case '\\':
+				b.WriteString(`\\`)
+			default:
+				b.WriteString(`\\`)
+				b.WriteRune(r)
+			}
+			escaped = false
+			continue
+		}
+		switch r {
+		case '%':
+			b.WriteRune('%')
+		case '_':
+			b.WriteString(`\_`)
+		case '\\':
+			escaped = true
+		default:
+			b.WriteRune(r)
+		}
+	}
+	if escaped {
+		b.WriteString(`\\`)
+	}
+	return b.String()
+}
+
+func hasUnescapedPercent(value string) bool {
+	escaped := false
+	for _, r := range value {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if r == '%' {
+			return true
+		}
+	}
+	return false
+}
+
+func containsUpper(value string) bool {
+	for _, r := range value {
+		if unicode.IsUpper(r) {
+			return true
+		}
+	}
+	return false
+}
+
+func predicateLikeOp(caseSensitive, negated bool) string {
+	keyword := "ILIKE"
+	if caseSensitive {
+		keyword = "LIKE"
+	}
+	if negated {
+		return "NOT " + keyword
+	}
+	return keyword
+}
+
+func escapePredicatePromptLiteral(value string) string {
+	var b strings.Builder
+	for _, r := range value {
+		switch r {
+		case '%', '_', '\\':
+			b.WriteRune('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func predicatePromptValue(pred columnPredicate) string {
+	if pred.Numeric {
+		return pred.Display
+	}
+	switch pred.Op {
+	case opEq:
+		return escapePredicatePromptLiteral(pred.Value)
+	case opNeq:
+		return "!= " + escapePredicatePromptLiteral(pred.Value)
+	default:
+		return pred.Display
+	}
 }

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Smart-case `%` string predicates in the filter prompt: lowercase patterns use `ILIKE`, patterns with uppercase use `LIKE`, and `!=` applies the matching negated pattern operator
+
+### Changed
+- `%` is now the supported wildcard syntax for string predicates, while `p` continues to pin the active cell as an exact-match filter
+
 ## [1.3.0] - 2026-03-14
 
 ### Added
