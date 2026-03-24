@@ -183,13 +183,17 @@ Use this pane to inspect row values, navigate missingness, and filter the curren
 
 Predicate prompt examples:
 
-- string columns: `abc123`, `!= abc123`
+- string columns: `abc123`, `!= abc123`, `%foo%`, `foo%`, `%foo`, `!= %foo%`
 - numeric columns: `42`, `!= 42`, `> 10`, `>= 10`, `< 10`, `<= 10`, `10..20`
 
 Predicate notes:
 
 - `=` opens the prompt prefilled with the current predicate for that column, or the active cell value when no predicate exists yet.
 - `p` applies an exact-match predicate from the active cell without opening the prompt.
+- `%foo%` matches contains, `foo%` matches prefixes, and `%foo` matches suffixes.
+- Lowercase string patterns use case-insensitive matching (`ILIKE`); any uppercase character switches to case-sensitive matching (`LIKE`).
+- `%` is the supported wildcard syntax for string patterns.
+- `_` and `\_` both mean a literal underscore.
 - Comparisons (`>`, `>=`, `<`, `<=`, `a..b`) require a numeric column.
 - Multiple column predicates combine with `AND`.
 - Reapplying a predicate on a column replaces the previous predicate for that column.
