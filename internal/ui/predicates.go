@@ -135,7 +135,6 @@ func normalizeNumericLiteral(value string) (string, error) {
 }
 
 func parseStringPredicate(colName string, op predicateOp, value string) (columnPredicate, error) {
-	decoded := decodePredicateStringLiteral(value)
 	if hasUnescapedPercent(value) {
 		pattern := normalizePredicatePattern(value)
 		display := value
@@ -153,6 +152,7 @@ func parseStringPredicate(colName string, op predicateOp, value string) (columnP
 		}, nil
 	}
 
+	decoded := decodePredicateStringLiteral(value)
 	display := decoded
 	if op == opNeq {
 		display = "!= " + decoded
