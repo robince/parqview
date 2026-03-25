@@ -5,18 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.0] - 2026-03-25
 
 ### Added
-- Expanded reader content modes with `raw` and `json pretty` views for long cell values
-- `F` in the expanded reader to cycle available content modes
-
-### Changed
 - Expanded reader now auto-detects valid JSON object/array strings and opens them in formatted JSON mode by default
-
-### Fixed
-- Expanded reader now refreshes content mode correctly when moving across rows, including paged row moves
-- Expanded reader caches formatted render data so large JSON cells do not re-run formatting and highlighting on every render pass
+- `F` in the expanded reader to cycle available content modes
 
 ## [1.4.0] - 2026-03-24
 
