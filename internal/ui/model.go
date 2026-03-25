@@ -182,6 +182,11 @@ type Model struct {
 	readerCol       string
 	readerModes     []readerMode
 	readerMode      readerMode
+	readerRender    readerRenderData
+	readerRenderFor string
+	readerRenderOK  bool
+	readerRenderW   int
+	readerRenderM   readerMode
 	readerAbsRow    int
 	readerWrap      bool
 	readerVertOff   int
@@ -320,6 +325,11 @@ func (m *Model) resetLoadedDataState() {
 	m.readerCol = ""
 	m.readerModes = nil
 	m.readerMode = readerModeRaw
+	m.readerRender = readerRenderData{}
+	m.readerRenderFor = ""
+	m.readerRenderOK = false
+	m.readerRenderW = 0
+	m.readerRenderM = readerModeRaw
 	m.readerAbsRow = 0
 	m.readerWrap = false
 	m.readerVertOff = 0
@@ -2427,6 +2437,7 @@ func (m *Model) openCellReader(colName, value string) {
 	m.readerAbsRow = m.currentAbsoluteRow()
 	m.readerModes = readerModesForValue(value)
 	m.readerMode = defaultReaderMode(m.readerModes)
+	m.invalidateReaderRenderData()
 	m.readerWrap = defaultReaderWrapForMode(m.readerMode, value)
 	m.readerVertOff = 0
 	m.readerHorizOff = 0
@@ -2438,27 +2449,44 @@ func (m *Model) closeCellReader() {
 	m.readerCol = ""
 	m.readerModes = nil
 	m.readerMode = readerModeRaw
+	m.invalidateReaderRenderData()
 	m.readerAbsRow = 0
 	m.readerVertOff = 0
 	m.readerHorizOff = 0
 }
 
+func (m *Model) invalidateReaderRenderData() {
+	m.readerRender = readerRenderData{}
+	m.readerRenderFor = ""
+	m.readerRenderOK = false
+	m.readerRenderW = 0
+	m.readerRenderM = readerModeRaw
+}
+
 func (m *Model) refreshReaderModes(preferCurrent bool) bool {
 	value, ok := m.readerCurrentValue()
 	prevMode := m.readerMode
+	prevModes := m.readerModes
 	m.readerModes = []readerMode{readerModeRaw}
 	m.readerMode = readerModeRaw
 	if !ok {
+		m.invalidateReaderRenderData()
 		return false
 	}
 
 	m.readerModes = readerModesForValue(value)
 	if preferCurrent && slices.Contains(m.readerModes, prevMode) {
 		m.readerMode = prevMode
+		if !slices.Equal(prevModes, m.readerModes) {
+			m.invalidateReaderRenderData()
+		}
 		return false
 	}
 
 	m.readerMode = defaultReaderMode(m.readerModes)
+	if prevMode != m.readerMode || !slices.Equal(prevModes, m.readerModes) {
+		m.invalidateReaderRenderData()
+	}
 	return preferCurrent && prevMode != readerModeRaw && m.readerMode == readerModeRaw
 }
 
@@ -2473,6 +2501,7 @@ func (m *Model) cycleReaderMode() {
 		idx = 0
 	}
 	m.readerMode = m.readerModes[(idx+1)%len(m.readerModes)]
+	m.invalidateReaderRenderData()
 	m.clampReaderOffsets()
 	m.statusMsg = fmt.Sprintf("Reader mode: %s", m.readerMode.label())
 }
@@ -2795,15 +2824,29 @@ func (m Model) readerCurrentValue() (string, bool) {
 	return m.valueForAbsoluteCell(m.readerAbsRow, colName)
 }
 
-func (m Model) readerRenderedLines(bodyW int) []string {
+func (m *Model) ensureReaderRenderData() readerRenderData {
 	value, ok := m.readerCurrentValue()
 	if !ok {
-		return []string{""}
+		m.invalidateReaderRenderData()
+		return readerRenderData{}
 	}
-	return newReaderRenderData(value, m.readerMode).renderedLines(bodyW, m.readerWrap, m.readerHorizOff)
+	if m.readerRenderOK && m.readerRenderFor == value && m.readerRenderM == m.readerMode {
+		return m.readerRender
+	}
+
+	m.readerRender = newReaderRenderData(value, m.readerMode)
+	m.readerRenderFor = value
+	m.readerRenderOK = true
+	m.readerRenderW = m.readerRender.maxLineWidth()
+	m.readerRenderM = m.readerMode
+	return m.readerRender
 }
 
-func (m Model) maxReaderVerticalOffset() int {
+func (m *Model) readerRenderedLines(bodyW int) []string {
+	return m.ensureReaderRenderData().renderedLines(bodyW, m.readerWrap, m.readerHorizOff)
+}
+
+func (m *Model) maxReaderVerticalOffset() int {
 	innerW, _ := m.readerInnerDimensions()
 	lines := m.readerRenderedLines(innerW)
 	maxOff := len(lines) - m.readerBodyHeight()
@@ -2813,17 +2856,15 @@ func (m Model) maxReaderVerticalOffset() int {
 	return maxOff
 }
 
-func (m Model) maxReaderHorizontalOffset() int {
+func (m *Model) maxReaderHorizontalOffset() int {
 	if m.readerWrap {
 		return 0
 	}
 	innerW, _ := m.readerInnerDimensions()
-	value, ok := m.readerCurrentValue()
-	if !ok {
+	if !m.ensureReaderRenderData().hasContent() {
 		return 0
 	}
-	maxLineW := newReaderRenderData(value, m.readerMode).maxLineWidth()
-	maxOff := maxLineW - innerW
+	maxOff := m.readerRenderW - innerW
 	if maxOff < 0 {
 		return 0
 	}

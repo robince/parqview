@@ -1743,6 +1743,45 @@ func TestHandleReaderKeyFTogglesBetweenRawAndPrettyJSON(t *testing.T) {
 	}
 }
 
+func TestReaderRenderCacheTracksModeAndValueChanges(t *testing.T) {
+	m := newTestModel()
+	m.width = 90
+	m.height = 12
+	m.tableCols = []string{"id", "payload"}
+	m.selectedColName = "payload"
+	m.tableData = [][]string{{"1", `{"alpha":1,"beta":"two"}`}}
+
+	updated, _ := m.handleTableKey("W")
+	m = updated.(Model)
+
+	prettyLines := m.readerRenderedLines(40)
+	if !m.readerRenderOK {
+		t.Fatal("expected reader render cache to be populated")
+	}
+	if m.readerRenderFor != `{"alpha":1,"beta":"two"}` {
+		t.Fatalf("expected cache to track current value, got %q", m.readerRenderFor)
+	}
+	if m.readerRenderM != readerModeJSONPretty {
+		t.Fatalf("expected cache to track json pretty mode, got %v", m.readerRenderM)
+	}
+
+	updated, _ = m.handleReaderKey("F")
+	m = updated.(Model)
+	rawLines := m.readerRenderedLines(40)
+	if m.readerRenderM != readerModeRaw {
+		t.Fatalf("expected cache to refresh for raw mode, got %v", m.readerRenderM)
+	}
+	if slices.Equal(prettyLines, rawLines) {
+		t.Fatal("expected raw render lines to differ from pretty render lines")
+	}
+
+	m.tableData[0][1] = `{"gamma":3}`
+	_ = m.readerRenderedLines(40)
+	if m.readerRenderFor != `{"gamma":3}` {
+		t.Fatalf("expected cache to refresh for changed cell value, got %q", m.readerRenderFor)
+	}
+}
+
 func TestHandleTableKeyWFallsBackToFitWidthWhenCurrentRowHasNoCell(t *testing.T) {
 	m := newTestModel()
 	m.width = 90

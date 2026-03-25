@@ -63,6 +63,10 @@ type readerRenderData struct {
 	ansiAware    bool
 }
 
+func (d readerRenderData) hasContent() bool {
+	return d.logicalLines != nil
+}
+
 func newReaderRenderData(value string, mode readerMode) readerRenderData {
 	if mode == readerModeJSONPretty {
 		if pretty, ok := prettyJSONReaderValue(value); ok {
