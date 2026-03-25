@@ -180,6 +180,8 @@ type Model struct {
 	detailCol       string // column shown in detail panel
 	detailTab       int    // 0=TopValues, 1=Stats, 2=Histogram
 	readerCol       string
+	readerModes     []readerMode
+	readerMode      readerMode
 	readerAbsRow    int
 	readerWrap      bool
 	readerVertOff   int
@@ -316,6 +318,8 @@ func (m *Model) resetLoadedDataState() {
 	m.detailCol = ""
 	m.detailTab = 0
 	m.readerCol = ""
+	m.readerModes = nil
+	m.readerMode = readerModeRaw
 	m.readerAbsRow = 0
 	m.readerWrap = false
 	m.readerVertOff = 0
@@ -1000,6 +1004,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clampTableRowCursor()
 			if m.overlay == OverlayCellReader {
 				m.readerAbsRow = m.tableOffset + m.tableRowCursor
+				if m.refreshReaderModes(true) {
+					m.statusMsg = "Reader format unavailable for this row; using raw"
+				}
 				m.clampReaderOffsets()
 			}
 			if m.needsMorePreviewRows() {
@@ -2418,7 +2425,9 @@ func (m *Model) openCellReader(colName, value string) {
 	m.overlay = OverlayCellReader
 	m.readerCol = colName
 	m.readerAbsRow = m.currentAbsoluteRow()
-	m.readerWrap = defaultReaderWrap(value)
+	m.readerModes = readerModesForValue(value)
+	m.readerMode = defaultReaderMode(m.readerModes)
+	m.readerWrap = defaultReaderWrapForMode(m.readerMode, value)
 	m.readerVertOff = 0
 	m.readerHorizOff = 0
 	m.statusMsg = fmt.Sprintf("Opened expanded reader for %q", colName)
@@ -2427,9 +2436,45 @@ func (m *Model) openCellReader(colName, value string) {
 func (m *Model) closeCellReader() {
 	m.overlay = OverlayNone
 	m.readerCol = ""
+	m.readerModes = nil
+	m.readerMode = readerModeRaw
 	m.readerAbsRow = 0
 	m.readerVertOff = 0
 	m.readerHorizOff = 0
+}
+
+func (m *Model) refreshReaderModes(preferCurrent bool) bool {
+	value, ok := m.readerCurrentValue()
+	prevMode := m.readerMode
+	m.readerModes = []readerMode{readerModeRaw}
+	m.readerMode = readerModeRaw
+	if !ok {
+		return false
+	}
+
+	m.readerModes = readerModesForValue(value)
+	if preferCurrent && slices.Contains(m.readerModes, prevMode) {
+		m.readerMode = prevMode
+		return false
+	}
+
+	m.readerMode = defaultReaderMode(m.readerModes)
+	return preferCurrent && prevMode != readerModeRaw && m.readerMode == readerModeRaw
+}
+
+func (m *Model) cycleReaderMode() {
+	if len(m.readerModes) <= 1 {
+		m.statusMsg = "No alternate reader format"
+		return
+	}
+
+	idx := slices.Index(m.readerModes, m.readerMode)
+	if idx < 0 {
+		idx = 0
+	}
+	m.readerMode = m.readerModes[(idx+1)%len(m.readerModes)]
+	m.clampReaderOffsets()
+	m.statusMsg = fmt.Sprintf("Reader mode: %s", m.readerMode.label())
 }
 
 // handleActiveColumnWidthAction keeps lowercase `w` adaptive: it toggles fit-width
@@ -2755,14 +2800,7 @@ func (m Model) readerRenderedLines(bodyW int) []string {
 	if !ok {
 		return []string{""}
 	}
-	logical := sanitizeMultilineLogicalLines(value)
-
-	// Future: swap in structured renderers here (JSON pretty-format/highlight,
-	// Markdown, lists, key-value views) once the expanded reader supports them.
-	if m.readerWrap {
-		return wrapLogicalLines(logical, bodyW)
-	}
-	return sliceLogicalLines(logical, m.readerHorizOff, bodyW)
+	return newReaderRenderData(value, m.readerMode).renderedLines(bodyW, m.readerWrap, m.readerHorizOff)
 }
 
 func (m Model) maxReaderVerticalOffset() int {
@@ -2784,12 +2822,7 @@ func (m Model) maxReaderHorizontalOffset() int {
 	if !ok {
 		return 0
 	}
-	maxLineW := 0
-	for _, line := range sanitizeMultilineLogicalLines(value) {
-		if w := lipgloss.Width(line); w > maxLineW {
-			maxLineW = w
-		}
-	}
+	maxLineW := newReaderRenderData(value, m.readerMode).maxLineWidth()
 	maxOff := maxLineW - innerW
 	if maxOff < 0 {
 		return 0
@@ -2862,9 +2895,9 @@ func (m *Model) toggleReaderWrap() {
 	m.readerWrap = !m.readerWrap
 	m.clampReaderOffsets()
 	if m.readerWrap {
-		m.statusMsg = "Reader wrap on"
+		m.statusMsg = fmt.Sprintf("Reader wrap on (%s)", m.readerMode.label())
 	} else {
-		m.statusMsg = "Reader wrap off"
+		m.statusMsg = fmt.Sprintf("Reader wrap off (%s)", m.readerMode.label())
 	}
 }
 
@@ -2915,6 +2948,9 @@ func (m Model) moveReaderRow(delta int) (tea.Model, tea.Cmd) {
 	}
 
 	m.readerAbsRow = m.currentAbsoluteRow()
+	if m.refreshReaderModes(true) {
+		m.statusMsg = "Reader format unavailable for this row; using raw"
+	}
 	m.clampReaderOffsets()
 	return m, nil
 }
@@ -2933,6 +2969,8 @@ func (m Model) handleReaderKey(key string) (tea.Model, tea.Cmd) {
 		m.scrollReaderHoriz(1)
 	case "W":
 		m.toggleReaderWrap()
+	case "F":
+		m.cycleReaderMode()
 	case "n":
 		return m.moveReaderRow(1)
 	case "p":
@@ -3397,7 +3435,7 @@ func (m Model) viewBottomBar() string {
 	var hints string
 	switch {
 	case m.overlay == OverlayCellReader:
-		hints = "w/Esc:close  ↑↓/jk:scroll  ←→/hl:pan  W:wrap  n/p:row  Space/C-f/C-b:page  C-d/u:half  g/G:top/bottom"
+		hints = "w/Esc:close  ↑↓/jk:scroll  ←→/hl:pan  W:wrap  F:format/raw  n/p:row  Space/C-f/C-b:page  C-d/u:half  g/G:top/bottom"
 	case m.focus == FocusColumns:
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  m:missing-mode  /:search  v:sel-list  x:toggle  a/d/y:sel"
 	default:
@@ -3456,13 +3494,15 @@ func (m Model) viewCellReader(w, h int) string {
 	if colType != "" {
 		header += "  " + colType
 	}
+	header = readerHeaderStyle.Render(header)
+	header = lipgloss.JoinHorizontal(lipgloss.Left, header, " ", readerModeBadge(m.readerMode))
 	if m.readerWrap {
-		header += "  wrap:on"
+		header = lipgloss.JoinHorizontal(lipgloss.Left, header, readerHeaderStyle.Render("  wrap:on"))
 	} else {
-		header += "  wrap:off"
+		header = lipgloss.JoinHorizontal(lipgloss.Left, header, readerHeaderStyle.Render("  wrap:off"))
 	}
-	header += fmt.Sprintf("  len:%d", utf8.RuneCountInString(value))
-	header = clampLineWidth(readerHeaderStyle.Render(header), w)
+	header = lipgloss.JoinHorizontal(lipgloss.Left, header, readerHeaderStyle.Render(fmt.Sprintf("  len:%d", utf8.RuneCountInString(value))))
+	header = clampLineWidth(header, w)
 
 	topEdge := readerEdgeStyle.Width(w).Render(strings.Repeat("─", max(1, w)))
 	if m.readerVertOff == 0 {
@@ -3487,13 +3527,13 @@ func (m Model) viewCellReader(w, h int) string {
 
 	bodyLines := make([]string, 0, bodyH)
 	for _, line := range lines[start:end] {
-		bodyLines = append(bodyLines, clampLineWidth(readerBodyStyle.Render(padDisplayRight(line, w)), w))
+		bodyLines = append(bodyLines, padReaderLine(line, w, m.readerMode))
 	}
 	for len(bodyLines) < bodyH {
 		bodyLines = append(bodyLines, readerBodyStyle.Render(strings.Repeat(" ", w)))
 	}
 
-	footer := " Scroll: ↑↓/jk  Row: n/p  Wrap: W  Page: Space/C-f/C-b  Close: Esc/w"
+	footer := " Scroll: ↑↓/jk  Row: n/p  Wrap: W  F:format/raw  Page: Space/C-f/C-b  Close: Esc/w"
 	footer = clampLineWidth(readerFooterStyle.Render(footer), w)
 
 	return strings.Join(append([]string{header, topEdge}, append(bodyLines, bottomEdge, footer)...), "\n")
@@ -4084,6 +4124,7 @@ func (m Model) viewHelp() string {
 		{"↑/↓ or j/k", "Scroll content"},
 		{"←/→ or h/l", "Pan horizontally (wrap off)"},
 		{"n / p", "Next / previous row in same column"},
+		{"F", "Cycle reader format"},
 		{"W", "Toggle wrap"},
 		{"Ctrl+F / Space", "Page down"},
 		{"Ctrl+B", "Page up"},

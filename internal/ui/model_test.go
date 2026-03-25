@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	_ "github.com/marcboeker/go-duckdb"
 
 	"github.com/robince/parqview/internal/engine"
@@ -1633,12 +1634,15 @@ func TestHandleTableKeyShiftWOpensJSONReaderWithWrapOffByDefault(t *testing.T) {
 	m.height = 12
 	m.tableCols = []string{"id", "payload"}
 	m.selectedColName = "payload"
-	m.tableData = [][]string{{"1", strings.Repeat(`{"alpha":1,"beta":2,"gamma":"delta"}`, 4)}}
+	m.tableData = [][]string{{"1", `{"alpha":"` + strings.Repeat("delta", 16) + `","beta":2,"gamma":{"nested":true}}`}}
 
 	updated, _ := m.handleTableKey("W")
 	m = updated.(Model)
 	if m.overlay != OverlayCellReader {
 		t.Fatalf("expected expanded reader overlay, got %v", m.overlay)
+	}
+	if m.readerMode != readerModeJSONPretty {
+		t.Fatalf("expected JSON-like payload to default to json pretty mode, got %v", m.readerMode)
 	}
 	if m.readerWrap {
 		t.Fatal("expected JSON-like payload to default to wrap:off")
@@ -1657,6 +1661,63 @@ func TestHandleTableKeyShiftWOpensJSONReaderWithWrapOffByDefault(t *testing.T) {
 	}
 	if m.readerHorizOff != 0 {
 		t.Fatalf("expected horizontal offset reset on wrap toggle, got %d", m.readerHorizOff)
+	}
+}
+
+func TestHandleTableKeyShiftWKeepsInvalidJSONInRawMode(t *testing.T) {
+	m := newTestModel()
+	m.width = 70
+	m.height = 12
+	m.tableCols = []string{"id", "payload"}
+	m.selectedColName = "payload"
+	m.tableData = [][]string{{"1", `{"alpha":1}{"beta":2}`}}
+
+	updated, _ := m.handleTableKey("W")
+	m = updated.(Model)
+	if m.overlay != OverlayCellReader {
+		t.Fatalf("expected expanded reader overlay, got %v", m.overlay)
+	}
+	if m.readerMode != readerModeRaw {
+		t.Fatalf("expected invalid JSON to stay in raw mode, got %v", m.readerMode)
+	}
+
+	updated, _ = m.handleReaderKey("F")
+	m = updated.(Model)
+	if got := m.statusMsg; got != "No alternate reader format" {
+		t.Fatalf("expected no-alternate-format status, got %q", got)
+	}
+}
+
+func TestHandleReaderKeyFTogglesBetweenRawAndPrettyJSON(t *testing.T) {
+	m := newTestModel()
+	m.width = 90
+	m.height = 12
+	m.tableCols = []string{"id", "payload"}
+	m.selectedColName = "payload"
+	m.tableData = [][]string{{"1", `{"alpha":1,"beta":"two"}`}}
+
+	updated, _ := m.handleTableKey("W")
+	m = updated.(Model)
+	if m.readerMode != readerModeJSONPretty {
+		t.Fatalf("expected JSON reader mode by default, got %v", m.readerMode)
+	}
+
+	updated, _ = m.handleReaderKey("F")
+	m = updated.(Model)
+	if m.readerMode != readerModeRaw {
+		t.Fatalf("expected F to switch to raw mode, got %v", m.readerMode)
+	}
+	if got := m.statusMsg; got != "Reader mode: raw" {
+		t.Fatalf("expected raw mode status, got %q", got)
+	}
+
+	updated, _ = m.handleReaderKey("F")
+	m = updated.(Model)
+	if m.readerMode != readerModeJSONPretty {
+		t.Fatalf("expected second F to switch back to json pretty mode, got %v", m.readerMode)
+	}
+	if got := m.statusMsg; got != "Reader mode: json pretty" {
+		t.Fatalf("expected json pretty status, got %q", got)
 	}
 }
 
@@ -1766,6 +1827,36 @@ func TestReaderKeepsRowNavigationExplicitAndClampsOffsets(t *testing.T) {
 	}
 	if m.tableRowCursor != 1 {
 		t.Fatalf("expected table row cursor preserved on close, got %d", m.tableRowCursor)
+	}
+}
+
+func TestReaderRowNavigationFallsBackToRawWhenNextRowCannotFormat(t *testing.T) {
+	m := newTestModel()
+	m.width = 90
+	m.height = 12
+	m.tableCols = []string{"id", "payload"}
+	m.selectedColName = "payload"
+	m.tableData = [][]string{
+		{"1", `{"alpha":1,"beta":2}`},
+		{"2", "plain text"},
+	}
+
+	updated, _ := m.handleTableKey("W")
+	m = updated.(Model)
+	if m.readerMode != readerModeJSONPretty {
+		t.Fatalf("expected JSON pretty mode on first row, got %v", m.readerMode)
+	}
+
+	updated, cmd := m.handleReaderKey("n")
+	if cmd != nil {
+		t.Fatalf("expected no load command when moving within visible page, got %v", cmd)
+	}
+	m = updated.(Model)
+	if m.readerMode != readerModeRaw {
+		t.Fatalf("expected reader mode to fall back to raw, got %v", m.readerMode)
+	}
+	if got := m.statusMsg; got != "Reader format unavailable for this row; using raw" {
+		t.Fatalf("expected fallback status, got %q", got)
 	}
 }
 
@@ -1906,6 +1997,27 @@ func TestViewCellReaderWrapsWithinWidthAndShowsEdgeMarkers(t *testing.T) {
 	scrolledLines := strings.Split(outScrolled, "\n")
 	if topLines[1] == scrolledLines[1] {
 		t.Fatalf("expected top edge marker styling to change after scrolling")
+	}
+}
+
+func TestViewCellReaderFormatsPrettyJSONAndShowsModeBadge(t *testing.T) {
+	m := newTestModel()
+	m.width = 90
+	m.height = 14
+	m.tableCols = []string{"id", "payload"}
+	m.selectedColName = "payload"
+	m.tableData = [][]string{{"1", `{"alpha":1,"beta":{"nested":true},"escaped":"\u001b[31mhello"}`}}
+	m.openCellReader("payload", m.tableData[0][1])
+
+	out := ansi.Strip(m.viewCellReader(50, 11))
+	if !strings.Contains(out, "JSON") {
+		t.Fatalf("expected reader header to show JSON mode badge, got %q", out)
+	}
+	if !strings.Contains(out, `"alpha": 1`) {
+		t.Fatalf("expected reader body to pretty-print JSON, got %q", out)
+	}
+	if !strings.Contains(out, `"escaped": "\u001b[31mhello"`) {
+		t.Fatalf("expected escaped JSON control sequence to remain escaped, got %q", out)
 	}
 }
 
