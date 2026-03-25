@@ -64,8 +64,7 @@ type readerRenderData struct {
 }
 
 func newReaderRenderData(value string, mode readerMode) readerRenderData {
-	switch mode {
-	case readerModeJSONPretty:
+	if mode == readerModeJSONPretty {
 		if pretty, ok := prettyJSONReaderValue(value); ok {
 			return readerRenderData{
 				logicalLines: highlightPrettyJSON(pretty),
