@@ -133,6 +133,18 @@ var (
 	readerBodyStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("252"))
 
+	readerModeRawBadgeStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("230")).
+				Background(lipgloss.Color("240")).
+				Padding(0, 1)
+
+	readerModeJSONBadgeStyle = lipgloss.NewStyle().
+					Bold(true).
+					Foreground(lipgloss.Color("235")).
+					Background(lipgloss.Color("80")).
+					Padding(0, 1)
+
 	readerFooterStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("243"))
 
@@ -142,6 +154,21 @@ var (
 	readerEdgeActiveStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("69")).
 				Bold(true)
+
+	readerJSONPunctuationStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("242"))
+
+	readerJSONKeyStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("117"))
+
+	readerJSONStringStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("114"))
+
+	readerJSONNumberStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("215"))
+
+	readerJSONKeywordStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("173"))
 
 	// Search
 	searchPromptStyle = lipgloss.NewStyle().

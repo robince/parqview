@@ -60,5 +60,47 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("Generated testdata/sample.parquet and testdata/sample.csv")
+	_, err = db.Exec(`
+		COPY (
+			SELECT * FROM (
+				VALUES
+					(
+						1,
+						'compact_object',
+						'{"event":"signup","user":{"id":101,"plan":"pro"},"tags":["alpha","beta"],"active":true}',
+						'Short plain-text row for raw reader comparison.'
+					),
+					(
+						2,
+						'long_object',
+						'{"event":"page_view","path":"/atlas/studies/session/42","body":"This payload is intentionally long so the expanded reader has something real to format and pan across.","metrics":{"duration_ms":1834,"scroll_depth":0.82,"retry_count":2},"flags":[true,false,null],"notes":["first","second","third"]}',
+						'This is an intentionally long plain string column entry to compare wrap behavior against the JSON payload column in the expanded reader.'
+					),
+					(
+						3,
+						'json_array',
+						'[{"step":"extract","ok":true},{"step":"transform","ok":true},{"step":"load","ok":false,"reason":"network timeout"}]',
+						'Another regular string row with no JSON semantics.'
+					),
+					(
+						4,
+						'invalid_json',
+						'{"broken": true',
+						'Invalid JSON in payload should stay in raw mode.'
+					),
+					(
+						5,
+						'plain_text',
+						'This payload column is just prose, not JSON. It should open in raw mode and still support row-to-row reader navigation.',
+						'Final plain string value.'
+					)
+			) AS t(id, scenario, payload, description)
+		) TO 'testdata/json_reader_sample.parquet' (FORMAT PARQUET);
+	`)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "generate json reader parquet: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Generated testdata/sample.parquet, testdata/sample.csv, and testdata/json_reader_sample.parquet")
 }

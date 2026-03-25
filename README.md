@@ -17,7 +17,7 @@ Key features:
 - predicate filtering 
 - visual indication of missing data in rows and columns, jump to next missing value
 - missing definition can toggle between NULL+NaN, NULL, NaN 
-- adaptive column width controls with an expanded reader for long text columns
+- adaptive column width controls with an expanded reader for long text columns and structured JSON payloads
 - resize panels with the mouse
 - fast mouse scrolling
 
@@ -220,6 +220,13 @@ Predicate notes:
 
 Use this overlay for long text cells, JSON payloads, and other values that do not fit comfortably in the table.
 
+The reader supports two content modes:
+
+- `raw` for the sanitized original cell text
+- `json pretty` for valid JSON object/array strings, with formatted indentation and light semantic color
+
+When a string cell contains valid JSON object/array text, the reader opens in `json pretty` mode by default. Otherwise it opens in `raw`.
+
 | Key | Action |
 | --- | --- |
 | `Up`, `k` | Scroll up |
@@ -227,6 +234,7 @@ Use this overlay for long text cells, JSON payloads, and other values that do no
 | `Left`, `h` | Pan left when wrap is off |
 | `Right`, `l` | Pan right when wrap is off |
 | `n`, `p` | Move to next/previous row in the same column |
+| `F` | Cycle reader format (`raw` / `json pretty` when available) |
 | `W` | Toggle wrap |
 | `Space`, `Ctrl+F` | Page down |
 | `Ctrl+B` | Page up |
@@ -235,6 +243,12 @@ Use this overlay for long text cells, JSON payloads, and other values that do no
 | `g` | Jump to top of current cell |
 | `G` | Jump to bottom of current cell |
 | `Esc`, `q`, `w` | Close expanded reader |
+
+Notes:
+
+- `json pretty` is available only for valid JSON object/array strings; scalar JSON values stay in `raw`.
+- Pretty JSON defaults to wrap off so indentation and horizontal panning stay readable.
+- If you move rows with `n` or `p`, the reader keeps the current mode when the next row supports it and falls back to `raw` otherwise.
 
 ### File Picker Overlay
 
