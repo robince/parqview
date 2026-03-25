@@ -19,8 +19,8 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Build and package
@@ -41,7 +41,7 @@ jobs:
           ARCHIVE="parqview_${VERSION}_linux_${GOARCH}.tar.gz"
           tar czf "dist/${ARCHIVE}" -C dist parqview
           rm dist/parqview
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: parqview-linux-${{ matrix.goarch }}
           path: dist/*.tar.gz
@@ -59,8 +59,8 @@ jobs:
             runner: macos-15
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Build and package
@@ -81,7 +81,7 @@ jobs:
           ARCHIVE="parqview_${VERSION}_darwin_${GOARCH}.tar.gz"
           tar czf "dist/${ARCHIVE}" -C dist parqview
           rm dist/parqview
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: parqview-darwin-${{ matrix.goarch }}
           path: dist/*.tar.gz
@@ -92,7 +92,7 @@ jobs:
     needs: [build-linux, build-darwin]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: artifacts
           merge-multiple: true
@@ -147,7 +147,7 @@ jobs:
     needs: [release]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: artifacts
           merge-multiple: true
@@ -171,7 +171,7 @@ jobs:
           echo "linux_amd64=$(sha256sum "$LINUX_AMD64" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           echo "linux_arm64=$(sha256sum "$LINUX_ARM64" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: Checkout tap repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: robince/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
