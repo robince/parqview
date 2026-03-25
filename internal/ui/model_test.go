@@ -1664,6 +1664,28 @@ func TestHandleTableKeyShiftWOpensJSONReaderWithWrapOffByDefault(t *testing.T) {
 	}
 }
 
+func TestReaderModesForValueOnlyEnablesJSONPrettyForValidObjectOrArray(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		want  []readerMode
+	}{
+		{name: "object", value: `{"alpha":1}`, want: []readerMode{readerModeRaw, readerModeJSONPretty}},
+		{name: "array", value: `[1,2,3]`, want: []readerMode{readerModeRaw, readerModeJSONPretty}},
+		{name: "scalar", value: `123`, want: []readerMode{readerModeRaw}},
+		{name: "invalid", value: `{"alpha":1}{"beta":2}`, want: []readerMode{readerModeRaw}},
+		{name: "prose", value: `hello`, want: []readerMode{readerModeRaw}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := readerModesForValue(tc.value); !slices.Equal(got, tc.want) {
+				t.Fatalf("readerModesForValue(%q)=%v want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestHandleTableKeyShiftWKeepsInvalidJSONInRawMode(t *testing.T) {
 	m := newTestModel()
 	m.width = 70

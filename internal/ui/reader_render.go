@@ -36,7 +36,7 @@ func readerModeBadge(mode readerMode) string {
 
 func readerModesForValue(value string) []readerMode {
 	modes := []readerMode{readerModeRaw}
-	if _, ok := prettyJSONReaderValue(value); ok {
+	if isJSONLikeValid(value) {
 		modes = append(modes, readerModeJSONPretty)
 	}
 	return modes
@@ -111,17 +111,22 @@ func padReaderLine(line string, targetW int, mode readerMode) string {
 	return clampLineWidth(readerBodyStyle.Render(padDisplayRight(line, targetW)), targetW)
 }
 
-func prettyJSONReaderValue(value string) (string, bool) {
+func isJSONLikeValid(value string) bool {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return "", false
+		return false
 	}
 	switch trimmed[0] {
 	case '{', '[':
 	default:
-		return "", false
+		return false
 	}
-	if !json.Valid([]byte(trimmed)) {
+	return json.Valid([]byte(trimmed))
+}
+
+func prettyJSONReaderValue(value string) (string, bool) {
+	trimmed := strings.TrimSpace(value)
+	if !isJSONLikeValid(trimmed) {
 		return "", false
 	}
 
