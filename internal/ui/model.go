@@ -1014,7 +1014,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clampTableRowCursor()
 			if m.overlay == OverlayCellReader {
 				m.readerAbsRow = m.tableOffset + m.tableRowCursor
-				if m.refreshReaderModes(true) {
+				if m.refreshReaderModes() {
 					m.statusMsg = "Reader format unavailable for this row; using raw"
 				}
 				m.clampReaderOffsets()
@@ -2463,7 +2463,7 @@ func (m *Model) invalidateReaderRenderData() {
 	m.readerRenderM = readerModeRaw
 }
 
-func (m *Model) refreshReaderModes(preferCurrent bool) bool {
+func (m *Model) refreshReaderModes() bool {
 	value, ok := m.readerCurrentValue()
 	prevMode := m.readerMode
 	prevModes := m.readerModes
@@ -2475,7 +2475,7 @@ func (m *Model) refreshReaderModes(preferCurrent bool) bool {
 	}
 
 	m.readerModes = readerModesForValue(value)
-	if preferCurrent && slices.Contains(m.readerModes, prevMode) {
+	if slices.Contains(m.readerModes, prevMode) {
 		m.readerMode = prevMode
 		if !slices.Equal(prevModes, m.readerModes) {
 			m.invalidateReaderRenderData()
@@ -2487,7 +2487,7 @@ func (m *Model) refreshReaderModes(preferCurrent bool) bool {
 	if prevMode != m.readerMode || !slices.Equal(prevModes, m.readerModes) {
 		m.invalidateReaderRenderData()
 	}
-	return preferCurrent && prevMode != readerModeRaw && m.readerMode == readerModeRaw
+	return prevMode != readerModeRaw && m.readerMode == readerModeRaw
 }
 
 func (m *Model) cycleReaderMode() {
@@ -2970,7 +2970,7 @@ func (m Model) moveReaderRow(delta int) (tea.Model, tea.Cmd) {
 			}
 			m.tableOffset++
 			m.readerAbsRow = m.currentAbsoluteRow()
-			if m.refreshReaderModes(true) {
+			if m.refreshReaderModes() {
 				m.statusMsg = "Reader format unavailable for this row; using raw"
 			}
 			m.clampReaderOffsets()
@@ -2986,7 +2986,7 @@ func (m Model) moveReaderRow(delta int) (tea.Model, tea.Cmd) {
 			}
 			m.tableOffset--
 			m.readerAbsRow = m.currentAbsoluteRow()
-			if m.refreshReaderModes(true) {
+			if m.refreshReaderModes() {
 				m.statusMsg = "Reader format unavailable for this row; using raw"
 			}
 			m.clampReaderOffsets()
@@ -2995,7 +2995,7 @@ func (m Model) moveReaderRow(delta int) (tea.Model, tea.Cmd) {
 	}
 
 	m.readerAbsRow = m.currentAbsoluteRow()
-	if m.refreshReaderModes(true) {
+	if m.refreshReaderModes() {
 		m.statusMsg = "Reader format unavailable for this row; using raw"
 	}
 	m.clampReaderOffsets()
