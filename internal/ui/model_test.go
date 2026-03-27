@@ -1976,6 +1976,62 @@ func TestReaderUsesLoadedPreviewOffsetWhenPagingPastVisibleWindow(t *testing.T) 
 	}
 }
 
+func TestReaderUsesLoadedPreviewOffsetWhenPagingBackwardPastVisibleWindow(t *testing.T) {
+	m := newCmdTestModel()
+	m.width = 80
+	m.height = 12
+	m.tableCols = []string{"id", "payload"}
+	m.selectedColName = "payload"
+
+	visibleRows := m.visibleTableRows()
+	if visibleRows < 1 {
+		t.Fatal("expected at least one visible row")
+	}
+
+	rows := make([][]string, visibleRows+2)
+	for i := range rows {
+		body := fmt.Sprintf("row-%d", i+1)
+		if i == 0 {
+			body = "short"
+		}
+		if i == 1 {
+			body = `{"alpha":"` + strings.Repeat("json", 8) + `","beta":2}`
+		}
+		rows[i] = []string{fmt.Sprintf("%d", i+1), body}
+	}
+	m.totalRows = int64(len(rows) + 1)
+	m.tableData = rows
+	m.tableOffset = 1
+	m.tableRowCursor = 0
+	m.openCellReader("payload", rows[m.tableOffset][1])
+	m.readerWrap = false
+	m.readerHorizOff = 25
+	if m.readerMode != readerModeJSONPretty {
+		t.Fatalf("expected JSON pretty mode before paging backward, got %v", m.readerMode)
+	}
+
+	updated, cmd := m.handleReaderKey("p")
+	if cmd == nil {
+		t.Fatal("expected preview reload command when moving before visible window")
+	}
+	m = updated.(Model)
+	if m.readerAbsRow != 0 {
+		t.Fatalf("expected reader absolute row 0, got %d", m.readerAbsRow)
+	}
+	if got, ok := m.readerCurrentValue(); !ok || got != "short" {
+		t.Fatalf("expected reader to show previous row from loaded preview, got %q ok=%v", got, ok)
+	}
+	if m.readerMode != readerModeRaw {
+		t.Fatalf("expected reader mode to refresh to raw for loaded previous row, got %v", m.readerMode)
+	}
+	if got := m.statusMsg; got != "Reader format unavailable for this row; using raw" {
+		t.Fatalf("expected fallback status after paged backward row move, got %q", got)
+	}
+	if m.readerHorizOff != 0 {
+		t.Fatalf("expected horizontal offset to clamp before preview reload, got %d", m.readerHorizOff)
+	}
+}
+
 func TestReaderPagingPastBufferPreservesCompatibleModeUntilPreviewLoads(t *testing.T) {
 	m := newCmdTestModel()
 	m.width = 80
