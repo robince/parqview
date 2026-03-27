@@ -427,7 +427,7 @@ func sortSummaryLabel(sorts []engine.SortTerm) string {
 }
 
 func joinStatusParts(parts ...string) string {
-	filtered := parts[:0]
+	filtered := make([]string, 0, len(parts))
 	for _, part := range parts {
 		if part == "" {
 			continue

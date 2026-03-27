@@ -1168,6 +1168,30 @@ func TestPrevNullRowWrap(t *testing.T) {
 	}
 }
 
+func TestNextNullRowWithoutCurrentPositionDoesNotReportWrap(t *testing.T) {
+	eng := openSampleParquet(t)
+	ctx := bg()
+
+	first, err := eng.FirstNullRow(ctx, "score", nil, missing.ModeNullAndNaN)
+	if err != nil {
+		t.Fatalf("FirstNullRow: %v", err)
+	}
+	if first == 0 {
+		t.Fatal("expected at least one missing score row")
+	}
+
+	next, wrapped, err := eng.NextNullRow(ctx, "score", nil, missing.ModeNullAndNaN, 0)
+	if err != nil {
+		t.Fatalf("NextNullRow(no current row): %v", err)
+	}
+	if wrapped {
+		t.Fatal("expected wrapped=false when there is no current position")
+	}
+	if next != first {
+		t.Fatalf("expected first missing row without wrap, got %d want %d", next, first)
+	}
+}
+
 func TestFirstNullRowModeNullOnly(t *testing.T) {
 	dir := t.TempDir()
 	// Row 2 is NULL, row 3 is NaN — ModeNullOnly should find only row 2.

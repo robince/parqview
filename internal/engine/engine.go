@@ -631,7 +631,7 @@ func (e *Engine) nextNullRowWithFilter(ctx context.Context, colName, rowFilter s
 		if !rn.Valid {
 			return 0, false, nil
 		}
-		return rn.Int64, true, nil
+		return rn.Int64, rowID > 0, nil
 	}
 	q := fmt.Sprintf("%s AND q.%s %s ? ORDER BY q.%s %s LIMIT 1",
 		baseQuery,
