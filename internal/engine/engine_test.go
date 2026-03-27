@@ -577,24 +577,34 @@ func TestIsNumericType(t *testing.T) {
 
 func TestInternalRowIDNameCollision(t *testing.T) {
 	tests := []struct {
-		name               string
-		header             string
-		expectedInternalID string
+		name                  string
+		header                string
+		expectedInternalID    string
+		expectedOrderedOffset string
 	}{
 		{
-			name:               "legacy_rowid_column",
-			header:             "rowid",
-			expectedInternalID: "__pv_rowid",
+			name:                  "legacy_rowid_column",
+			header:                "rowid",
+			expectedInternalID:    "__pv_rowid",
+			expectedOrderedOffset: "__pv_ord",
 		},
 		{
-			name:               "base_name_collision",
-			header:             "__pv_rowid",
-			expectedInternalID: "__pv_rowid_1",
+			name:                  "base_name_collision",
+			header:                "__pv_rowid",
+			expectedInternalID:    "__pv_rowid_1",
+			expectedOrderedOffset: "__pv_ord",
 		},
 		{
-			name:               "mixed_case_base_name_collision",
-			header:             "__PV_RowID",
-			expectedInternalID: "__pv_rowid_1",
+			name:                  "mixed_case_base_name_collision",
+			header:                "__PV_RowID",
+			expectedInternalID:    "__pv_rowid_1",
+			expectedOrderedOffset: "__pv_ord",
+		},
+		{
+			name:                  "ordered_offset_collision",
+			header:                "__pv_ord",
+			expectedInternalID:    "__pv_rowid",
+			expectedOrderedOffset: "__pv_ord_1",
 		},
 	}
 
@@ -612,6 +622,9 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 
 			if eng.internalRowIDCol != tc.expectedInternalID {
 				t.Fatalf("unexpected internal row id column: got %q want %q", eng.internalRowIDCol, tc.expectedInternalID)
+			}
+			if eng.orderedOffsetCol != tc.expectedOrderedOffset {
+				t.Fatalf("unexpected ordered offset column: got %q want %q", eng.orderedOffsetCol, tc.expectedOrderedOffset)
 			}
 
 			colNames := allColumnNames(eng)
