@@ -1976,6 +1976,66 @@ func TestReaderUsesLoadedPreviewOffsetWhenPagingPastVisibleWindow(t *testing.T) 
 	}
 }
 
+func TestReaderPagingPastBufferPreservesCompatibleModeUntilPreviewLoads(t *testing.T) {
+	m := newCmdTestModel()
+	m.width = 80
+	m.height = 12
+	m.tableCols = []string{"id", "payload"}
+	m.selectedColName = "payload"
+
+	visibleRows := m.visibleTableRows()
+	if visibleRows < 1 {
+		t.Fatal("expected at least one visible row")
+	}
+
+	rows := make([][]string, visibleRows)
+	for i := range rows {
+		rows[i] = []string{
+			fmt.Sprintf("%d", i+1),
+			fmt.Sprintf(`{"row":%d,"kind":"loaded"}`, i+1),
+		}
+	}
+	m.totalRows = int64(len(rows) + 1)
+	m.tableData = rows
+	m.tableRowCursor = visibleRows - 1
+	m.openCellReader("payload", rows[m.tableRowCursor][1])
+	if m.readerMode != readerModeJSONPretty {
+		t.Fatalf("expected JSON pretty mode before paging, got %v", m.readerMode)
+	}
+
+	updated, cmd := m.handleReaderKey("n")
+	if cmd == nil {
+		t.Fatal("expected preview reload command when moving beyond loaded buffer")
+	}
+	m = updated.(Model)
+	if _, ok := m.readerCurrentValue(); ok {
+		t.Fatal("expected target row to remain unavailable until preview reload completes")
+	}
+	if m.readerMode != readerModeJSONPretty {
+		t.Fatalf("expected reader mode to remain JSON pretty while row is unavailable, got %v", m.readerMode)
+	}
+
+	nextRows := append(rows[1:], []string{
+		fmt.Sprintf("%d", len(rows)+1),
+		fmt.Sprintf(`{"row":%d,"kind":"reloaded"}`, len(rows)+1),
+	})
+	m = updateModel(t, m, previewDoneMsg{
+		rows:      nextRows,
+		colNames:  []string{"id", "payload"},
+		totalRows: m.totalRows,
+		offset:    1,
+		seq:       m.latestPreviewSeq,
+		token:     m.dataToken,
+	})
+
+	if got, ok := m.readerCurrentValue(); !ok || got != nextRows[len(nextRows)-1][1] {
+		t.Fatalf("expected reader to resolve to reloaded JSON row, got %q ok=%v", got, ok)
+	}
+	if m.readerMode != readerModeJSONPretty {
+		t.Fatalf("expected reader mode to stay JSON pretty after loading compatible row, got %v", m.readerMode)
+	}
+}
+
 func TestReaderPagingKeysMoveWithinCurrentCell(t *testing.T) {
 	m := newTestModel()
 	m.width = 70

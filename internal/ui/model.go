@@ -2970,8 +2970,10 @@ func (m Model) moveReaderRow(delta int) (tea.Model, tea.Cmd) {
 			}
 			m.tableOffset++
 			m.readerAbsRow = m.currentAbsoluteRow()
-			if m.refreshReaderModes() {
-				m.statusMsg = "Reader format unavailable for this row; using raw"
+			if _, ok := m.readerCurrentValue(); ok {
+				if m.refreshReaderModes() {
+					m.statusMsg = "Reader format unavailable for this row; using raw"
+				}
 			}
 			m.clampReaderOffsets()
 			return m, m.nextPreviewCmd()
@@ -2986,8 +2988,10 @@ func (m Model) moveReaderRow(delta int) (tea.Model, tea.Cmd) {
 			}
 			m.tableOffset--
 			m.readerAbsRow = m.currentAbsoluteRow()
-			if m.refreshReaderModes() {
-				m.statusMsg = "Reader format unavailable for this row; using raw"
+			if _, ok := m.readerCurrentValue(); ok {
+				if m.refreshReaderModes() {
+					m.statusMsg = "Reader format unavailable for this row; using raw"
+				}
 			}
 			m.clampReaderOffsets()
 			return m, m.nextPreviewCmd()
