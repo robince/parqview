@@ -41,7 +41,7 @@ jobs:
           ARCHIVE="parqview_${VERSION}_linux_${GOARCH}.tar.gz"
           tar czf "dist/${ARCHIVE}" -C dist parqview
           rm dist/parqview
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: parqview-linux-${{ matrix.goarch }}
           path: dist/*.tar.gz
@@ -81,7 +81,7 @@ jobs:
           ARCHIVE="parqview_${VERSION}_darwin_${GOARCH}.tar.gz"
           tar czf "dist/${ARCHIVE}" -C dist parqview
           rm dist/parqview
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: parqview-darwin-${{ matrix.goarch }}
           path: dist/*.tar.gz
