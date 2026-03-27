@@ -646,6 +646,40 @@ func TestInternalRowIDNameCollision(t *testing.T) {
 	}
 }
 
+func TestOrderedOffsetNameCollisionDoesNotBreakSortedQueries(t *testing.T) {
+	dir := t.TempDir()
+	csv := "__pv_ord,value,group\nuser-1,10,b\nuser-2,5,a\nuser-3,5,a\n"
+	path := mustWriteCSV(t, dir, "ordered_offset_collision.csv", csv)
+
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	if eng.orderedOffsetCol == "__pv_ord" {
+		t.Fatalf("expected ordered offset column to avoid collision, got %q", eng.orderedOffsetCol)
+	}
+
+	rows := mustPreview(t, eng, []string{"__pv_ord", "value", "group"}, "", 3, 0,
+		SortTerm{Column: "group", Direction: SortAsc},
+		SortTerm{Column: "value", Direction: SortAsc},
+	)
+	requirePreviewShape(t, rows, 3, 3)
+	if rows[0][0] != "user-2" || rows[1][0] != "user-3" || rows[2][0] != "user-1" {
+		t.Fatalf("unexpected sorted rows with __pv_ord collision: %#v", rows)
+	}
+
+	ctx := bg()
+	offset, err := eng.OffsetForRowIDWithFilter(ctx, 1, "", SortTerm{Column: "group", Direction: SortAsc})
+	if err != nil {
+		t.Fatalf("OffsetForRowIDWithFilter: %v", err)
+	}
+	if offset != 2 {
+		t.Fatalf("expected row 1 at sorted offset 2, got %d", offset)
+	}
+}
+
 func TestOpenLargeCSVOptIn(t *testing.T) {
 	if os.Getenv("PARQVIEW_LARGE_TEST") != "1" {
 		t.Skip("set PARQVIEW_LARGE_TEST=1 to run large-file regression test")

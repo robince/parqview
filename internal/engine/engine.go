@@ -17,6 +17,7 @@ type Engine struct {
 	totalRows        int64
 	columns          []types.ColumnInfo
 	internalRowIDCol string
+	orderedOffsetCol string
 }
 
 type SortDirection int
@@ -44,10 +45,15 @@ func New(path string) (*Engine, error) {
 		return nil, err
 	}
 
-	internalRowIDCol, err := uniqueInternalRowIDCol(db, sourceExpr)
+	internalRowIDCol, err := uniqueInternalColName(db, sourceExpr, "__pv_rowid")
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("resolve internal row id column: %w", err)
+	}
+	orderedOffsetCol, err := uniqueInternalColName(db, sourceExpr, "__pv_ord")
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("resolve ordered offset column: %w", err)
 	}
 
 	query := fmt.Sprintf(`
@@ -62,7 +68,7 @@ func New(path string) (*Engine, error) {
 		return nil, fmt.Errorf("create base objects: %w", err)
 	}
 
-	e := &Engine{db: db, internalRowIDCol: internalRowIDCol}
+	e := &Engine{db: db, internalRowIDCol: internalRowIDCol, orderedOffsetCol: orderedOffsetCol}
 
 	if err := e.loadSchema(); err != nil {
 		_ = db.Close()
@@ -120,7 +126,7 @@ func (e *Engine) Preview(ctx context.Context, colNames []string, rowFilter strin
 		"SELECT %s FROM (%s) AS q ORDER BY %s LIMIT %d OFFSET %d",
 		e.previewSelectList(projection),
 		e.orderedRowsQuery(rowFilter, projection, sorts),
-		quoteIdent(orderedOffsetCol),
+		quoteIdent(e.orderedOffsetCol),
 		limit,
 		offset,
 	)
@@ -365,7 +371,7 @@ func (e *Engine) FirstNullRowWithFilter(ctx context.Context, colName, rowFilter 
 		quoteIdent(e.internalRowIDCol),
 		e.orderedRowsQuery(rowFilter, []string{colName}, sorts),
 		mode.SQLPredicate(quoteIdent(colName)),
-		quoteIdent(orderedOffsetCol),
+		quoteIdent(e.orderedOffsetCol),
 	)
 	var rn sql.NullInt64
 	if err := e.db.QueryRowContext(ctx, q).Scan(&rn); err != nil {
@@ -396,7 +402,7 @@ func (e *Engine) OffsetForRowIDWithFilter(ctx context.Context, rowID int64, rowF
 
 	q := fmt.Sprintf(
 		"SELECT %s FROM (%s) AS q WHERE q.%s = ?",
-		quoteIdent(orderedOffsetCol),
+		quoteIdent(e.orderedOffsetCol),
 		e.orderedRowsQuery(rowFilter, nil, sorts),
 		quoteIdent(e.internalRowIDCol),
 	)
@@ -429,7 +435,7 @@ func (e *Engine) RowIDForOffsetWithFilter(ctx context.Context, offset int64, row
 		"SELECT q.%s FROM (%s) AS q WHERE q.%s = ?",
 		quoteIdent(e.internalRowIDCol),
 		e.orderedRowsQuery(rowFilter, nil, sorts),
-		quoteIdent(orderedOffsetCol),
+		quoteIdent(e.orderedOffsetCol),
 	)
 
 	var rowID int64
@@ -496,7 +502,7 @@ func escapeSQLString(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }
 
-func uniqueInternalRowIDCol(db *sql.DB, sourceExpr string) (string, error) {
+func uniqueInternalColName(db *sql.DB, sourceExpr, base string) (string, error) {
 	rows, err := db.Query(fmt.Sprintf("DESCRIBE SELECT * FROM %s", sourceExpr))
 	if err != nil {
 		return "", err
@@ -516,7 +522,6 @@ func uniqueInternalRowIDCol(db *sql.DB, sourceExpr string) (string, error) {
 		return "", err
 	}
 
-	base := "__pv_rowid"
 	candidate := base
 	for i := 1; ; i++ {
 		if _, exists := used[strings.ToLower(candidate)]; !exists {
@@ -533,8 +538,6 @@ func buildMissingFilter(colNames []string, mode missing.Mode) string {
 	}
 	return strings.Join(parts, " OR ")
 }
-
-const orderedOffsetCol = "__pv_ord"
 
 func (e *Engine) previewProjection(colNames []string) []string {
 	if len(colNames) > 0 {
@@ -565,7 +568,7 @@ func (e *Engine) orderedRowsQuery(rowFilter string, projection []string, sorts [
 	b.WriteString(", row_number() OVER (ORDER BY ")
 	b.WriteString(e.orderByExpr(sorts))
 	b.WriteString(") - 1 AS ")
-	b.WriteString(quoteIdent(orderedOffsetCol))
+	b.WriteString(quoteIdent(e.orderedOffsetCol))
 	b.WriteString(" FROM t_base")
 	if rowFilter != "" {
 		b.WriteString(" WHERE ")
@@ -620,7 +623,7 @@ func (e *Engine) nextNullRowWithFilter(ctx context.Context, colName, rowFilter s
 		mode.SQLPredicate(quoteIdent(colName)),
 	)
 	if currentOffset < 0 {
-		qWrap := fmt.Sprintf("%s ORDER BY q.%s %s LIMIT 1", baseQuery, quoteIdent(orderedOffsetCol), direction)
+		qWrap := fmt.Sprintf("%s ORDER BY q.%s %s LIMIT 1", baseQuery, quoteIdent(e.orderedOffsetCol), direction)
 		var rn sql.NullInt64
 		if err := e.db.QueryRowContext(ctx, qWrap).Scan(&rn); err != nil {
 			if err == sql.ErrNoRows {
@@ -635,9 +638,9 @@ func (e *Engine) nextNullRowWithFilter(ctx context.Context, colName, rowFilter s
 	}
 	q := fmt.Sprintf("%s AND q.%s %s ? ORDER BY q.%s %s LIMIT 1",
 		baseQuery,
-		quoteIdent(orderedOffsetCol),
+		quoteIdent(e.orderedOffsetCol),
 		comparator,
-		quoteIdent(orderedOffsetCol),
+		quoteIdent(e.orderedOffsetCol),
 		direction,
 	)
 
@@ -649,7 +652,7 @@ func (e *Engine) nextNullRowWithFilter(ctx context.Context, colName, rowFilter s
 		return rn.Int64, false, nil
 	}
 
-	qWrap := fmt.Sprintf("%s ORDER BY q.%s %s LIMIT 1", baseQuery, quoteIdent(orderedOffsetCol), direction)
+	qWrap := fmt.Sprintf("%s ORDER BY q.%s %s LIMIT 1", baseQuery, quoteIdent(e.orderedOffsetCol), direction)
 	if err := e.db.QueryRowContext(ctx, qWrap).Scan(&rn); err != nil {
 		if err == sql.ErrNoRows {
 			return 0, false, nil
