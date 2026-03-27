@@ -243,6 +243,115 @@ func TestPreviewOrderStableByOffset(t *testing.T) {
 	}
 }
 
+func TestPreviewSupportsSingleAndStackedSorts(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "sorted.csv", strings.Join([]string{
+		"id,date,cost",
+		"r1,2,10",
+		"r2,1,",
+		"r3,2,5",
+		"r4,2,5",
+		"r5,3,7",
+	}, "\n")+"\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	rows := mustPreview(t, eng, []string{"id"}, "", 5, 0, SortTerm{Column: "date", Direction: SortAsc})
+	wantAsc := []string{"r2", "r1", "r3", "r4", "r5"}
+	for i, want := range wantAsc {
+		if rows[i][0] != want {
+			t.Fatalf("date asc row %d: got %q want %q", i, rows[i][0], want)
+		}
+	}
+
+	rows = mustPreview(t, eng, []string{"id"}, "", 5, 0,
+		SortTerm{Column: "date", Direction: SortDesc},
+		SortTerm{Column: "cost", Direction: SortAsc},
+	)
+	wantStacked := []string{"r5", "r3", "r4", "r1", "r2"}
+	for i, want := range wantStacked {
+		if rows[i][0] != want {
+			t.Fatalf("stacked sort row %d: got %q want %q", i, rows[i][0], want)
+		}
+	}
+}
+
+func TestPreviewSortNullsLastForBothDirections(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "nulls_last.csv", strings.Join([]string{
+		"id,cost",
+		"r1,10",
+		"r2,",
+		"r3,5",
+		"r4,5",
+		"r5,7",
+	}, "\n")+"\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	rows := mustPreview(t, eng, []string{"id", "cost"}, "", 5, 0, SortTerm{Column: "cost", Direction: SortAsc})
+	if rows[len(rows)-1][0] != "r2" || rows[len(rows)-1][1] != "NULL" {
+		t.Fatalf("expected NULL row last for ascending sort, got %#v", rows[len(rows)-1])
+	}
+
+	rows = mustPreview(t, eng, []string{"id", "cost"}, "", 5, 0, SortTerm{Column: "cost", Direction: SortDesc})
+	if rows[len(rows)-1][0] != "r2" || rows[len(rows)-1][1] != "NULL" {
+		t.Fatalf("expected NULL row last for descending sort, got %#v", rows[len(rows)-1])
+	}
+}
+
+func TestSortedOffsetAndRowIDLookup(t *testing.T) {
+	dir := t.TempDir()
+	path := mustWriteCSV(t, dir, "lookup.csv", strings.Join([]string{
+		"id,date,cost",
+		"r1,2,10",
+		"r2,1,",
+		"r3,2,5",
+		"r4,2,5",
+		"r5,3,7",
+	}, "\n")+"\n")
+	eng, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	ctx := bg()
+	sorts := []SortTerm{
+		{Column: "date", Direction: SortDesc},
+		{Column: "cost", Direction: SortAsc},
+	}
+
+	offset, err := eng.OffsetForRowIDWithFilter(ctx, 1, "", sorts...)
+	if err != nil {
+		t.Fatalf("OffsetForRowIDWithFilter: %v", err)
+	}
+	if offset != 3 {
+		t.Fatalf("expected row 1 at sorted offset 3, got %d", offset)
+	}
+
+	rowID, err := eng.RowIDForOffsetWithFilter(ctx, 1, "", sorts...)
+	if err != nil {
+		t.Fatalf("RowIDForOffsetWithFilter: %v", err)
+	}
+	if rowID != 3 {
+		t.Fatalf("expected sorted offset 1 to hold row 3, got %d", rowID)
+	}
+
+	offset, err = eng.OffsetForRowIDWithFilter(ctx, 2, `"cost" IS NOT NULL`, sorts...)
+	if err != nil {
+		t.Fatalf("OffsetForRowIDWithFilter(filtered out): %v", err)
+	}
+	if offset != -1 {
+		t.Fatalf("expected filtered-out row to report offset -1, got %d", offset)
+	}
+}
+
 func TestOpenCSV(t *testing.T) {
 	eng := openSampleCSV(t)
 	requireOpenHasData(t, eng)
