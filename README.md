@@ -15,6 +15,7 @@ Key features:
 - summaries of column data
 - fast vim-inspired keyboard navigation and scrolling
 - predicate filtering 
+- stacked column sorting in the table pane
 - visual indication of missing data in rows and columns, jump to next missing value
 - missing definition can toggle between NULL+NaN, NULL, NaN 
 - adaptive column width controls with an expanded reader for long text columns and structured JSON payloads
@@ -90,7 +91,7 @@ Or run from source:
 go run ./cmd/parqview <file.parquet|file.csv|file.json|file.jsonl|file.ndjson>
 ```
 
-The `+row` argument can appear before or after the file path. Row numbers are 1-based and refer to the file's displayed row numbers, even when filters are active.
+The `+row` argument can appear before or after the file path. Row numbers are 1-based immutable source row numbers.
 
 If the app starts without a file, press `Ctrl+O` to open the file picker.
 
@@ -169,11 +170,13 @@ Use this pane to inspect row values, navigate missingness, and filter the curren
 | `Ctrl+B` | Page up |
 | `Ctrl+D` | Half-page down |
 | `Ctrl+U` | Half-page up |
+| `<` | Add or update ascending sort on selected column |
+| `>` | Add or update descending sort on selected column |
 | `y` | Copy active cell value |
 | `=` | Open predicate prompt for selected column |
 | `p` | Pin current cell value as an exact-match predicate |
 | `-` | Clear predicate for selected column |
-| `U` | Clear all predicates |
+| `U` | Reset table transforms (predicates, missing-row filter, and sorts) |
 | `r` | Jump to next missing value in current row |
 | `R` | Jump to previous missing value in current row |
 | `c` | Jump to next row with missing value in selected column |
@@ -197,7 +200,8 @@ Predicate notes:
 - Comparisons (`>`, `>=`, `<`, `<=`, `a..b`) require a numeric column.
 - Multiple column predicates combine with `AND`.
 - Reapplying a predicate on a column replaces the previous predicate for that column.
-- Row jumps still use overall displayed row numbers; if that exact row is filtered out, parqview jumps to the next visible row and tells you which row it landed on.
+- Sorts stack in the order you apply them; reapplying `<` or `>` on a sorted column updates its direction without changing its priority.
+- Row jumps still use immutable source row numbers and resolve within the current filtered/sorted result.
 
 ### Column Search Input (in Columns Pane)
 
