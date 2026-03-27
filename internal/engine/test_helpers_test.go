@@ -58,9 +58,9 @@ func requireOpenHasData(t *testing.T, eng *Engine) {
 }
 
 // mustPreview calls Preview and fails the test on error.
-func mustPreview(t *testing.T, eng *Engine, cols []string, filter string, limit, offset int) [][]string {
+func mustPreview(t *testing.T, eng *Engine, cols []string, filter string, limit, offset int, sorts ...SortTerm) [][]string {
 	t.Helper()
-	_, rows, err := eng.Preview(bg(), cols, filter, limit, offset)
+	_, rows, err := eng.Preview(bg(), cols, filter, limit, offset, sorts...)
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}

@@ -2071,7 +2071,8 @@ func TestReaderPagingPastBufferPreservesCompatibleModeUntilPreviewLoads(t *testi
 		t.Fatalf("expected reader mode to remain JSON pretty while row is unavailable, got %v", m.readerMode)
 	}
 
-	nextRows := append(rows[1:], []string{
+	nextRows := rows[1:]
+	nextRows = append(nextRows, []string{
 		fmt.Sprintf("%d", len(rows)+1),
 		fmt.Sprintf(`{"row":%d,"kind":"reloaded"}`, len(rows)+1),
 	})
@@ -2346,7 +2347,7 @@ func TestHandleTableKeyGWithZeroVisibleRowsStaysWithinBounds(t *testing.T) {
 	}
 }
 
-func TestJumpToRowFallsForwardInFilteredResult(t *testing.T) {
+func TestJumpToRowReportsFilteredOutRow(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "rows.csv")
 	data := "id,keep\n1,a\n2,\n3,b\n4,\n5,c\n"
@@ -2371,14 +2372,11 @@ func TestJumpToRowFallsForwardInFilteredResult(t *testing.T) {
 	if msg.err != nil {
 		t.Fatalf("unexpected jump error: %v", msg.err)
 	}
-	if msg.rowID != 4 {
-		t.Fatalf("expected filtered jump to land on row 4, got %d", msg.rowID)
+	if msg.rowID != 0 {
+		t.Fatalf("expected filtered-out jump to report no visible row, got %d", msg.rowID)
 	}
-	if msg.offset != 1 {
-		t.Fatalf("expected filtered jump offset 1, got %d", msg.offset)
-	}
-	if !msg.approximate {
-		t.Fatal("expected filtered jump to be marked approximate")
+	if msg.offset != 0 {
+		t.Fatalf("expected filtered-out jump offset 0, got %d", msg.offset)
 	}
 }
 
@@ -2397,6 +2395,151 @@ func TestJumpRowMsgIgnoresStaleRequestID(t *testing.T) {
 	})
 	if updated.tableOffset != 11 || updated.tableRowCursor != 1 {
 		t.Fatalf("expected stale jump response to be ignored, got offset=%d cursor=%d", updated.tableOffset, updated.tableRowCursor)
+	}
+}
+
+func TestHandleTableKeySortKeysStackAndUpdateInPlace(t *testing.T) {
+	m := newCmdTestModel()
+	m.tableCols = []string{"date", "cost"}
+	m.selectedColName = "date"
+	m.tableOffset = 9
+	m.tableRowCursor = 2
+
+	updated, cmd := m.handleTableKey(">")
+	if cmd == nil {
+		t.Fatal("expected preview refresh after descending sort")
+	}
+	m = updated.(Model)
+	if got := m.tableSorts; len(got) != 1 || got[0].Column != "date" || got[0].Direction != engine.SortDesc {
+		t.Fatalf("unexpected sort stack after >: %#v", got)
+	}
+	if m.tableOffset != 0 || m.tableRowCursor != 0 {
+		t.Fatalf("expected table position reset after sorting, got offset=%d cursor=%d", m.tableOffset, m.tableRowCursor)
+	}
+
+	m.selectedColName = "cost"
+	updated, cmd = m.handleTableKey("<")
+	if cmd == nil {
+		t.Fatal("expected preview refresh after stacked sort")
+	}
+	m = updated.(Model)
+	if got := m.tableSorts; len(got) != 2 || got[1].Column != "cost" || got[1].Direction != engine.SortAsc {
+		t.Fatalf("unexpected stacked sorts after <: %#v", got)
+	}
+
+	m.selectedColName = "date"
+	updated, cmd = m.handleTableKey("<")
+	if cmd == nil {
+		t.Fatal("expected preview refresh after re-sorting existing column")
+	}
+	m = updated.(Model)
+	if got := m.tableSorts; len(got) != 2 || got[0].Column != "date" || got[0].Direction != engine.SortAsc || got[1].Column != "cost" {
+		t.Fatalf("expected direction update in place, got %#v", got)
+	}
+}
+
+func TestHandleTableKeyUClearsTableTransforms(t *testing.T) {
+	m := newCmdTestModel()
+	m.predicates["alpha"] = columnPredicate{Column: "alpha", Display: "= 1"}
+	m.missingFilterActive = true
+	m.tableSorts = []engine.SortTerm{{Column: "alpha", Direction: engine.SortAsc}}
+
+	updated, cmd := m.handleTableKey("U")
+	if cmd == nil {
+		t.Fatal("expected preview refresh when clearing transforms")
+	}
+	m = updated.(Model)
+	if len(m.predicates) != 0 {
+		t.Fatalf("expected predicates cleared, got %#v", m.predicates)
+	}
+	if m.missingFilterActive {
+		t.Fatal("expected missing-row filter cleared")
+	}
+	if len(m.tableSorts) != 0 {
+		t.Fatalf("expected sort stack cleared, got %#v", m.tableSorts)
+	}
+}
+
+func TestToggleShowSelectedDropsSortForRemovedProjectionColumn(t *testing.T) {
+	m := newCmdTestModel()
+	m.focus = FocusTable
+	m.columns = []types.ColumnInfo{{Name: "alpha"}, {Name: "beta"}}
+	m.sel = selection.New([]string{"alpha", "beta"})
+	m.sel.Add("alpha")
+	m.tableSorts = []engine.SortTerm{{Column: "beta", Direction: engine.SortDesc}}
+
+	updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if cmd == nil {
+		t.Fatal("expected preview refresh when toggling selected-only data view")
+	}
+	m = updated.(Model)
+	if !m.showSelected {
+		t.Fatal("expected showSelected enabled")
+	}
+	if len(m.tableSorts) != 0 {
+		t.Fatalf("expected sort for unprojected column to be dropped, got %#v", m.tableSorts)
+	}
+	if !strings.Contains(m.statusMsg, `"beta"`) {
+		t.Fatalf("expected status to mention dropped sort column, got %q", m.statusMsg)
+	}
+}
+
+func TestJumpToRowUsesSortedOffsets(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sorted_jump.csv")
+	data := "id,group\n1,b\n2,a\n3,c\n4,a\n"
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+
+	eng := openTestEngine(t, path)
+	m := NewModel(eng, filepath.Base(path), dir)
+	m.tableSorts = []engine.SortTerm{{Column: "group", Direction: engine.SortAsc}}
+	m.jumpReqID = 1
+
+	cmd := m.jumpToRowCmd(1, m.jumpReqID)
+	if cmd == nil {
+		t.Fatal("expected jump command")
+	}
+	raw := cmd()
+	msg, ok := raw.(jumpRowMsg)
+	if !ok {
+		t.Fatalf("expected jumpRowMsg, got %T", raw)
+	}
+	if msg.err != nil {
+		t.Fatalf("unexpected jump error: %v", msg.err)
+	}
+	if msg.rowID != 1 || msg.offset != 2 {
+		t.Fatalf("expected row 1 at sorted offset 2, got row=%d offset=%d", msg.rowID, msg.offset)
+	}
+}
+
+func TestJumpToNextNullInColumnUsesSortedOrder(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sorted_nulls.csv")
+	data := "id,grp,score\n1,b,1\n2,a,\n3,c,\n4,a,2\n"
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+
+	eng := openTestEngine(t, path)
+	m := NewModel(eng, filepath.Base(path), dir)
+	m.tableSorts = []engine.SortTerm{{Column: "grp", Direction: engine.SortAsc}}
+
+	cmd := m.jumpToNextNullInColumn("score", "", 1, false)
+	if cmd == nil {
+		t.Fatal("expected next-null command")
+	}
+	raw := cmd()
+	msg, ok := raw.(nextNullMsg)
+	if !ok {
+		t.Fatalf("expected nextNullMsg, got %T", raw)
+	}
+	if msg.err != nil {
+		t.Fatalf("unexpected next-null error: %v", msg.err)
+	}
+	if msg.rowID != 3 || msg.offset != 3 {
+		t.Fatalf("expected next missing row to follow sorted order to row 3 at offset 3, got row=%d offset=%d", msg.rowID, msg.offset)
 	}
 }
 
@@ -3413,6 +3556,31 @@ func TestViewTableFooterIncludesCellValue(t *testing.T) {
 	// The value itself is truncated with middle-ellipsis; no summary → no trailing …
 	if strings.HasSuffix(footer, " …") {
 		t.Fatalf("expected no trailing … without summary entry, got %q", footer)
+	}
+}
+
+func TestViewTableShowsSortMarkersAndSummary(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.height = 10
+	m.tableCols = []string{"date", "cost"}
+	m.selectedColName = "date"
+	m.tableData = [][]string{{"2024-01-02", "10"}}
+	m.tableSorts = []engine.SortTerm{
+		{Column: "date", Direction: engine.SortDesc},
+		{Column: "cost", Direction: engine.SortAsc},
+	}
+
+	w, h := m.tablePaneDimensions()
+	out := m.viewTable(w, h)
+	if !strings.Contains(out, "row#") {
+		t.Fatalf("expected table header to label immutable row ids, got %q", out)
+	}
+	if !strings.Contains(out, "↓1") || !strings.Contains(out, "↑2") {
+		t.Fatalf("expected header sort markers, got %q", out)
+	}
+	if !strings.Contains(out, "Sort: date ↓, cost ↑") {
+		t.Fatalf("expected footer sort summary, got %q", out)
 	}
 }
 
@@ -4510,10 +4678,10 @@ func TestHelpAndBottomBarIncludeMouseDividerAndCtrlL(t *testing.T) {
 	if !strings.Contains(bottom, "Ctrl+L:redraw") {
 		t.Fatalf("expected bottom bar to include ctrl+l hint, got %q", bottom)
 	}
-	if !strings.Contains(bottom, "m:missing-mode") {
+	if !strings.Contains(bottom, "m:missing") {
 		t.Fatalf("expected bottom bar to include missing mode hint, got %q", bottom)
 	}
-	if !strings.Contains(bottom, "y:copy-cell") {
+	if !strings.Contains(bottom, "y:copy") {
 		t.Fatalf("expected bottom bar to include copy-cell hint, got %q", bottom)
 	}
 

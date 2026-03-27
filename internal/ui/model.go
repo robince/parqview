@@ -93,7 +93,6 @@ type jumpRowMsg struct {
 	requestedRowID int64
 	rowID          int64
 	offset         int64
-	approximate    bool
 	token          uint64
 	reqID          uint64
 	err            error
@@ -159,9 +158,10 @@ type Model struct {
 	tableDataOffset     int
 	tableRowHasMissing  []bool
 	tableCols           []string // column names in current projection
-	tableOffset         int      // row offset for pagination
-	tableRowCursor      int      // row cursor position within visible page
-	tableColOffHint     int      // preferred column offset; -1 = auto
+	tableSorts          []engine.SortTerm
+	tableOffset         int // row offset for pagination
+	tableRowCursor      int // row cursor position within visible page
+	tableColOffHint     int // preferred column offset; -1 = auto
 	tableWide           bool
 	tableColWidths      map[string]int // per-column width overrides (data pane projection columns)
 	showSelected        bool           // show only selected columns in data pane
@@ -304,6 +304,7 @@ func (m *Model) resetLoadedDataState() {
 	m.tableDataOffset = 0
 	m.tableRowHasMissing = nil
 	m.tableCols = nil
+	m.tableSorts = nil
 	m.tableOffset = 0
 	m.tableRowCursor = 0
 	m.tableColOffHint = -1
@@ -405,6 +406,105 @@ func (m *Model) syncActiveMissingFilter(before []string) bool {
 	m.tableOffset = 0
 	m.tableRowCursor = 0
 	return true
+}
+
+func sortDirectionGlyph(direction engine.SortDirection) string {
+	if direction == engine.SortDesc {
+		return "↓"
+	}
+	return "↑"
+}
+
+func sortSummaryLabel(sorts []engine.SortTerm) string {
+	if len(sorts) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(sorts))
+	for _, sort := range sorts {
+		parts = append(parts, fmt.Sprintf("%s %s", sort.Column, sortDirectionGlyph(sort.Direction)))
+	}
+	return "Sort: " + strings.Join(parts, ", ")
+}
+
+func joinStatusParts(parts ...string) string {
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		filtered = append(filtered, part)
+	}
+	return strings.Join(filtered, "; ")
+}
+
+func (m Model) tableSortSummary() string {
+	return sortSummaryLabel(m.tableSorts)
+}
+
+func (m Model) tableSortIndex(colName string) int {
+	for i, sort := range m.tableSorts {
+		if sort.Column == colName {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m Model) tableSortMarker(colName string) string {
+	idx := m.tableSortIndex(colName)
+	if idx < 0 {
+		return ""
+	}
+	return fmt.Sprintf(" %s%d", sortDirectionGlyph(m.tableSorts[idx].Direction), idx+1)
+}
+
+func (m *Model) updateTableSort(colName string, direction engine.SortDirection) {
+	idx := m.tableSortIndex(colName)
+	if idx >= 0 {
+		m.tableSorts[idx].Direction = direction
+		return
+	}
+	m.tableSorts = append(m.tableSorts, engine.SortTerm{Column: colName, Direction: direction})
+}
+
+func (m *Model) pruneTableSortsToProjection() []string {
+	if len(m.tableSorts) == 0 {
+		return nil
+	}
+	projection := m.projectionCols()
+	allowed := make(map[string]struct{}, len(projection))
+	for _, col := range projection {
+		allowed[col] = struct{}{}
+	}
+	kept := m.tableSorts[:0]
+	var dropped []string
+	for _, sort := range m.tableSorts {
+		if _, ok := allowed[sort.Column]; ok {
+			kept = append(kept, sort)
+			continue
+		}
+		dropped = append(dropped, sort.Column)
+	}
+	if len(kept) == 0 {
+		m.tableSorts = nil
+	} else {
+		m.tableSorts = kept
+	}
+	return dropped
+}
+
+func droppedSortsStatus(dropped []string) string {
+	if len(dropped) == 0 {
+		return ""
+	}
+	quoted := make([]string, len(dropped))
+	for i, col := range dropped {
+		quoted[i] = fmt.Sprintf("%q", col)
+	}
+	if len(quoted) == 1 {
+		return "Dropped sort for column " + quoted[0]
+	}
+	return "Dropped sorts for columns " + strings.Join(quoted, ", ")
 }
 
 func (m Model) activePredicateFilter() string {
@@ -1106,14 +1206,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err != nil:
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
 		case msg.rowID == 0:
-			m.statusMsg = fmt.Sprintf("Row %d is not visible in current result", msg.requestedRowID)
+			m.statusMsg = fmt.Sprintf("R%d not in current result", msg.requestedRowID)
 		default:
 			m.setTablePositionForOffset(max(0, int(msg.offset)))
-			if msg.approximate {
-				m.statusMsg = fmt.Sprintf("Row %d not visible in current result; jumped to row %d", msg.requestedRowID, msg.rowID)
-			} else {
-				m.statusMsg = fmt.Sprintf("Jumped to row %d", msg.rowID)
-			}
+			m.statusMsg = fmt.Sprintf("Jumped to row %d", msg.rowID)
 			return m, m.nextPreviewCmd()
 		}
 		return m, nil
@@ -1239,9 +1335,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.clearTableJumpState()
 		filterColsBefore := m.activeFilterCols()
 		m.showSelected = !m.showSelected
+		droppedSorts := m.pruneTableSortsToProjection()
 		m.tableColOffHint = -1
 		if !m.syncActiveMissingFilter(filterColsBefore) {
 			m.tableRowCursor = 0
+		}
+		if status := droppedSortsStatus(droppedSorts); status != "" {
+			m.statusMsg = status
 		}
 		return m, m.nextPreviewCmd()
 	case "v", "V":
@@ -2050,6 +2150,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				if dataAutoOff {
 					m.showSelected = false
 				}
+				droppedSorts := m.pruneTableSortsToProjection()
 				var parts []string
 				if colsAutoOff {
 					parts = append(parts, "cols selected-list off (no columns selected)")
@@ -2057,8 +2158,11 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 				if dataAutoOff {
 					parts = append(parts, "show-selected off (no columns selected)")
 				}
+				if dropped := droppedSortsStatus(droppedSorts); dropped != "" {
+					parts = append(parts, dropped)
+				}
 				if len(parts) > 0 {
-					m.statusMsg = strings.Join(parts, "; ")
+					m.statusMsg = joinStatusParts(parts...)
 				}
 				m.syncActiveMissingFilter(filterColsBefore)
 				return m, m.nextPreviewCmd()
@@ -2078,6 +2182,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		}
 		m.sel.AddAll(names)
 		if m.showSelected {
+			m.pruneTableSortsToProjection()
 			m.syncActiveMissingFilter(filterColsBefore)
 			return m, m.nextPreviewCmd()
 		}
@@ -2103,12 +2208,20 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		if m.showSelected {
 			if dataAutoOff {
 				m.showSelected = false
-				var parts []string
+			}
+			droppedSorts := m.pruneTableSortsToProjection()
+			var parts []string
+			if dataAutoOff {
 				if colsAutoOff {
 					parts = append(parts, "cols selected-list off (no columns selected)")
 				}
 				parts = append(parts, "show-selected off (no columns selected)")
-				m.statusMsg = strings.Join(parts, "; ")
+			}
+			if dropped := droppedSortsStatus(droppedSorts); dropped != "" {
+				parts = append(parts, dropped)
+			}
+			if len(parts) > 0 {
+				m.statusMsg = joinStatusParts(parts...)
 			}
 			m.syncActiveMissingFilter(filterColsBefore)
 			return m, m.nextPreviewCmd()
@@ -2126,6 +2239,7 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 			m.updateFilteredCols()
 		}
 		if m.showSelected {
+			m.pruneTableSortsToProjection()
 			m.syncActiveMissingFilter(filterColsBefore)
 			return m, m.nextPreviewCmd()
 		}
@@ -2143,13 +2257,17 @@ func (m Model) handleColumnsKey(key string) (tea.Model, tea.Cmd) {
 		}
 		if m.showSelected {
 			m.showSelected = false
+			droppedSorts := m.pruneTableSortsToProjection()
 			var parts []string
 			if colsAutoOff {
 				parts = append(parts, "cols selected-list off (no columns selected)")
 			}
 			parts = append(parts, "show-selected off (no columns selected)")
+			if dropped := droppedSortsStatus(droppedSorts); dropped != "" {
+				parts = append(parts, dropped)
+			}
 			if len(parts) > 0 {
-				m.statusMsg = strings.Join(parts, "; ")
+				m.statusMsg = joinStatusParts(parts...)
 			}
 			m.syncActiveMissingFilter(filterColsBefore)
 			return m, m.nextPreviewCmd()
@@ -2263,7 +2381,10 @@ func (m Model) fitWidthForActiveColumn() (int, bool) {
 		return 0, false
 	}
 	maxValueW, _, _ := m.visibleColumnDisplayStats(colIdx)
-	headerW := lipgloss.Width(m.tableCols[colIdx]) + 1
+	headerW := lipgloss.Width(m.tableCols[colIdx]) + lipgloss.Width(m.tableSortMarker(m.tableCols[colIdx])) + 1
+	if _, ok := m.predicates[m.tableCols[colIdx]]; ok {
+		headerW += predicateMarkerWidth()
+	}
 	if s, ok := m.summaries[m.tableCols[colIdx]]; ok && s.Loaded && s.MissingCount > 0 {
 		headerW += tableHeaderNullDotWidth()
 	} else {
@@ -2715,6 +2836,21 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		m.tableOffset = 0
 		m.tableRowCursor = 0
 		return m, m.nextPreviewCmd()
+	case "<", ">":
+		colName := m.selectedColName
+		if colName == "" {
+			m.statusMsg = "No active column"
+			return m, nil
+		}
+		direction := engine.SortAsc
+		if key == ">" {
+			direction = engine.SortDesc
+		}
+		m.updateTableSort(colName, direction)
+		m.tableOffset = 0
+		m.tableRowCursor = 0
+		m.statusMsg = m.tableSortSummary()
+		return m, m.nextPreviewCmd()
 	case "=":
 		colName := m.selectedColName
 		if colName == "" {
@@ -2761,15 +2897,17 @@ func (m Model) handleTableKey(key string) (tea.Model, tea.Cmd) {
 		m.statusMsg = fmt.Sprintf("Cleared filter for %q", colName)
 		return m, m.nextPreviewCmd()
 	case "U":
-		if len(m.predicates) == 0 {
-			m.statusMsg = "No filters to clear"
+		if len(m.predicates) == 0 && !m.missingFilterActive && len(m.tableSorts) == 0 {
+			m.statusMsg = "No table transforms to clear"
 			return m, nil
 		}
 		m.predicates = make(map[string]columnPredicate)
+		m.missingFilterActive = false
+		m.tableSorts = nil
 		m.filterRows = -1
 		m.tableOffset = 0
 		m.tableRowCursor = 0
-		m.statusMsg = "Cleared all filters"
+		m.statusMsg = "Cleared table transforms"
 		return m, m.nextPreviewCmd()
 	case "r":
 		if m.jumpToNextMissingInRow(false) {
@@ -3124,7 +3262,7 @@ func (m Model) loadPreviewCmd(seq uint64) tea.Cmd {
 
 	return func() tea.Msg {
 		ctx := context.Background()
-		rowIDs, rows, err := eng.Preview(ctx, colNames, rowFilter, limit, offset)
+		rowIDs, rows, err := eng.Preview(ctx, colNames, rowFilter, limit, offset, m.tableSorts...)
 		if err != nil {
 			return previewDoneMsg{seq: seq, token: m.dataToken, err: err}
 		}
@@ -3155,30 +3293,23 @@ func (m Model) jumpToRowCmd(rowID int64, reqID uint64) tea.Cmd {
 	missingMode := m.missingMode
 	return func() tea.Msg {
 		ctx := context.Background()
-		offset, err := eng.OffsetForRowID(ctx, rowID, filterCols, missingMode)
+		offset, err := eng.OffsetForRowID(ctx, rowID, filterCols, missingMode, m.tableSorts...)
 		if err != nil {
 			return jumpRowMsg{requestedRowID: rowID, token: m.dataToken, reqID: reqID, err: err}
 		}
+		if offset < 0 {
+			return jumpRowMsg{requestedRowID: rowID, token: m.dataToken, reqID: reqID}
+		}
 
-		landedRowID, err := eng.RowIDForOffset(ctx, offset, filterCols, missingMode)
+		landedRowID, err := eng.RowIDForOffset(ctx, offset, filterCols, missingMode, m.tableSorts...)
 		if err != nil {
 			return jumpRowMsg{requestedRowID: rowID, token: m.dataToken, reqID: reqID, err: err}
 		}
 		landedOffset := offset
-		approximate := landedRowID != 0 && landedRowID != rowID
-		if landedRowID == 0 && offset > 0 {
-			landedOffset = offset - 1
-			landedRowID, err = eng.RowIDForOffset(ctx, landedOffset, filterCols, missingMode)
-			if err != nil {
-				return jumpRowMsg{requestedRowID: rowID, token: m.dataToken, reqID: reqID, err: err}
-			}
-			approximate = landedRowID != 0 && landedRowID != rowID
-		}
 		return jumpRowMsg{
 			requestedRowID: rowID,
 			rowID:          landedRowID,
 			offset:         landedOffset,
-			approximate:    approximate,
 			token:          m.dataToken,
 			reqID:          reqID,
 		}
@@ -3267,11 +3398,11 @@ func (m Model) jumpToFirstNull(colName, rowFilter string) tea.Cmd {
 	missingMode := m.missingMode
 	return func() tea.Msg {
 		ctx := context.Background()
-		rowID, err := eng.FirstNullRowWithFilter(ctx, colName, rowFilter, missingMode)
+		rowID, err := eng.FirstNullRowWithFilter(ctx, colName, rowFilter, missingMode, m.tableSorts...)
 		if err != nil || rowID == 0 {
 			return firstNullMsg{rowID: rowID, token: m.dataToken, err: err}
 		}
-		offset, err := eng.OffsetForRowIDWithFilter(ctx, rowID, rowFilter)
+		offset, err := eng.OffsetForRowIDWithFilter(ctx, rowID, rowFilter, m.tableSorts...)
 		return firstNullMsg{rowID: rowID, offset: offset, token: m.dataToken, err: err}
 	}
 }
@@ -3284,16 +3415,16 @@ func (m Model) jumpToNextNullInColumn(colName, rowFilter string, currentOffset i
 	missingMode := m.missingMode
 	return func() tea.Msg {
 		ctx := context.Background()
-		rowID, err := eng.RowIDForOffsetWithFilter(ctx, currentOffset, rowFilter)
+		rowID, err := eng.RowIDForOffsetWithFilter(ctx, currentOffset, rowFilter, m.tableSorts...)
 		if err != nil {
 			return nextNullMsg{token: m.dataToken, colName: colName, reverse: reverse, err: err}
 		}
 		var nextRowID int64
 		var wrapped bool
 		if reverse {
-			nextRowID, wrapped, err = eng.PrevNullRowWithFilter(ctx, colName, rowFilter, missingMode, rowID)
+			nextRowID, wrapped, err = eng.PrevNullRowWithFilter(ctx, colName, rowFilter, missingMode, rowID, m.tableSorts...)
 		} else {
-			nextRowID, wrapped, err = eng.NextNullRowWithFilter(ctx, colName, rowFilter, missingMode, rowID)
+			nextRowID, wrapped, err = eng.NextNullRowWithFilter(ctx, colName, rowFilter, missingMode, rowID, m.tableSorts...)
 		}
 		if err != nil || nextRowID == 0 {
 			return nextNullMsg{
@@ -3306,7 +3437,7 @@ func (m Model) jumpToNextNullInColumn(colName, rowFilter string, currentOffset i
 				err:      err,
 			}
 		}
-		offset, err := eng.OffsetForRowIDWithFilter(ctx, nextRowID, rowFilter)
+		offset, err := eng.OffsetForRowIDWithFilter(ctx, nextRowID, rowFilter, m.tableSorts...)
 		return nextNullMsg{
 			rowID:    nextRowID,
 			offset:   offset,
@@ -3490,7 +3621,7 @@ func (m Model) viewBottomBar() string {
 	case m.focus == FocusColumns:
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  m:missing-mode  /:search  v:sel-list  x:toggle  a/d/y:sel"
 	default:
-		hints = "Ctrl+O:open  hjkl:move  y:copy-cell  =:filter  p:pin  -/U:clear  gg/G/[count]G:row  m:missing-mode  w/W:reader  f:filter  r/R:row±  c/C:col±  drag:divider  Ctrl+L:redraw"
+		hints = "Ctrl+O:open  Ctrl+L:redraw  hjkl:move  <>:sort  y:copy  =/p:filter  -:clear  U:reset  gG/[n]G:row  m:missing  w/W:reader  f:miss-filter  r/R:row±  c/C:col±  drag:divider"
 	}
 	status := fmt.Sprintf("  Sel: %d/%d", selCount, len(m.columns))
 	if m.showSelected {
@@ -3650,7 +3781,7 @@ func (m Model) viewTable(w, h int) string {
 	var lines []string
 
 	// Header (space prefix for alignment with row null dots)
-	header := " " + rowNumStyle.Render(fmt.Sprintf("%*s", tableRowNumW, "#"))
+	header := " " + rowNumStyle.Render(fmt.Sprintf("%*s", tableRowNumW, "row#"))
 	for i := startCol; i < endCol; i++ {
 		colW := m.columnWidth(m.tableCols[i], colAreaWidth)
 		nameBudget := max(0, colW-2)
@@ -3659,8 +3790,10 @@ func (m Model) viewTable(w, h int) string {
 			nameBudget = max(0, nameBudget-predicateMarkerWidth())
 			predicateGlyph = " " + predicateMarkerChar
 		}
+		sortGlyph := m.tableSortMarker(m.tableCols[i])
+		nameBudget = max(0, nameBudget-lipgloss.Width(sortGlyph))
 		name := truncateDisplayMiddle(m.tableCols[i], nameBudget)
-		nameStr := " " + padDisplayRight(name+predicateGlyph, max(0, colW-2))
+		nameStr := " " + padDisplayRight(name+predicateGlyph+sortGlyph, max(0, colW-2))
 		// Check if column has missing values from profiling.
 		hasMissing := false
 		if s, ok := m.summaries[m.tableCols[i]]; ok && s.Loaded && s.MissingCount > 0 {
@@ -3838,6 +3971,9 @@ func (m Model) viewTableFooter() string {
 		} else {
 			parts = append(parts, fmt.Sprintf("R%d", rowID))
 		}
+	}
+	if summary := m.tableSortSummary(); summary != "" {
+		parts = append(parts, summary)
 	}
 	return strings.Join(parts, "    ")
 }
@@ -4144,10 +4280,11 @@ func (m Model) viewHelp() string {
 		{"Ctrl+F / Space", "Page down"},
 		{"Ctrl+B", "Page up"},
 		{"Ctrl+D / Ctrl+U", "Half page down / up"},
+		{"< / >", "Sort active column ascending / descending"},
 		{"=", "Edit predicate for active column"},
 		{"p", "Pin active cell as exact-match filter"},
 		{"-", "Clear predicate for active column"},
-		{"U", "Clear all predicates"},
+		{"U", "Reset table transforms"},
 		{"f", "Toggle missing-row filter"},
 		{"r", "Next missing in current row"},
 		{"R", "Previous missing in current row"},

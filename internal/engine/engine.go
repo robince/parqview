@@ -17,6 +17,19 @@ type Engine struct {
 	totalRows        int64
 	columns          []types.ColumnInfo
 	internalRowIDCol string
+	orderedOffsetCol string
+}
+
+type SortDirection int
+
+const (
+	SortAsc SortDirection = iota
+	SortDesc
+)
+
+type SortTerm struct {
+	Column    string
+	Direction SortDirection
 }
 
 // New creates a new engine, opens the file, and creates query objects.
@@ -32,10 +45,15 @@ func New(path string) (*Engine, error) {
 		return nil, err
 	}
 
-	internalRowIDCol, err := uniqueInternalRowIDCol(db, sourceExpr)
+	internalRowIDCol, err := uniqueInternalColName(db, sourceExpr, "__pv_rowid")
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("resolve internal row id column: %w", err)
+	}
+	orderedOffsetCol, err := uniqueInternalColName(db, sourceExpr, "__pv_ord")
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("resolve ordered offset column: %w", err)
 	}
 
 	query := fmt.Sprintf(`
@@ -50,7 +68,7 @@ func New(path string) (*Engine, error) {
 		return nil, fmt.Errorf("create base objects: %w", err)
 	}
 
-	e := &Engine{db: db, internalRowIDCol: internalRowIDCol}
+	e := &Engine{db: db, internalRowIDCol: internalRowIDCol, orderedOffsetCol: orderedOffsetCol}
 
 	if err := e.loadSchema(); err != nil {
 		_ = db.Close()
@@ -102,28 +120,17 @@ func (e *Engine) TotalRows() int64 {
 }
 
 // Preview fetches rows for the table view along with their immutable row ids.
-func (e *Engine) Preview(ctx context.Context, colNames []string, rowFilter string, limit, offset int) ([]int64, [][]string, error) {
-	var (
-		q     string
-		nCols int
+func (e *Engine) Preview(ctx context.Context, colNames []string, rowFilter string, limit, offset int, sorts ...SortTerm) ([]int64, [][]string, error) {
+	projection := e.previewProjection(colNames)
+	q := fmt.Sprintf(
+		"SELECT %s FROM (%s) AS q ORDER BY %s LIMIT %d OFFSET %d",
+		e.previewSelectList(projection),
+		e.orderedRowsQuery(rowFilter, projection, sorts),
+		quoteIdent(e.orderedOffsetCol),
+		limit,
+		offset,
 	)
-	if len(colNames) == 0 {
-		q = fmt.Sprintf("SELECT %s, * EXCLUDE (%s) FROM t_base", quoteIdent(e.internalRowIDCol), quoteIdent(e.internalRowIDCol))
-		nCols = len(e.columns)
-	} else {
-		var proj strings.Builder
-		proj.WriteString(quoteIdent(e.internalRowIDCol))
-		for _, c := range colNames {
-			proj.WriteString(", ")
-			proj.WriteString(quoteIdent(c))
-		}
-		q = fmt.Sprintf("SELECT %s FROM t_base", proj.String())
-		nCols = len(colNames)
-	}
-	if rowFilter != "" {
-		q += " WHERE " + rowFilter
-	}
-	q += fmt.Sprintf(" ORDER BY %s LIMIT %d OFFSET %d", quoteIdent(e.internalRowIDCol), limit, offset)
+	nCols := len(projection)
 
 	rows, err := e.db.QueryContext(ctx, q)
 	if err != nil {
@@ -350,22 +357,27 @@ func numericProfileExpr(quotedCol string, mode missing.Mode) string {
 }
 
 // FirstNullRow returns the internal row id of the first missing-like value in a column, or 0 if none.
-func (e *Engine) FirstNullRow(ctx context.Context, colName string, filterCols []string, mode missing.Mode) (int64, error) {
+func (e *Engine) FirstNullRow(ctx context.Context, colName string, filterCols []string, mode missing.Mode, sorts ...SortTerm) (int64, error) {
 	rowFilter := ""
 	if len(filterCols) > 0 {
 		rowFilter = "(" + buildMissingFilter(filterCols, mode) + ")"
 	}
-	return e.FirstNullRowWithFilter(ctx, colName, rowFilter, mode)
+	return e.FirstNullRowWithFilter(ctx, colName, rowFilter, mode, sorts...)
 }
 
-func (e *Engine) FirstNullRowWithFilter(ctx context.Context, colName, rowFilter string, mode missing.Mode) (int64, error) {
-	col := quoteIdent(colName)
-	q := fmt.Sprintf("SELECT min(%s) FROM t_base WHERE %s", quoteIdent(e.internalRowIDCol), mode.SQLPredicate(col))
-	if rowFilter != "" {
-		q += " AND (" + rowFilter + ")"
-	}
+func (e *Engine) FirstNullRowWithFilter(ctx context.Context, colName, rowFilter string, mode missing.Mode, sorts ...SortTerm) (int64, error) {
+	q := fmt.Sprintf(
+		`SELECT q.%s FROM (%s) AS q WHERE %s ORDER BY %s LIMIT 1`,
+		quoteIdent(e.internalRowIDCol),
+		e.orderedRowsQuery(rowFilter, []string{colName}, sorts),
+		mode.SQLPredicate(quoteIdent(colName)),
+		quoteIdent(e.orderedOffsetCol),
+	)
 	var rn sql.NullInt64
 	if err := e.db.QueryRowContext(ctx, q).Scan(&rn); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
 		return 0, err
 	}
 	if !rn.Valid {
@@ -375,53 +387,59 @@ func (e *Engine) FirstNullRowWithFilter(ctx context.Context, colName, rowFilter 
 }
 
 // OffsetForRowID returns the row offset of rowID in the active (optionally filtered) view.
-func (e *Engine) OffsetForRowID(ctx context.Context, rowID int64, filterCols []string, mode missing.Mode) (int64, error) {
+func (e *Engine) OffsetForRowID(ctx context.Context, rowID int64, filterCols []string, mode missing.Mode, sorts ...SortTerm) (int64, error) {
 	rowFilter := ""
 	if len(filterCols) > 0 {
 		rowFilter = "(" + buildMissingFilter(filterCols, mode) + ")"
 	}
-	return e.OffsetForRowIDWithFilter(ctx, rowID, rowFilter)
+	return e.OffsetForRowIDWithFilter(ctx, rowID, rowFilter, sorts...)
 }
 
-func (e *Engine) OffsetForRowIDWithFilter(ctx context.Context, rowID int64, rowFilter string) (int64, error) {
-	if rowID <= 1 {
-		return 0, nil
+func (e *Engine) OffsetForRowIDWithFilter(ctx context.Context, rowID int64, rowFilter string, sorts ...SortTerm) (int64, error) {
+	if rowID <= 0 {
+		return -1, nil
 	}
 
-	q := fmt.Sprintf("SELECT count(*) FROM t_base WHERE %s < ?", quoteIdent(e.internalRowIDCol))
-	if rowFilter != "" {
-		q += " AND (" + rowFilter + ")"
-	}
+	q := fmt.Sprintf(
+		"SELECT %s FROM (%s) AS q WHERE q.%s = ?",
+		quoteIdent(e.orderedOffsetCol),
+		e.orderedRowsQuery(rowFilter, nil, sorts),
+		quoteIdent(e.internalRowIDCol),
+	)
 
 	var offset int64
 	if err := e.db.QueryRowContext(ctx, q, rowID).Scan(&offset); err != nil {
+		if err == sql.ErrNoRows {
+			return -1, nil
+		}
 		return 0, err
 	}
 	return offset, nil
 }
 
 // RowIDForOffset returns the internal row id at a filtered-view offset.
-func (e *Engine) RowIDForOffset(ctx context.Context, offset int64, filterCols []string, mode missing.Mode) (int64, error) {
+func (e *Engine) RowIDForOffset(ctx context.Context, offset int64, filterCols []string, mode missing.Mode, sorts ...SortTerm) (int64, error) {
 	rowFilter := ""
 	if len(filterCols) > 0 {
 		rowFilter = "(" + buildMissingFilter(filterCols, mode) + ")"
 	}
-	return e.RowIDForOffsetWithFilter(ctx, offset, rowFilter)
+	return e.RowIDForOffsetWithFilter(ctx, offset, rowFilter, sorts...)
 }
 
-func (e *Engine) RowIDForOffsetWithFilter(ctx context.Context, offset int64, rowFilter string) (int64, error) {
+func (e *Engine) RowIDForOffsetWithFilter(ctx context.Context, offset int64, rowFilter string, sorts ...SortTerm) (int64, error) {
 	if offset < 0 {
 		return 0, nil
 	}
 
-	q := fmt.Sprintf("SELECT %s FROM t_base", quoteIdent(e.internalRowIDCol))
-	if rowFilter != "" {
-		q += " WHERE (" + rowFilter + ")"
-	}
-	q += fmt.Sprintf(" ORDER BY %s LIMIT 1 OFFSET %d", quoteIdent(e.internalRowIDCol), offset)
+	q := fmt.Sprintf(
+		"SELECT q.%s FROM (%s) AS q WHERE q.%s = ?",
+		quoteIdent(e.internalRowIDCol),
+		e.orderedRowsQuery(rowFilter, nil, sorts),
+		quoteIdent(e.orderedOffsetCol),
+	)
 
 	var rowID int64
-	err := e.db.QueryRowContext(ctx, q).Scan(&rowID)
+	err := e.db.QueryRowContext(ctx, q, offset).Scan(&rowID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -433,92 +451,30 @@ func (e *Engine) RowIDForOffsetWithFilter(ctx context.Context, offset int64, row
 
 // NextNullRow returns the next missing-like row id in a column after rowID in the active
 // (optionally filtered) view. When no later row exists, it wraps and returns the first one.
-func (e *Engine) NextNullRow(ctx context.Context, colName string, filterCols []string, mode missing.Mode, rowID int64) (nextRowID int64, wrapped bool, err error) {
+func (e *Engine) NextNullRow(ctx context.Context, colName string, filterCols []string, mode missing.Mode, rowID int64, sorts ...SortTerm) (nextRowID int64, wrapped bool, err error) {
 	rowFilter := ""
 	if len(filterCols) > 0 {
 		rowFilter = "(" + buildMissingFilter(filterCols, mode) + ")"
 	}
-	return e.NextNullRowWithFilter(ctx, colName, rowFilter, mode, rowID)
+	return e.NextNullRowWithFilter(ctx, colName, rowFilter, mode, rowID, sorts...)
 }
 
-func (e *Engine) NextNullRowWithFilter(ctx context.Context, colName, rowFilter string, mode missing.Mode, rowID int64) (nextRowID int64, wrapped bool, err error) {
-	col := quoteIdent(colName)
-	conds := []string{mode.SQLPredicate(col)}
-	if rowFilter != "" {
-		conds = append(conds, "("+rowFilter+")")
-	}
-
-	baseWhere := strings.Join(conds, " AND ")
-	baseQuery := fmt.Sprintf("SELECT min(%s) FROM t_base WHERE %s", quoteIdent(e.internalRowIDCol), baseWhere)
-	q := baseQuery
-	if rowID > 0 {
-		q += fmt.Sprintf(" AND %s > %d", quoteIdent(e.internalRowIDCol), rowID)
-	}
-
-	var rn sql.NullInt64
-	if err := e.db.QueryRowContext(ctx, q).Scan(&rn); err != nil {
-		return 0, false, err
-	}
-	if rn.Valid {
-		return rn.Int64, false, nil
-	}
-	if rowID <= 0 {
-		return 0, false, nil
-	}
-
-	qWrap := baseQuery
-	if err := e.db.QueryRowContext(ctx, qWrap).Scan(&rn); err != nil {
-		return 0, false, err
-	}
-	if !rn.Valid || rn.Int64 == rowID {
-		return 0, false, nil
-	}
-	return rn.Int64, true, nil
+func (e *Engine) NextNullRowWithFilter(ctx context.Context, colName, rowFilter string, mode missing.Mode, rowID int64, sorts ...SortTerm) (nextRowID int64, wrapped bool, err error) {
+	return e.nextNullRowWithFilter(ctx, colName, rowFilter, mode, rowID, false, sorts)
 }
 
 // PrevNullRow returns the previous missing-like row id in a column before rowID in the active
 // (optionally filtered) view. When no earlier row exists, it wraps and returns the last one.
-func (e *Engine) PrevNullRow(ctx context.Context, colName string, filterCols []string, mode missing.Mode, rowID int64) (prevRowID int64, wrapped bool, err error) {
+func (e *Engine) PrevNullRow(ctx context.Context, colName string, filterCols []string, mode missing.Mode, rowID int64, sorts ...SortTerm) (prevRowID int64, wrapped bool, err error) {
 	rowFilter := ""
 	if len(filterCols) > 0 {
 		rowFilter = "(" + buildMissingFilter(filterCols, mode) + ")"
 	}
-	return e.PrevNullRowWithFilter(ctx, colName, rowFilter, mode, rowID)
+	return e.PrevNullRowWithFilter(ctx, colName, rowFilter, mode, rowID, sorts...)
 }
 
-func (e *Engine) PrevNullRowWithFilter(ctx context.Context, colName, rowFilter string, mode missing.Mode, rowID int64) (prevRowID int64, wrapped bool, err error) {
-	col := quoteIdent(colName)
-	conds := []string{mode.SQLPredicate(col)}
-	if rowFilter != "" {
-		conds = append(conds, "("+rowFilter+")")
-	}
-
-	baseWhere := strings.Join(conds, " AND ")
-	baseQuery := fmt.Sprintf("SELECT max(%s) FROM t_base WHERE %s", quoteIdent(e.internalRowIDCol), baseWhere)
-	q := baseQuery
-	if rowID > 0 {
-		q += fmt.Sprintf(" AND %s < %d", quoteIdent(e.internalRowIDCol), rowID)
-	}
-
-	var rn sql.NullInt64
-	if err := e.db.QueryRowContext(ctx, q).Scan(&rn); err != nil {
-		return 0, false, err
-	}
-	if rn.Valid {
-		return rn.Int64, false, nil
-	}
-	if rowID <= 0 {
-		return 0, false, nil
-	}
-
-	qWrap := baseQuery
-	if err := e.db.QueryRowContext(ctx, qWrap).Scan(&rn); err != nil {
-		return 0, false, err
-	}
-	if !rn.Valid || rn.Int64 == rowID {
-		return 0, false, nil
-	}
-	return rn.Int64, true, nil
+func (e *Engine) PrevNullRowWithFilter(ctx context.Context, colName, rowFilter string, mode missing.Mode, rowID int64, sorts ...SortTerm) (prevRowID int64, wrapped bool, err error) {
+	return e.nextNullRowWithFilter(ctx, colName, rowFilter, mode, rowID, true, sorts)
 }
 
 // BuildMissingFilter builds a SQL WHERE clause for rows with missing-like values in the given columns.
@@ -546,7 +502,7 @@ func escapeSQLString(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }
 
-func uniqueInternalRowIDCol(db *sql.DB, sourceExpr string) (string, error) {
+func uniqueInternalColName(db *sql.DB, sourceExpr, base string) (string, error) {
 	rows, err := db.Query(fmt.Sprintf("DESCRIBE SELECT * FROM %s", sourceExpr))
 	if err != nil {
 		return "", err
@@ -566,7 +522,6 @@ func uniqueInternalRowIDCol(db *sql.DB, sourceExpr string) (string, error) {
 		return "", err
 	}
 
-	base := "__pv_rowid"
 	candidate := base
 	for i := 1; ; i++ {
 		if _, exists := used[strings.ToLower(candidate)]; !exists {
@@ -582,4 +537,130 @@ func buildMissingFilter(colNames []string, mode missing.Mode) string {
 		parts[i] = mode.SQLPredicate(quoteIdent(c))
 	}
 	return strings.Join(parts, " OR ")
+}
+
+func (e *Engine) previewProjection(colNames []string) []string {
+	if len(colNames) > 0 {
+		return colNames
+	}
+	names := make([]string, len(e.columns))
+	for i, c := range e.columns {
+		names[i] = c.Name
+	}
+	return names
+}
+
+func (e *Engine) previewSelectList(projection []string) string {
+	var b strings.Builder
+	b.WriteString(quoteIdent(e.internalRowIDCol))
+	for _, c := range projection {
+		b.WriteString(", ")
+		b.WriteString(quoteIdent(c))
+	}
+	return b.String()
+}
+
+func (e *Engine) orderedRowsQuery(rowFilter string, projection []string, sorts []SortTerm) string {
+	selectCols := append([]string{e.internalRowIDCol}, projection...)
+	var b strings.Builder
+	b.WriteString("SELECT ")
+	b.WriteString(joinQuotedUnique(selectCols))
+	b.WriteString(", row_number() OVER (ORDER BY ")
+	b.WriteString(e.orderByExpr(sorts))
+	b.WriteString(") - 1 AS ")
+	b.WriteString(quoteIdent(e.orderedOffsetCol))
+	b.WriteString(" FROM t_base")
+	if rowFilter != "" {
+		b.WriteString(" WHERE ")
+		b.WriteString(rowFilter)
+	}
+	return b.String()
+}
+
+func (e *Engine) orderByExpr(sorts []SortTerm) string {
+	parts := make([]string, 0, len(sorts)+1)
+	for _, sort := range sorts {
+		dir := "ASC"
+		if sort.Direction == SortDesc {
+			dir = "DESC"
+		}
+		parts = append(parts, fmt.Sprintf("%s %s NULLS LAST", quoteIdent(sort.Column), dir))
+	}
+	parts = append(parts, fmt.Sprintf("%s ASC", quoteIdent(e.internalRowIDCol)))
+	return strings.Join(parts, ", ")
+}
+
+func joinQuotedUnique(cols []string) string {
+	seen := make(map[string]struct{}, len(cols))
+	parts := make([]string, 0, len(cols))
+	for _, col := range cols {
+		if _, ok := seen[col]; ok {
+			continue
+		}
+		seen[col] = struct{}{}
+		parts = append(parts, quoteIdent(col))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func (e *Engine) nextNullRowWithFilter(ctx context.Context, colName, rowFilter string, mode missing.Mode, rowID int64, reverse bool, sorts []SortTerm) (int64, bool, error) {
+	currentOffset, err := e.OffsetForRowIDWithFilter(ctx, rowID, rowFilter, sorts...)
+	if err != nil {
+		return 0, false, err
+	}
+
+	comparator := ">"
+	direction := "ASC"
+	if reverse {
+		comparator = "<"
+		direction = "DESC"
+	}
+
+	baseQuery := fmt.Sprintf(
+		`SELECT q.%s FROM (%s) AS q WHERE %s`,
+		quoteIdent(e.internalRowIDCol),
+		e.orderedRowsQuery(rowFilter, []string{colName}, sorts),
+		mode.SQLPredicate(quoteIdent(colName)),
+	)
+	if currentOffset < 0 {
+		qWrap := fmt.Sprintf("%s ORDER BY q.%s %s LIMIT 1", baseQuery, quoteIdent(e.orderedOffsetCol), direction)
+		var rn sql.NullInt64
+		if err := e.db.QueryRowContext(ctx, qWrap).Scan(&rn); err != nil {
+			if err == sql.ErrNoRows {
+				return 0, false, nil
+			}
+			return 0, false, err
+		}
+		if !rn.Valid {
+			return 0, false, nil
+		}
+		return rn.Int64, rowID > 0, nil
+	}
+	q := fmt.Sprintf("%s AND q.%s %s ? ORDER BY q.%s %s LIMIT 1",
+		baseQuery,
+		quoteIdent(e.orderedOffsetCol),
+		comparator,
+		quoteIdent(e.orderedOffsetCol),
+		direction,
+	)
+
+	var rn sql.NullInt64
+	if err := e.db.QueryRowContext(ctx, q, currentOffset).Scan(&rn); err != nil && err != sql.ErrNoRows {
+		return 0, false, err
+	}
+	if rn.Valid {
+		return rn.Int64, false, nil
+	}
+
+	qWrap := fmt.Sprintf("%s ORDER BY q.%s %s LIMIT 1", baseQuery, quoteIdent(e.orderedOffsetCol), direction)
+	if err := e.db.QueryRowContext(ctx, qWrap).Scan(&rn); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	if !rn.Valid || rn.Int64 == rowID {
+		return 0, false, nil
+	}
+	return rn.Int64, true, nil
 }
