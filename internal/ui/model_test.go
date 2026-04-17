@@ -1743,6 +1743,44 @@ func TestHandleReaderKeyFTogglesBetweenRawAndPrettyJSON(t *testing.T) {
 	}
 }
 
+func TestHandleReaderKeyYCopiesCurrentCellValue(t *testing.T) {
+	m := newTestModel()
+	m.width = 90
+	m.height = 12
+	m.tableCols = []string{"id", "payload"}
+	m.selectedColName = "payload"
+	m.tableData = [][]string{{"1", "line one\nline two"}}
+
+	updated, _ := m.handleTableKey("W")
+	m = updated.(Model)
+
+	var got string
+	prevCopy := copyToClipboard
+	copyToClipboard = func(text string) error {
+		got = text
+		return nil
+	}
+	t.Cleanup(func() {
+		copyToClipboard = prevCopy
+	})
+
+	updated, cmd := m.handleReaderKey("y")
+	if cmd != nil {
+		t.Fatalf("expected no command for y, got %v", cmd)
+	}
+	m = updated.(Model)
+
+	if got != "line one\nline two" {
+		t.Fatalf("expected clipboard text %q, got %q", "line one\nline two", got)
+	}
+	if m.statusMsg != `Copied cell value from "payload"` {
+		t.Fatalf("unexpected status message: %q", m.statusMsg)
+	}
+	if m.overlay != OverlayCellReader {
+		t.Fatalf("expected reader to remain open, got %v", m.overlay)
+	}
+}
+
 func TestReaderRenderCacheTracksModeAndValueChanges(t *testing.T) {
 	m := newTestModel()
 	m.width = 90

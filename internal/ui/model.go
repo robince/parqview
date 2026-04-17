@@ -2522,6 +2522,20 @@ func (m *Model) copyActiveCellValue() {
 	m.copyTextToClipboard(value, fmt.Sprintf("Copied cell value from %q", colName))
 }
 
+func (m *Model) copyReaderCellValue() {
+	colName := m.readerCol
+	if colName == "" {
+		m.copyActiveCellValue()
+		return
+	}
+	value, ok := m.readerCurrentValue()
+	if !ok {
+		m.statusMsg = "No data visible for active cell"
+		return
+	}
+	m.copyTextToClipboard(value, fmt.Sprintf("Copied cell value from %q", colName))
+}
+
 func (m Model) shouldOpenReaderForActiveColumn() bool {
 	colIdx := m.tableColCursor()
 	if colIdx < 0 {
@@ -3178,6 +3192,8 @@ func (m Model) handleReaderKey(key string) (tea.Model, tea.Cmd) {
 		m.moveReaderToBoundary(false)
 	case "G":
 		m.moveReaderToBoundary(true)
+	case "y":
+		m.copyReaderCellValue()
 	}
 	return m, nil
 }
@@ -3617,7 +3633,7 @@ func (m Model) viewBottomBar() string {
 	var hints string
 	switch {
 	case m.overlay == OverlayCellReader:
-		hints = "w/Esc:close  ↑↓/jk:scroll  ←→/hl:pan  W:wrap  F:format/raw  n/p:row  Space/C-f/C-b:page  C-d/u:half  g/G:top/bottom"
+		hints = "w/Esc:close  ↑↓/jk:scroll  ←→/hl:pan  y:copy  W:wrap  F:format/raw  n/p:row  Space/C-f/C-b:page  C-d/u:half  g/G:top/bottom"
 	case m.focus == FocusColumns:
 		hints = "Ctrl+O:open  jk/↑↓:move  Space/C-f/C-b:page  C-d/u:half  gG/HML:jump  m:missing-mode  /:search  v:sel-list  x:toggle  a/d/y:sel"
 	default:
@@ -3715,7 +3731,7 @@ func (m Model) viewCellReader(w, h int) string {
 		bodyLines = append(bodyLines, readerBodyStyle.Render(strings.Repeat(" ", w)))
 	}
 
-	footer := " Scroll: ↑↓/jk  Row: n/p  Wrap: W  F:format/raw  Page: Space/C-f/C-b  Close: Esc/w"
+	footer := " Scroll: ↑↓/jk  Row: n/p  y:copy  Wrap: W  F:format/raw  Page: Space/C-f/C-b  Close: Esc/w"
 	footer = clampLineWidth(readerFooterStyle.Render(footer), w)
 
 	return strings.Join(append([]string{header, topEdge}, append(bodyLines, bottomEdge, footer)...), "\n")
@@ -4312,6 +4328,7 @@ func (m Model) viewHelp() string {
 		{"↑/↓ or j/k", "Scroll content"},
 		{"←/→ or h/l", "Pan horizontally (wrap off)"},
 		{"n / p", "Next / previous row in same column"},
+		{"y", "Copy current cell value"},
 		{"F", "Cycle reader format"},
 		{"W", "Toggle wrap"},
 		{"Ctrl+F / Space", "Page down"},
